@@ -64,6 +64,8 @@ export class Api {
 export interface StartOptions {
   /** Use the pick-a-user dev login instead of OIDC. */
   devLogin?: boolean;
+  /** Extra environment for the server process. */
+  env?: Record<string, string>;
 }
 
 /**
@@ -97,6 +99,7 @@ export class TestServer {
       TUIT_TEST_CLOCK: "1",
       TUIT_SWEEP_INTERVAL_MS: "3600000",
     };
+    Object.assign(s.env, opts.env ?? {});
     if (opts.devLogin) {
       s.env.TUIT_DEV_LOGIN = "1";
     } else {

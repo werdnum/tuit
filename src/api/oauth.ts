@@ -43,7 +43,7 @@ export function oauthRoutes(app: App): Hono<AuthEnv> {
   r.get("/.well-known/oauth-protected-resource", (c) =>
     c.json({
       resource: `${base}/mcp`,
-      authorization_servers: [base],
+      authorization_servers: [config.mcpJwt?.issuer ?? base],
       bearer_methods_supported: ["header"],
       resource_name: "Household tasks",
     }),
@@ -51,6 +51,9 @@ export function oauthRoutes(app: App): Hono<AuthEnv> {
   r.get("/.well-known/oauth-protected-resource/mcp", (c) =>
     c.redirect("/.well-known/oauth-protected-resource"),
   );
+
+  // With an external issuer, connectors authenticate there; the built-in server stays off.
+  if (config.mcpJwt) return r;
 
   r.get("/.well-known/oauth-authorization-server", (c) =>
     c.json({

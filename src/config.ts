@@ -11,6 +11,12 @@ export interface Config {
   publicUrl: URL;
   users: HouseholdUser[];
   oidc: { issuer: string; clientId: string; clientSecret: string } | null;
+  /**
+   * Accept access tokens from an external authorization server (e.g. Keycloak) on /mcp, for
+   * remote MCP connectors. When set, the built-in OAuth server is switched off and the
+   * protected-resource metadata points connectors at this issuer instead.
+   */
+  mcpJwt: { issuer: string; audience: string; jwksUri: string | null } | null;
   /** Accept an email the provider doesn't mark verified. Off unless the IdP controls emails. */
   oidcTrustUnverifiedEmail: boolean;
   /** Pick-a-user login with no identity provider. Only honoured for a localhost public URL. */
@@ -69,6 +75,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     users,
     oidc,
     oidcTrustUnverifiedEmail: env.OIDC_TRUST_UNVERIFIED_EMAIL === "1",
+    mcpJwt: env.MCP_JWT_ISSUER
+      ? {
+          issuer: env.MCP_JWT_ISSUER,
+          audience: env.MCP_JWT_AUDIENCE ?? "tuit-mcp",
+          jwksUri: env.MCP_JWT_JWKS_URI ?? null,
+        }
+      : null,
     devLogin,
     testClock: env.TUIT_TEST_CLOCK === "1",
     sweepIntervalMs: Number(env.TUIT_SWEEP_INTERVAL_MS ?? 60_000),

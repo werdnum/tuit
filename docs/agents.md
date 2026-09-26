@@ -22,9 +22,12 @@ Revoking a token in Settings takes effect immediately.
 - **Claude Code / anything that can send a header (MCP):**
   `claude mcp add --transport http tuit https://tuit.example.com/mcp --header "Authorization: Bearer <token>"`
 - **claude.ai or ChatGPT (remote MCP connector):** add a custom connector with URL
-  `https://tuit.example.com/mcp`. The connector discovers the OAuth server, sends you to sign
-  in with your normal SSO login, and asks you to approve it and to choose the agent name it
-  appears under.
+  `https://tuit.example.com/mcp`. It discovers the authorization server and sends you to sign in
+  with your normal SSO login.
+  - **Built-in authorization server:** you approve the connector and choose the agent name it
+    appears under.
+  - **External identity provider** (`MCP_JWT_ISSUER`): enter the connector's pre-registered
+    client ID. The agent name comes from that client, for example `agent:claude-ai`.
 - **CLI (humans and coding agents):** `tuit login --url https://tuit.example.com --token <token>`,
   then `tuit`, `tuit add ...`, `tuit show <id>`. Coding agents should use an agent token; use a
   personal token for your own terminal.

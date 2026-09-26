@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Context, MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { createRemoteJWKSet, type JWTPayload, type JWTVerifyGetKey, jwtVerify } from "jose";
 import * as oidc from "openid-client";
 import type { Clock } from "../clock.ts";
 import type { Config } from "../config.ts";
@@ -143,9 +144,57 @@ export class Auth {
   }
 
   /** Resolve the caller from a bearer token or session cookie. Never from request content. */
+  private jwks: JWTVerifyGetKey | null = null;
+
+  private async keySet(): Promise<JWTVerifyGetKey> {
+    const cfg = this.config.mcpJwt;
+    if (!cfg) throw new Error("No external issuer configured");
+    if (!this.jwks) {
+      let uri = cfg.jwksUri;
+      if (!uri) {
+        const meta = await fetch(new URL(".well-known/openid-configuration", `${cfg.issuer.replace(/\/$/, "")}/`));
+        uri = ((await meta.json()) as { jwks_uri: string }).jwks_uri;
+      }
+      this.jwks = createRemoteJWKSet(new URL(uri));
+    }
+    return this.jwks;
+  }
+
+  /**
+   * An access token from the external issuer: the email claim picks the household member and
+   * the client it was issued to becomes the agent name ("tuit-claude-ai" -> "claude-ai").
+   */
+  private async jwtPrincipal(token: string): Promise<Principal | null> {
+    const cfg = this.config.mcpJwt;
+    if (!cfg) return null;
+    let payload: JWTPayload;
+    try {
+      ({ payload } = await jwtVerify(token, await this.keySet(), {
+        issuer: cfg.issuer,
+        audience: cfg.audience,
+      }));
+    } catch {
+      return null;
+    }
+    const email = typeof payload.email === "string" ? payload.email.toLowerCase() : null;
+    if (!email || (payload.email_verified !== true && !this.config.oidcTrustUnverifiedEmail)) {
+      return null;
+    }
+    const user = this.config.users.find((u) => u.email === email);
+    if (!user) return null;
+    const client = String(payload.azp ?? payload.client_id ?? "connector");
+    const agent = client.replace(/^tuit-/, "").replace(/[^a-zA-Z0-9_.-]/g, "-").slice(0, 64) || "connector";
+    return { userId: user.id, agent, canWrite: true, key: `jwt:${client}:${user.id}` };
+  }
+
   async principal(c: Context): Promise<{ principal: Principal; viaSession: boolean } | null> {
     const header = c.req.header("authorization");
     if (header?.toLowerCase().startsWith("bearer ")) {
+      const raw = header.slice(7).trim();
+      if (this.config.mcpJwt && raw.split(".").length === 3) {
+        const p = await this.jwtPrincipal(raw);
+        return p ? { principal: p, viaSession: false } : null;
+      }
       const r = await this.db.query(
         "UPDATE tokens SET last_used_at = now() WHERE token_hash = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) RETURNING *",
         [sha256(header.slice(7).trim())],
