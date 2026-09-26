@@ -152,7 +152,9 @@ export class Auth {
     if (!this.jwks) {
       let uri = cfg.jwksUri;
       if (!uri) {
-        const meta = await fetch(new URL(".well-known/openid-configuration", `${cfg.issuer.replace(/\/$/, "")}/`));
+        const meta = await fetch(
+          new URL(".well-known/openid-configuration", `${cfg.issuer.replace(/\/$/, "")}/`),
+        );
         uri = ((await meta.json()) as { jwks_uri: string }).jwks_uri;
       }
       this.jwks = createRemoteJWKSet(new URL(uri));
@@ -183,7 +185,11 @@ export class Auth {
     const user = this.config.users.find((u) => u.email === email);
     if (!user) return null;
     const client = String(payload.azp ?? payload.client_id ?? "connector");
-    const agent = client.replace(/^tuit-/, "").replace(/[^a-zA-Z0-9_.-]/g, "-").slice(0, 64) || "connector";
+    const agent =
+      client
+        .replace(/^tuit-/, "")
+        .replace(/[^a-zA-Z0-9_.-]/g, "-")
+        .slice(0, 64) || "connector";
     return { userId: user.id, agent, canWrite: true, key: `jwt:${client}:${user.id}` };
   }
 
