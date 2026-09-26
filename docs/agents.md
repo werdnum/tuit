@@ -92,3 +92,45 @@ notification never loses the task; it stays in Now or its queue.
 
 `GET /api/export` (CLI: `tuit export`) returns every task you can see, with its full history and
 queue configuration, as JSON.
+
+
+## Family Assistant inside the cluster
+
+Connect to `http://tuit.tuit.svc.cluster.local:8080/mcp` using one native agent token
+per person. Both tokens should have agent name `family-assistant`. The MCP server
+and `/api/me` accept these tokens directly even when external connector JWT support
+is enabled. No public ingress or identity-provider token exchange is involved.
+
+Mint each token using Settings → Tokens, or the operator command in the Tuit
+runtime environment:
+
+```bash
+npm run admin -- mint-token --user andrew --agent family-assistant --label family-assistant
+npm run admin -- mint-token --user teija --agent family-assistant --label family-assistant
+```
+
+Token values are secrets: capture them directly into secret storage, not chat or logs.
+In FA, map each canonical application user ID to its token environment variable
+and the corresponding Tuit user ID. FA selects the credential from the authenticated
+execution context; task assignees and model arguments do not select it.
+
+Before opening an MCP connection, call `GET /api/me` with the same bearer token.
+Its identity contract is:
+
+```json
+{"user": {"id": "andrew"}, "agent": "family-assistant", "can_write": true}
+```
+
+The response includes additional user and household fields. Verify these three
+fields against the intended mapping; refuse mismatched, personal, display, or
+read-only credentials when a writable agent connection was configured. Responses
+are marked `Cache-Control: no-store`. Revoked or missing tokens return HTTP 401.
+
+FA uses a separate authenticated MCP session for each person and prefixes exposed
+tool names with `tuit_` to avoid collisions with other task servers. Wire names
+remain unchanged: `tuit_create_task` calls Tuit’s `create_task`.
+
+Rotate by creating a replacement token for the same person and agent, updating the
+FA Secret, restarting FA, verifying the connection, and revoking the old token in
+Tuit Settings. Revoking one persons token does not affect the other persons token.
+This integration covers interactive tools; notifications and dispatch are separate.

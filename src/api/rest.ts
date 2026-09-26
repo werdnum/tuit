@@ -42,6 +42,8 @@ export function restApi(app: App): Hono<AuthEnv> {
   api.use("*", auth.middleware(true));
 
   api.get("/me", async (c) => {
+    // Integrations verify a bearer token's effective identity here before opening MCP.
+    c.header("Cache-Control", "no-store");
     const p = c.get("principal");
     const users = await tasks.users();
     return c.json({
