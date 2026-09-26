@@ -1,0 +1,11 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    include: ["tests/**/*.test.ts"],
+    globalSetup: ["tests/harness/global-setup.ts"],
+    pool: "forks",
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
+  },
+});
