@@ -82,37 +82,51 @@ export class TestServer {
   private clockAt: string | null = null;
 
   static async start(opts: StartOptions = {}): Promise<TestServer> {
-    const s = new TestServer();
     const adminUrl = process.env.TUIT_TEST_PG_URL;
     if (!adminUrl) throw new Error("TUIT_TEST_PG_URL not set (global setup should start postgres)");
-    s.dbUrl = await createDatabase(adminUrl);
+    const dbUrl = await createDatabase(adminUrl);
+    // freePort's port is only free when it's picked; under parallel tests another process can
+    // take it before the server binds. Pick again rather than fail the test.
+    for (let attempt = 1; ; attempt++) {
+      const s = new TestServer();
+      s.dbUrl = dbUrl;
+      try {
+        await s.boot(opts);
+        return s;
+      } catch (err) {
+        await s.stop();
+        if (attempt >= 3 || !s.output.includes("EADDRINUSE")) throw err;
+      }
+    }
+  }
+
+  private async boot(opts: StartOptions): Promise<void> {
     const port = await freePort();
-    s.url = `http://127.0.0.1:${port}`;
-    s.env = {
+    this.url = `http://127.0.0.1:${port}`;
+    this.env = {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
-      DATABASE_URL: s.dbUrl,
+      DATABASE_URL: this.dbUrl,
       PORT: String(port),
       HOST: "127.0.0.1",
-      PUBLIC_URL: s.url,
+      PUBLIC_URL: this.url,
       TUIT_USERS: USERS,
       TUIT_TEST_CLOCK: "1",
       TUIT_SWEEP_INTERVAL_MS: "3600000",
     };
-    Object.assign(s.env, opts.env ?? {});
+    Object.assign(this.env, opts.env ?? {});
     if (opts.devLogin) {
-      s.env.TUIT_DEV_LOGIN = "1";
+      this.env.TUIT_DEV_LOGIN = "1";
     } else {
-      const idp = await startOidcProvider(`${s.url}/auth/callback`);
-      s.stopIdp = idp.stop;
-      Object.assign(s.env, {
+      const idp = await startOidcProvider(`${this.url}/auth/callback`);
+      this.stopIdp = idp.stop;
+      Object.assign(this.env, {
         OIDC_ISSUER: idp.issuer,
         OIDC_CLIENT_ID: idp.clientId,
         OIDC_CLIENT_SECRET: idp.clientSecret,
       });
     }
-    await s.launch();
-    return s;
+    await this.launch();
   }
 
   private async launch(): Promise<void> {
