@@ -68,3 +68,25 @@ test("a task handed over from another phone arrives on the other person's Now", 
 
   await expect(nowRow(sam, "Choose paint for the hallway")).toBeVisible();
 });
+
+test("fields with the same name in open sheets keep their own text through a live update", async ({
+  page,
+  signIn,
+  alexApi,
+}) => {
+  await signIn(page, "alex");
+  await page.goto("/settings");
+  const renderedAt = await page.locator("body").getAttribute("data-live");
+  await page.locator("summary", { hasText: "New personal token" }).click();
+  await page.locator("summary", { hasText: "New display token" }).click();
+  const personal = page.locator("details", { hasText: "New personal token" }).getByLabel("Label");
+  const display = page.locator("details", { hasText: "New display token" }).getByLabel("Label");
+  await personal.fill("laptop CLI");
+  await display.fill("kitchen screen");
+
+  await alexApi.post("/api/tasks", { title: "Book the dentist" });
+
+  await expect(page.locator("body")).not.toHaveAttribute("data-live", renderedAt ?? "");
+  await expect(personal).toHaveValue("laptop CLI");
+  await expect(display).toHaveValue("kitchen screen");
+});

@@ -326,19 +326,25 @@ function keyed(root, sel, keyOf) {
   return out;
 }
 function liveSwap(doc) {
+  // Fields are keyed by form, name and position, so same-named fields in forms that share an
+  // action (several open token dialogs, say) keep their own values.
   const typed = new Map();
-  for (const el of document.querySelectorAll(TEXT)) {
-    if (el.value !== el.defaultValue) typed.set(fieldKey(el), el.value);
-  }
+  let focusKey = null;
   const active = document.activeElement;
-  const focusKey = active && active.matches && active.matches(TEXT) ? fieldKey(active) : null;
+  for (const [k, el] of keyed(document, TEXT, fieldKey)) {
+    if (el.value !== el.defaultValue) typed.set(k, el.value);
+    if (el === active) focusKey = k;
+  }
   const sel = focusKey ? [active.selectionStart, active.selectionEnd] : null;
+  const kept = [];
   const oldSheets = keyed(document, "details", sheetKey);
   for (const [k, d] of keyed(doc, "details", sheetKey)) {
     const old = oldSheets.get(k);
     if (!old || !doc.body.contains(d)) continue;
-    if (old.open) d.replaceWith(old);
-    else d.open = false;
+    if (old.open) {
+      d.replaceWith(old);
+      kept.push(old);
+    } else d.open = false;
   }
   const shown = document.querySelector("main > .flash");
   const main = doc.querySelector("main");
@@ -353,10 +359,11 @@ function liveSwap(doc) {
   const y = window.scrollY;
   document.title = doc.title;
   document.body.replaceWith(doc.body);
-  for (const el of document.querySelectorAll(TEXT)) {
-    const k = fieldKey(el);
-    if (typed.has(k)) el.value = typed.get(k);
-    if (k === focusKey) {
+  for (const [k, el] of keyed(document, TEXT, fieldKey)) {
+    // A kept sheet is the same element as before, values and all.
+    const same = kept.some((d) => d.contains(el));
+    if (!same && typed.has(k)) el.value = typed.get(k);
+    if (same ? el === active : k === focusKey) {
       el.focus({ preventScroll: true });
       if (sel && el.setSelectionRange) try { el.setSelectionRange(sel[0], sel[1]); } catch {}
     }
