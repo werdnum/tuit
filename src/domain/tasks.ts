@@ -5,6 +5,7 @@ import type { z } from "zod";
 import type { Clock } from "../clock.ts";
 import type { Database, Queryable } from "../db/db.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors.ts";
+import { notifyLive } from "./feed.ts";
 import {
   addDays,
   isDate,
@@ -213,6 +214,7 @@ export async function addEvent(
       p?.agent ?? null,
     ],
   );
+  await notifyLive(c);
 }
 
 function sameJson(a: unknown, b: unknown): boolean {
@@ -755,22 +757,30 @@ export class TaskService {
     const m = toMoment(until, now);
     const at = m ? momentStart(m) : null;
     if (at && at <= now) throw new ValidationError("Snooze time must be in the future");
-    await this.db.query(
-      `INSERT INTO attention (user_id, task_id, snoozed_until) VALUES ($1, $2, $3)
+    // One transaction, so the notification goes out exactly when the change commits.
+    await this.db.tx(async (c) => {
+      await c.query(
+        `INSERT INTO attention (user_id, task_id, snoozed_until) VALUES ($1, $2, $3)
        ON CONFLICT (user_id, task_id) DO UPDATE SET snoozed_until = EXCLUDED.snoozed_until`,
-      [userId, id, at],
-    );
+        [userId, id, at],
+      );
+      await notifyLive(c, userId);
+    });
     return at ? at.toISOString() : null;
   }
 
   async pin(p: Principal, id: string, pinned: boolean): Promise<void> {
     const userId = this.requireWriter(p);
     await this.get(p, id);
-    await this.db.query(
-      `INSERT INTO attention (user_id, task_id, pinned) VALUES ($1, $2, $3)
+    // One transaction, so the notification goes out exactly when the change commits.
+    await this.db.tx(async (c) => {
+      await c.query(
+        `INSERT INTO attention (user_id, task_id, pinned) VALUES ($1, $2, $3)
        ON CONFLICT (user_id, task_id) DO UPDATE SET pinned = EXCLUDED.pinned`,
-      [userId, id, pinned],
-    );
+        [userId, id, pinned],
+      );
+      await notifyLive(c, userId);
+    });
   }
 
   /**

@@ -71,3 +71,21 @@ export async function listChanges(
   const cursor = events.at(-1)?.seq ?? afterSeq;
   return { events, cursor: String(cursor) };
 }
+
+/** Postgres channel that wakes live web streams (see src/web/live.ts). */
+export const LIVE_CHANNEL = "tuit_live";
+/** Payload meaning "the change feed moved"; anything else is the id of one person. */
+export const FEED_MOVED = "*";
+
+/**
+ * Wake live streams when the transaction commits. The payload never carries task content: a
+ * woken stream re-reads the feed through the visibility filter to decide whether to tell its
+ * client anything. With a user id, only that person's streams wake, for changes to their own
+ * Now (snooze, pin, today's list) that don't go through the shared feed.
+ */
+export async function notifyLive(
+  c: { query(text: string, values?: unknown[]): Promise<unknown> },
+  userId: string = FEED_MOVED,
+): Promise<void> {
+  await c.query("SELECT pg_notify($1, $2)", [LIVE_CHANNEL, userId]);
+}

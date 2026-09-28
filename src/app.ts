@@ -11,6 +11,7 @@ import { DomainError } from "./domain/errors.ts";
 import { sweep } from "./domain/sweep.ts";
 import { TaskService } from "./domain/tasks.ts";
 import { mcpRoutes } from "./mcp/server.ts";
+import { LiveHub } from "./web/live.ts";
 import { webRoutes } from "./web/routes.ts";
 
 export interface App {
@@ -20,6 +21,7 @@ export interface App {
   tasks: TaskService;
   board: Board;
   auth: Auth;
+  live: LiveHub;
   sweepNow: () => Promise<void>;
 }
 
@@ -29,7 +31,8 @@ export function buildApp(config: Config, db: Database): { app: App; http: Hono<A
   const tasks = new TaskService(db, clock, sweepNow);
   const board = new Board(db, clock, tasks, sweepNow);
   const auth = new Auth(db, config, clock);
-  const app: App = { config, db, clock, tasks, board, auth, sweepNow };
+  const live = new LiveHub(db);
+  const app: App = { config, db, clock, tasks, board, auth, live, sweepNow };
 
   const http = new Hono<AuthEnv>();
   http.onError((err, c) => {

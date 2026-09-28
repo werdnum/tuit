@@ -81,7 +81,7 @@ absences. Unit tests exist only for rough date parsing, where the edge cases are
   filter and preferences only reorder;
 - an inspect view;
 - atomic checkpoint, idempotency keys, revision checks, and claims with side-effect-aware leases;
-- the change feed;
+- the change feed, and live updates in the web UI driven by it (no refreshing to see changes);
 - export;
 - MCP, OAuth connectors and the CLI.
 

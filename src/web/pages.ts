@@ -18,13 +18,15 @@ import {
   stateBadge,
   whenText,
 } from "./format.ts";
-import { backLink, type Flash, type Html, page, settingsLink } from "./layout.ts";
+import { backLink, type Flash, type Html, type LiveMark, page, settingsLink } from "./layout.ts";
 
 export interface Ctx {
   me: Principal;
   users: UserInfo[];
   now: Date;
   flash: Flash | null;
+  /** Where this page was rendered, for live updates: the feed cursor and the server time. */
+  live: LiveMark;
 }
 
 const back = (to: string) => html`<input type="hidden" name="back" value="${to}">`;
@@ -184,6 +186,7 @@ export function nowPage(ctx: Ctx, v: NowView): Html {
     title: "Now",
     tab: "now",
     flash: ctx.flash,
+    live: ctx.live,
     top: topTitle("Now", today),
     body: html`
       ${capture}
@@ -437,6 +440,7 @@ export function detailPage(
     title: t.title,
     tab: null,
     flash: ctx.flash,
+    live: ctx.live,
     top: html`${backLink("/", "Now")}<a class="iconlink small" href="${self}/inspect">Inspect</a>`,
     body: html`
       <h1>${t.title}</h1>
@@ -551,6 +555,7 @@ export function inspectPage(
     title: `Inspect: ${t.title}`,
     tab: null,
     flash: ctx.flash,
+    live: ctx.live,
     top: backLink(`/tasks/${t.id}`, "Task"),
     body: html`
       <h1>${t.title}</h1>
@@ -606,6 +611,7 @@ export function queuesPage(
     title: "Queues",
     tab: "queues",
     flash: ctx.flash,
+    live: ctx.live,
     top: topTitle("Queues"),
     body: html`
       <h2>Saved queues</h2>
@@ -677,6 +683,7 @@ export function queuePage(
     title: q.name,
     tab: "queues",
     flash: ctx.flash,
+    live: ctx.live,
     top: html`${backLink("/queues", "Queues")}`,
     body: html`
       <h1>${q.name}</h1>
@@ -750,6 +757,7 @@ export function viewPage(
     title: d.title,
     tab: "queues",
     flash: ctx.flash,
+    live: ctx.live,
     top: backLink("/queues", "Queues"),
     body: html`<h1>${d.title}</h1><p class="muted small">${d.blurb}</p>
       ${
@@ -770,6 +778,7 @@ export function searchPage(ctx: Ctx, q: string, results: Task[] | null): Html {
     title: q ? `Search: ${q}` : "Search",
     tab: "search",
     flash: ctx.flash,
+    live: ctx.live,
     top: topTitle("Search"),
     body: html`
       <form method="get" action="/search" class="capture" role="search">
@@ -810,6 +819,7 @@ export function settingsPage(
     title: "Settings",
     tab: null,
     flash: ctx.flash,
+    live: ctx.live,
     top: backLink("/", "Now"),
     body: html`
       <h1>Settings</h1>
@@ -892,6 +902,7 @@ export function errorPage(ctx: Ctx | null, title: string, message: string): Html
     title,
     tab: ctx ? "now" : null,
     top: ctx ? backLink("/", "Now") : html``,
+    live: ctx?.live,
     body: html`<div class="empty" data-error>
       <div class="big">${title}</div>
       <p>${message}</p>

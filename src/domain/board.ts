@@ -1,7 +1,7 @@
 import type { Clock } from "../clock.ts";
 import type { Database } from "../db/db.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors.ts";
-import { type FeedPage, listChanges } from "./feed.ts";
+import { type FeedPage, listChanges, notifyLive } from "./feed.ts";
 import { addEvent, newId, type TaskService, type UserInfo, visibleSql } from "./tasks.ts";
 import { local, localDate } from "./time.ts";
 import { type Principal, type Task, taskFromRow } from "./types.ts";
@@ -326,14 +326,19 @@ export class Board {
       .slice(0, count)
       .map((a) => a.task.id);
     // Appending only ids not already present keeps concurrent "show more" taps from duplicating.
-    await this.db.query(
-      `UPDATE day_plans
+    // One transaction, so the notification goes out exactly when the change commits.
+    const userId = p.userId;
+    await this.db.tx(async (c) => {
+      await c.query(
+        `UPDATE day_plans
        SET task_ids = task_ids || ARRAY(SELECT x FROM unnest($3::text[]) x WHERE NOT x = ANY(task_ids)),
            seen_ids = seen_ids || $3::text[],
            enough_until = NULL
        WHERE user_id = $1 AND local_date = $2`,
-      [p.userId, view.date, [...view.new_items.map((i) => i.task.id), ...next]],
-    );
+        [p.userId, view.date, [...view.new_items.map((i) => i.task.id), ...next]],
+      );
+      await notifyLive(c, userId);
+    });
   }
 
   async enoughForNow(p: Principal, on: boolean): Promise<string | null> {
@@ -348,10 +353,15 @@ export class Board {
         .set({ hour: DAY_STARTS_AT_HOUR, minute: 0, second: 0, millisecond: 0 })
         .toJSDate();
     }
-    await this.db.query(
-      "UPDATE day_plans SET enough_until = $3 WHERE user_id = $1 AND local_date = $2",
-      [p.userId, view.date, until],
-    );
+    // One transaction, so the notification goes out exactly when the change commits.
+    const userId = p.userId;
+    await this.db.tx(async (c) => {
+      await c.query(
+        "UPDATE day_plans SET enough_until = $3 WHERE user_id = $1 AND local_date = $2",
+        [p.userId, view.date, until],
+      );
+      await notifyLive(c, userId);
+    });
     return until ? until.toISOString() : null;
   }
 

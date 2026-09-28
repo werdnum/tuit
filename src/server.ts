@@ -8,6 +8,7 @@ const db = new Database(config.databaseUrl);
 await db.migrate();
 await seedUsers(db, config);
 const { app, http } = buildApp(config, db);
+app.live.start();
 
 const timer = setInterval(() => {
   app.sweepNow().catch((err) => console.error("sweep failed", err));
@@ -22,6 +23,7 @@ const server = serve({ fetch: http.fetch, hostname: config.host, port: config.po
 async function shutdown(): Promise<void> {
   clearInterval(timer);
   server.close();
+  await app.live.stop();
   await db.close();
   process.exit(0);
 }
