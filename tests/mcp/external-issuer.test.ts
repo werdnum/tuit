@@ -101,6 +101,7 @@ test("connectors are pointed at the external issuer and the built-in OAuth serve
   });
 
   expect(prm.authorization_servers).toEqual([issuer]);
+  expect(prm.scopes_supported).toEqual(["openid", "email"]);
   expect(register.status).toBe(404);
 });
 

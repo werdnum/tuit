@@ -44,6 +44,7 @@ export function oauthRoutes(app: App): Hono<AuthEnv> {
     c.json({
       resource: `${base}/mcp`,
       authorization_servers: [config.mcpJwt?.issuer ?? base],
+      scopes_supported: config.mcpJwt ? ["openid", "email"] : ["tasks", "tasks:read"],
       bearer_methods_supported: ["header"],
       resource_name: "Household tasks",
     }),
