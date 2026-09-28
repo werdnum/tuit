@@ -184,7 +184,9 @@ conflict), typed text, focus, scroll and the message on screen. A page produced 
 conflicting post is left alone until the next navigation. Hidden tabs catch up when shown.
 
 Streams send a heartbeat comment every 25s and end after 10 minutes; the browser reconnects with
-`Last-Event-ID`, which also re-checks the session. Accepted trade-off: when a task becomes private,
+`Last-Event-ID`, which also re-checks the session. Some pages change with time alone (a new
+day's list at 4am, "enough for now" running out), which no event announces, so a page older than
+10 minutes also refreshes when it's shown again or its stream reconnects. Accepted trade-off: when a task becomes private,
 other people's open pages aren't told (the feed hides that event from them), so it stays on screen
 until their next navigation or unrelated update.
 

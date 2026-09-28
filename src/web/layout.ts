@@ -277,6 +277,7 @@ document.addEventListener("submit", (e) => {
       const moved = res.redirected && res.url !== location.href;
       if (moved) history.pushState(null, "", res.url);
       swap(doc, submitted, f);
+      shownAt = Date.now();
       if (moved) window.scrollTo(0, 0);
       // A post answered with a page rather than a redirect (a conflict, a refusal) shows
       // something that exists only in this response; a live refresh must not replace it.
@@ -303,6 +304,10 @@ window.addEventListener("popstate", () => location.reload());
 // concurrent edit still shows as a conflict), typed text and focus survive, and so does the
 // scroll position and any message or welcome-back summary on screen.
 let liveQueued = false;
+// Time alone changes some pages (a new day's list at 4am, "enough for now" running out) with
+// no event to announce it, so a page this old is refreshed when shown again or on reconnect.
+const STALE_MS = 10 * 60 * 1000;
+let shownAt = Date.now();
 let livePending = false;
 let source = null;
 function sheetKey(d) {
@@ -364,7 +369,7 @@ let liveWanted = [];
 function alreadyShown(d) {
   const b = document.body;
   if (Number(b.getAttribute("data-live")) < d.cursor) return false;
-  return d.at === undefined || Number(b.getAttribute("data-live-at")) >= d.at;
+  return d.at === undefined || Number(b.getAttribute("data-live-at")) > d.at;
 }
 function liveRefresh(e) {
   if (e) { try { liveWanted.push(JSON.parse(e.data)); } catch {} }
@@ -384,6 +389,7 @@ function liveRefresh(e) {
       const doc = new DOMParser().parseFromString(await res.text(), "text/html");
       if (held || location.href !== url || !doc.body.hasAttribute("data-live")) return;
       liveSwap(doc);
+      shownAt = Date.now();
     } catch {}
   });
 }
@@ -394,12 +400,13 @@ function liveConnect() {
   const rendered = document.body.getAttribute("data-live-at") || "";
   source = new EventSource("/live?after=" + encodeURIComponent(at) + "&at=" + encodeURIComponent(rendered));
   source.addEventListener("change", liveRefresh);
+  source.addEventListener("ready", () => { if (Date.now() - shownAt > STALE_MS) liveRefresh(); });
 }
 document.addEventListener("DOMContentLoaded", liveConnect);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
   liveConnect();
-  if (livePending) { livePending = false; liveRefresh(); }
+  if (livePending || Date.now() - shownAt > STALE_MS) { livePending = false; liveRefresh(); }
 });
 document.addEventListener("click", (e) => {
   const b = e.target.closest && e.target.closest("[data-copy]");

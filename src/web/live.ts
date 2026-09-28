@@ -184,7 +184,7 @@ export function liveStream(c: Context, db: Database, hub: LiveHub, me: Principal
     // Check both on open: the feed catches up from the cursor, and a personal change made
     // between the page's render and this subscription is announced (the page compares times).
     const since = hub.personalSince(userId);
-    if (renderedAt !== null && since > renderedAt) {
+    if (renderedAt !== null && since >= renderedAt) {
       personalAt = Math.max(personalAt, since);
       personal = since > 0;
     }
