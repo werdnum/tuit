@@ -230,6 +230,10 @@ someone else holds the next action, because a commitment stays theirs.
 
 - A single household per deployment. The roster lives in config.
 - Snooze and pin are per person. Everything else is shared task state.
+- Live updates compare server clock readings for personal changes (snooze, pin, today's list),
+  which leave nothing in the feed. That's exact with one server process, which is how Tuit is
+  deployed. Across replicas with skewed clocks, a personal change could wait for the next
+  refresh; a database-backed marker would fix that if Tuit ever runs more than one.
 - Notifications are not sent by this service. The feed is the integration point; family-assistant
   (or any agent) owns delivery. Feed consumers acting for a person see only what that person sees.
 - No full-text index. Search is `ILIKE` over title, brief, next action and activity bodies, which
