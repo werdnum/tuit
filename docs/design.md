@@ -165,6 +165,29 @@ returns events the caller can see *under the task's current visibility*. Events 
 titles, so a task made private later disappears from everyone else's feed history too. Webhooks and
 subscriptions are deferred.
 
+### Live updates in the web UI
+
+Signed-in pages keep an `EventSource` open on `GET /live` (session cookie only). Each page carries
+the feed cursor it was rendered at, so nothing between render and connect is missed. Writers
+`pg_notify` on commit with no content: `*` when the feed moved, or a person's id for changes only
+to their own Now (snooze, pin, show more, enough for now). One `LISTEN` connection per process fans
+out to the open streams; each stream re-reads the feed *as its own principal* and sends `change`
+only if its visible cursor moved (or, for a personal wake, to that person alone). The page then
+re-fetches itself through the normal renderer and swaps it in, unless it already shows the change
+(its own cursor, or for a personal change its render time, is past it), which is how a tab skips
+refreshing for its own actions. Nothing task-shaped crosses the stream, so private filtering stays
+where it already is.
+
+The swap keeps what the person is in the middle of: an open sheet is kept as the node it was
+(fields, and the `expected_revision` it was opened at, so a concurrent edit still surfaces as a
+conflict), typed text, focus, scroll and the message on screen. A page produced by a refused or
+conflicting post is left alone until the next navigation. Hidden tabs catch up when shown.
+
+Streams send a heartbeat comment every 25s and end after 10 minutes; the browser reconnects with
+`Last-Event-ID`, which also re-checks the session. Accepted trade-off: when a task becomes private,
+other people's open pages aren't told (the feed hides that event from them), so it stays on screen
+until their next navigation or unrelated update.
+
 ## Attention: Now and queues
 
 A queue is typed, stored data. It has a filter (actor, states, contexts available, text, recurrence,

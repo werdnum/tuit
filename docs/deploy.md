@@ -43,6 +43,12 @@ These paths serve machine clients and do their own authentication:
 If an access proxy blocks these paths, remote connectors can't connect. Header-capable clients
 still can, for example with the proxy's service tokens.
 
+The web UI's live updates are a long-lived server-sent events response on `/live`. Proxies must
+not buffer it or cap the whole response's duration: Envoy's default 15s route timeout would cut it
+(set `requestTimeout: 0s`), and nginx needs no change because Tuit sends `X-Accel-Buffering: no`.
+Idle timeouts of 30s or more are fine; Tuit sends a heartbeat every 25s and ends each stream after
+10 minutes, and the browser reconnects.
+
 ### Remote connectors through your own identity provider (recommended when exposed publicly)
 
 Set `MCP_JWT_ISSUER` and Tuit accepts access tokens from that issuer on `/mcp`. Tuit's

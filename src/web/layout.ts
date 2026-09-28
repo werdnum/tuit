@@ -2,6 +2,12 @@ import { html, raw } from "hono/html";
 
 export type Html = ReturnType<typeof html>;
 
+/** A page's position in the change feed and the server time it was rendered (ms). */
+export interface LiveMark {
+  cursor: string;
+  at: number;
+}
+
 export type Tab = "now" | "queues" | "search" | null;
 
 export interface Flash {
@@ -205,6 +211,7 @@ nav.tabbar svg { width: 26px; height: 26px; }
 // while a request is in flight survives the swap.
 const JS = `
 let chain = Promise.resolve();
+let held = false;
 function formData(f, submitter) {
   const body = new URLSearchParams();
   for (const el of f.elements) {
@@ -223,13 +230,20 @@ function fieldKey(el) {
 const TEXT = "input[type=text], input:not([type]), input[type=search], textarea";
 // Carry over anything the person has typed and not yet sent: fields changed from what the page
 // loaded with, except values that were just submitted (the server's answer replaces those).
-function swap(doc, submitted) {
+// Sheets other than the one that was submitted keep their open/closed state, so one opened
+// while the request was in flight isn't snapped shut.
+function swap(doc, submitted, form) {
   const typed = new Map();
   let focused = null;
   for (const el of document.querySelectorAll(TEXT)) {
     const k = fieldKey(el);
     if (el.value !== el.defaultValue && submitted.get(k) !== el.value) typed.set(k, el.value);
     if (el === document.activeElement) focused = k;
+  }
+  const oldSheets = keyed(document, "details", sheetKey);
+  for (const [k, d] of keyed(doc, "details", sheetKey)) {
+    const old = oldSheets.get(k);
+    if (old && !old.contains(form)) d.open = old.open;
   }
   document.title = doc.title;
   document.body.replaceWith(doc.body);
@@ -262,8 +276,11 @@ document.addEventListener("submit", (e) => {
       const doc = new DOMParser().parseFromString(await res.text(), "text/html");
       const moved = res.redirected && res.url !== location.href;
       if (moved) history.pushState(null, "", res.url);
-      swap(doc, submitted);
+      swap(doc, submitted, f);
       if (moved) window.scrollTo(0, 0);
+      // A post answered with a page rather than a redirect (a conflict, a refusal) shows
+      // something that exists only in this response; a live refresh must not replace it.
+      held = !res.redirected;
     } catch {
       const fallback = document.createElement("form");
       fallback.method = "post";
@@ -279,6 +296,110 @@ document.addEventListener("submit", (e) => {
   });
 });
 window.addEventListener("popstate", () => location.reload());
+
+// Live updates: the server says when something this person can see has changed, and the page
+// re-fetches itself and swaps in quietly. Whatever the person is in the middle of stays as it
+// is: an open sheet keeps its own fields (including the revision it was opened at, so a
+// concurrent edit still shows as a conflict), typed text and focus survive, and so does the
+// scroll position and any message or welcome-back summary on screen.
+let liveQueued = false;
+let livePending = false;
+let source = null;
+function sheetKey(d) {
+  const s = d.querySelector("summary");
+  const f = d.querySelector("form");
+  return (s ? s.textContent.trim() : "") + "|" + (f ? f.getAttribute("action") || "" : "");
+}
+function keyed(root, sel, keyOf) {
+  const out = new Map();
+  for (const el of root.querySelectorAll(sel)) {
+    const base = keyOf(el);
+    let i = 0;
+    while (out.has(base + "#" + i)) i++;
+    out.set(base + "#" + i, el);
+  }
+  return out;
+}
+function liveSwap(doc) {
+  const typed = new Map();
+  for (const el of document.querySelectorAll(TEXT)) {
+    if (el.value !== el.defaultValue) typed.set(fieldKey(el), el.value);
+  }
+  const active = document.activeElement;
+  const focusKey = active && active.matches && active.matches(TEXT) ? fieldKey(active) : null;
+  const sel = focusKey ? [active.selectionStart, active.selectionEnd] : null;
+  const oldSheets = keyed(document, "details", sheetKey);
+  for (const [k, d] of keyed(doc, "details", sheetKey)) {
+    const old = oldSheets.get(k);
+    if (!old || !doc.body.contains(d)) continue;
+    if (old.open) d.replaceWith(old);
+    else d.open = false;
+  }
+  const shown = document.querySelector("main > .flash");
+  const main = doc.querySelector("main");
+  if (shown && main && !main.querySelector(".flash")) main.prepend(shown);
+  // The welcome-back summary is shown once per return; a live refresh mustn't swallow it.
+  const away = document.querySelector("[data-away]");
+  if (away && main && !doc.querySelector("[data-away]")) {
+    const capture = main.querySelector("form[data-capture]");
+    if (capture) capture.after(away);
+    else main.prepend(away);
+  }
+  const y = window.scrollY;
+  document.title = doc.title;
+  document.body.replaceWith(doc.body);
+  for (const el of document.querySelectorAll(TEXT)) {
+    const k = fieldKey(el);
+    if (typed.has(k)) el.value = typed.get(k);
+    if (k === focusKey) {
+      el.focus({ preventScroll: true });
+      if (sel && el.setSelectionRange) try { el.setSelectionRange(sel[0], sel[1]); } catch {}
+    }
+  }
+  window.scrollTo(0, y);
+}
+// Skip changes this page already shows: usually this tab's own action, whose response has
+// just been swapped in. Refreshing again would only move things under the person's finger.
+let liveWanted = [];
+function alreadyShown(d) {
+  const b = document.body;
+  if (d.at !== undefined) return Number(b.getAttribute("data-live-at")) >= d.at;
+  return Number(b.getAttribute("data-live")) >= d.cursor;
+}
+function liveRefresh(e) {
+  if (e) { try { liveWanted.push(JSON.parse(e.data)); } catch {} }
+  if (document.hidden) { livePending = true; return; }
+  if (liveQueued) return;
+  liveQueued = true;
+  chain = chain.then(async () => {
+    liveQueued = false;
+    const wanted = liveWanted;
+    liveWanted = [];
+    if (held || !document.body.hasAttribute("data-live")) return;
+    if (wanted.length && wanted.every(alreadyShown)) return;
+    try {
+      const url = location.href;
+      const res = await fetch(url, { credentials: "same-origin" });
+      if (res.redirected || (res.status !== 200 && res.status !== 404)) return;
+      const doc = new DOMParser().parseFromString(await res.text(), "text/html");
+      if (held || location.href !== url || !doc.body.hasAttribute("data-live")) return;
+      liveSwap(doc);
+    } catch {}
+  });
+}
+function liveConnect() {
+  const at = document.body && document.body.getAttribute("data-live");
+  if (at === null || !window.EventSource) return;
+  if (source && source.readyState !== EventSource.CLOSED) return;
+  source = new EventSource("/live?after=" + encodeURIComponent(at));
+  source.addEventListener("change", liveRefresh);
+}
+document.addEventListener("DOMContentLoaded", liveConnect);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  liveConnect();
+  if (livePending) { livePending = false; liveRefresh(); }
+});
 document.addEventListener("click", (e) => {
   const b = e.target.closest && e.target.closest("[data-copy]");
   if (!b) return;
@@ -332,6 +453,8 @@ export function page(opts: {
   top: Html;
   body: Html;
   flash?: Flash | null;
+  /** For a signed-in page: where it was rendered. Turns on live updates. */
+  live?: LiveMark;
 }): Html {
   return html`<!doctype html>
 <html lang="en">
@@ -352,7 +475,7 @@ export function page(opts: {
 <style>${raw(CSS)}</style>
 <script>${raw(JS)}</script>
 </head>
-<body>
+<body${opts.live ? html` data-live="${opts.live.cursor}" data-live-at="${opts.live.at}"` : ""}>
 <header class="topbar">${opts.top}</header>
 <main>
 ${flashBox(opts.flash ?? null)}

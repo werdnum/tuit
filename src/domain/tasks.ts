@@ -5,6 +5,7 @@ import type { z } from "zod";
 import type { Clock } from "../clock.ts";
 import type { Database, Queryable } from "../db/db.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors.ts";
+import { notifyLive } from "./feed.ts";
 import {
   addDays,
   isDate,
@@ -213,6 +214,7 @@ export async function addEvent(
       p?.agent ?? null,
     ],
   );
+  await notifyLive(c);
 }
 
 function sameJson(a: unknown, b: unknown): boolean {
@@ -760,6 +762,7 @@ export class TaskService {
        ON CONFLICT (user_id, task_id) DO UPDATE SET snoozed_until = EXCLUDED.snoozed_until`,
       [userId, id, at],
     );
+    await notifyLive(this.db, userId);
     return at ? at.toISOString() : null;
   }
 
@@ -771,6 +774,7 @@ export class TaskService {
        ON CONFLICT (user_id, task_id) DO UPDATE SET pinned = EXCLUDED.pinned`,
       [userId, id, pinned],
     );
+    await notifyLive(this.db, userId);
   }
 
   /**

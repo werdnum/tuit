@@ -22,6 +22,7 @@ const server = serve({ fetch: http.fetch, hostname: config.host, port: config.po
 async function shutdown(): Promise<void> {
   clearInterval(timer);
   server.close();
+  await app.live.stop();
   await db.close();
   process.exit(0);
 }

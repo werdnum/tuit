@@ -10,6 +10,7 @@ import type { Principal, Task } from "../domain/types.ts";
 import type { Explanation } from "../domain/views.ts";
 import { actorText, momentEditText, whenText } from "./format.ts";
 import { type Flash, MANIFEST } from "./layout.ts";
+import { liveStream } from "./live.ts";
 import {
   type Ctx,
   DEFAULT_QUEUE_CONFIG,
@@ -91,7 +92,14 @@ export function webRoutes(app: App): Hono<AuthEnv> {
   const r = new Hono<AuthEnv>();
 
   async function ctxFor(c: WebContext, me: Principal): Promise<Ctx> {
-    return { me, users: await tasks.users(), now: app.clock.now(), flash: takeFlash(c) };
+    return {
+      me,
+      users: await tasks.users(),
+      now: app.clock.now(),
+      flash: takeFlash(c),
+      // After the sweep (board.changes runs it), so time-driven events it writes are counted.
+      live: { cursor: (await board.changes(me, "latest")).cursor, at: Date.now() },
+    };
   }
 
   /** Web pages are for signed-in humans: a session cookie, never a bearer token. */
@@ -186,6 +194,14 @@ export function webRoutes(app: App): Hono<AuthEnv> {
     if (!auth.sameOrigin(c)) return c.text("Cross-origin request refused", 403);
     await auth.endSession(c);
     return c.redirect("/login", 303);
+  });
+
+  // ---- Live updates
+
+  r.get("/live", async (c) => {
+    const me = await sessionPrincipal(c);
+    if (!me) return c.text("Sign in", 401);
+    return liveStream(c, app.db, app.live, me);
   });
 
   // ---- Static assets

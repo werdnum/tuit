@@ -81,13 +81,15 @@ test("a brief saved on two devices at once shows the conflict without losing the
   const other = await phone("alex");
   await page.goto(`/tasks/${task.id}`);
   await other.goto(`/tasks/${task.id}`);
+  await other.getByText("Edit brief").click();
+  await other.getByRole("textbox", { name: "Brief" }).fill("Ring Poolsafe back on Tuesday");
   await page.getByText("Edit brief").click();
   await page.getByRole("textbox", { name: "Brief" }).fill("Quote from Poolsafe: $450");
   await page.getByRole("button", { name: "Save brief" }).click();
   await expect(page.locator("[data-brief]")).toHaveText("Quote from Poolsafe: $450");
+  // The other phone's page updates live, but the editor it has open stays as it was.
+  await expect(other.locator("[data-brief]")).toHaveText("Quote from Poolsafe: $450");
 
-  await other.getByText("Edit brief").click();
-  await other.getByRole("textbox", { name: "Brief" }).fill("Ring Poolsafe back on Tuesday");
   await other.getByRole("button", { name: "Save brief" }).click();
 
   await expect(other.locator("[data-conflict]")).toBeVisible();

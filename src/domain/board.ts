@@ -1,7 +1,7 @@
 import type { Clock } from "../clock.ts";
 import type { Database } from "../db/db.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors.ts";
-import { type FeedPage, listChanges } from "./feed.ts";
+import { type FeedPage, listChanges, notifyLive } from "./feed.ts";
 import { addEvent, newId, type TaskService, type UserInfo, visibleSql } from "./tasks.ts";
 import { local, localDate } from "./time.ts";
 import { type Principal, type Task, taskFromRow } from "./types.ts";
@@ -334,6 +334,7 @@ export class Board {
        WHERE user_id = $1 AND local_date = $2`,
       [p.userId, view.date, [...view.new_items.map((i) => i.task.id), ...next]],
     );
+    await notifyLive(this.db, p.userId);
   }
 
   async enoughForNow(p: Principal, on: boolean): Promise<string | null> {
@@ -352,6 +353,7 @@ export class Board {
       "UPDATE day_plans SET enough_until = $3 WHERE user_id = $1 AND local_date = $2",
       [p.userId, view.date, until],
     );
+    await notifyLive(this.db, p.userId);
     return until ? until.toISOString() : null;
   }
 
