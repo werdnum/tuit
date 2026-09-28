@@ -10,11 +10,26 @@ pg.types.setTypeParser(20, (v: string) => Number(v));
 
 export type Queryable = Pick<pg.PoolClient, "query">;
 
+/**
+ * Refuse a connection to a read-only server (a standby, or a primary mid-demotion).
+ * During a failover the database Service can keep pointing at the old primary after it
+ * turns read-only; without this the pool fills up with connections there and every write
+ * fails until restart. node-postgres ignores libpq's `target_session_attrs`, so check here.
+ */
+async function rejectReadOnly(client: pg.ClientBase): Promise<void> {
+  const { rows } = await client.query<{ transaction_read_only: string }>(
+    "SHOW transaction_read_only",
+  );
+  if (rows[0]?.transaction_read_only !== "off") {
+    throw new Error("connected to a read-only PostgreSQL server; refusing the connection");
+  }
+}
+
 export class Database {
   readonly pool: pg.Pool;
 
   constructor(connectionString: string) {
-    this.pool = new pg.Pool({ connectionString, max: 10 });
+    this.pool = new pg.Pool({ connectionString, max: 10, onConnect: rejectReadOnly });
   }
 
   query<R extends pg.QueryResultRow = pg.QueryResultRow>(
