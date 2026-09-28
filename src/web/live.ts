@@ -17,7 +17,8 @@ const RELISTEN_MS = 5_000;
 type WakeKind = "feed" | "personal";
 interface Subscriber {
   userId: string;
-  wake: (kind: WakeKind) => void;
+  /** `at` is when a personal change was announced (ms), for the page to compare with. */
+  wake: (kind: WakeKind, at: number) => void;
 }
 
 /**
@@ -32,12 +33,31 @@ export class LiveHub {
   private starting = false;
   private retry: NodeJS.Timeout | null = null;
   private stopped = false;
+  /** When each person's last personal change was announced. */
+  private readonly lastPersonal = new Map<string, number>();
+  /**
+   * When listening last (re)started. Personal notifications sent before then may have been
+   * missed, and they leave nothing in the feed to catch up from.
+   */
+  private listeningSince = 0;
 
   constructor(db: Database) {
     this.db = db;
   }
 
-  subscribe(userId: string, wake: (kind: WakeKind) => void): () => void {
+  start(): void {
+    this.ensureListening();
+  }
+
+  /**
+   * The latest moment this person's own Now may have changed without a feed event: a page
+   * rendered before it may be stale. Zero if nothing is known yet.
+   */
+  personalSince(userId: string): number {
+    return Math.max(this.lastPersonal.get(userId) ?? 0, this.listeningSince);
+  }
+
+  subscribe(userId: string, wake: (kind: WakeKind, at: number) => void): () => void {
     const sub = { userId, wake };
     this.subscribers.add(sub);
     this.ensureListening();
@@ -86,7 +106,10 @@ export class LiveHub {
       return;
     }
     this.client = client;
-    // Anything committed while nobody was listening: every stream re-checks.
+    // Anything committed while nobody was listening: every stream re-checks, and personal
+    // changes (which the feed can't replay) count as possibly missed.
+    this.listeningSince = Date.now();
+    for (const s of this.subscribers) s.wake("personal", this.listeningSince);
     this.dispatch(FEED_MOVED);
   }
 
@@ -105,9 +128,11 @@ export class LiveHub {
   }
 
   private dispatch(payload: string): void {
+    const now = Date.now();
+    if (payload !== FEED_MOVED) this.lastPersonal.set(payload, now);
     for (const s of this.subscribers) {
-      if (payload === FEED_MOVED) s.wake("feed");
-      else if (s.userId === payload) s.wake("personal");
+      if (payload === FEED_MOVED) s.wake("feed", now);
+      else if (s.userId === payload) s.wake("personal", now);
     }
   }
 }
@@ -136,6 +161,8 @@ export function liveStream(c: Context, db: Database, hub: LiveHub, me: Principal
   const userId = me.userId;
   if (!userId) return c.text("Not found", 404);
   const resumeFrom = parseCursor(c.req.header("last-event-id") ?? c.req.query("after"));
+  // When the page was rendered (server ms): personal changes before then are already on it.
+  const renderedAt = parseCursor(c.req.query("at"));
   const latest = async () => Number((await listChanges(db, me, "latest")).cursor);
 
   // Stop proxies (nginx-style ones honour X-Accel-Buffering) and transforms from holding events.
@@ -146,14 +173,21 @@ export function liveStream(c: Context, db: Database, hub: LiveHub, me: Principal
     let personal = false;
     let personalAt = 0;
     let woken: (() => void) | null = null;
-    const unsubscribe = hub.subscribe(userId, (kind) => {
+    const unsubscribe = hub.subscribe(userId, (kind, at) => {
       if (kind === "feed") feedMoved = true;
       else {
         personal = true;
-        personalAt = Date.now();
+        personalAt = Math.max(personalAt, at);
       }
       woken?.();
     });
+    // Check both on open: the feed catches up from the cursor, and a personal change made
+    // between the page's render and this subscription is announced (the page compares times).
+    const since = hub.personalSince(userId);
+    if (renderedAt !== null && since > renderedAt) {
+      personalAt = Math.max(personalAt, since);
+      personal = since > 0;
+    }
     stream.onAbort(() => woken?.());
     const sleep = (ms: number) =>
       new Promise<boolean>((resolve) => {

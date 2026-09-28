@@ -8,6 +8,7 @@ const db = new Database(config.databaseUrl);
 await db.migrate();
 await seedUsers(db, config);
 const { app, http } = buildApp(config, db);
+app.live.start();
 
 const timer = setInterval(() => {
   app.sweepNow().catch((err) => console.error("sweep failed", err));

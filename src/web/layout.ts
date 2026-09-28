@@ -363,8 +363,8 @@ function liveSwap(doc) {
 let liveWanted = [];
 function alreadyShown(d) {
   const b = document.body;
-  if (d.at !== undefined) return Number(b.getAttribute("data-live-at")) >= d.at;
-  return Number(b.getAttribute("data-live")) >= d.cursor;
+  if (Number(b.getAttribute("data-live")) < d.cursor) return false;
+  return d.at === undefined || Number(b.getAttribute("data-live-at")) >= d.at;
 }
 function liveRefresh(e) {
   if (e) { try { liveWanted.push(JSON.parse(e.data)); } catch {} }
@@ -391,7 +391,8 @@ function liveConnect() {
   const at = document.body && document.body.getAttribute("data-live");
   if (at === null || !window.EventSource) return;
   if (source && source.readyState !== EventSource.CLOSED) return;
-  source = new EventSource("/live?after=" + encodeURIComponent(at));
+  const rendered = document.body.getAttribute("data-live-at") || "";
+  source = new EventSource("/live?after=" + encodeURIComponent(at) + "&at=" + encodeURIComponent(rendered));
   source.addEventListener("change", liveRefresh);
 }
 document.addEventListener("DOMContentLoaded", liveConnect);

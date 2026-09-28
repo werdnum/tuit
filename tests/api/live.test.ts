@@ -57,9 +57,12 @@ let server: TestServer;
 let alex: Api;
 const streams: Stream[] = [];
 
-async function open(user: string, after?: string): Promise<Stream> {
+async function open(user: string, after?: string, renderedAt?: number): Promise<Stream> {
   const session = await signIn(server, user);
-  const res = await session.fetch(after ? `/live?after=${after}` : "/live");
+  const q = new URLSearchParams();
+  if (after) q.set("after", after);
+  if (renderedAt !== undefined) q.set("at", String(renderedAt));
+  const res = await session.fetch(`/live?${q}`);
   expect(res.status).toBe(200);
   const s = new Stream(res);
   streams.push(s);
@@ -127,6 +130,24 @@ test("snoozing on one device updates that person's other devices, not anyone els
   const ev = await sam.next();
   expect(ev.event).toBe("change");
   expect(ev.id).toBe(await lastSeq(alex));
+});
+
+test("a personal change between a page's render and its stream opening still reaches it", async () => {
+  const { task } = await alex.post("/api/tasks", { title: "Descale the kettle" });
+  const cursor = await lastSeq(alex);
+  const renderedBefore = Date.now() - 1;
+  await alex.post(`/api/tasks/${task.id}/pin`, { pinned: true });
+  const renderedAfter = Date.now() + 1;
+
+  const stale = await open("alex", cursor, renderedBefore);
+  const fresh = await open("alex", cursor, renderedAfter);
+  await alex.post("/api/tasks", { title: "Oil the gate" });
+
+  const ev = await stale.next();
+  expect(ev.event).toBe("change");
+  expect(JSON.parse(ev.data).at).toBeGreaterThan(renderedBefore);
+  // The page rendered after the pin hears nothing until the next real change.
+  expect(JSON.parse((await fresh.next()).data)).toEqual({ cursor: Number(await lastSeq(alex)) });
 });
 
 test("a page that reconnects catches up on what it missed", async () => {
