@@ -305,7 +305,7 @@ window.addEventListener("popstate", () => location.reload());
 // scroll position and any message or welcome-back summary on screen.
 let liveQueued = false;
 // Time alone changes some pages (a new day's list at 4am, "enough for now" running out) with
-// no event to announce it, so a page this old is refreshed when shown again or on reconnect.
+// no event to announce it, so a page this old is refreshed while shown, or when shown again.
 const STALE_MS = 10 * 60 * 1000;
 let shownAt = Date.now();
 let livePending = false;
@@ -407,9 +407,11 @@ function liveConnect() {
   const rendered = document.body.getAttribute("data-live-at") || "";
   source = new EventSource("/live?after=" + encodeURIComponent(at) + "&at=" + encodeURIComponent(rendered));
   source.addEventListener("change", liveRefresh);
-  source.addEventListener("ready", () => { if (Date.now() - shownAt > STALE_MS) liveRefresh(); });
 }
 document.addEventListener("DOMContentLoaded", liveConnect);
+setInterval(() => {
+  if (!document.hidden && Date.now() - shownAt > STALE_MS) liveRefresh();
+}, 60 * 1000);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
   liveConnect();
