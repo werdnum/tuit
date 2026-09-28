@@ -77,9 +77,11 @@ export class LiveHub {
   private ensureListening(): void {
     if (this.client || this.starting || this.retry || this.stopped) return;
     this.starting = true;
-    this.listen().finally(() => {
-      this.starting = false;
-    });
+    this.listen()
+      .catch((err) => this.lost(null, err))
+      .finally(() => {
+        this.starting = false;
+      });
   }
 
   private async listen(): Promise<void> {
@@ -137,8 +139,15 @@ export class LiveHub {
   }
 }
 
-/** Give a LISTEN connection back to the pool for disposal, exactly once. */
+const dropped = new WeakSet<pg.PoolClient>();
+
+/**
+ * Give a LISTEN connection back to the pool for disposal. Idempotent: a dropped connection can
+ * report its failure both as an 'error' event and as a rejected query.
+ */
 function drop(client: pg.PoolClient): void {
+  if (dropped.has(client)) return;
+  dropped.add(client);
   client.removeAllListeners("end");
   client.removeAllListeners("error");
   client.removeAllListeners("notification");
