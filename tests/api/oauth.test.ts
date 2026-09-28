@@ -70,6 +70,7 @@ test("the MCP resource advertises its authorization server", async () => {
   const as = await (await fetch(`${server.url}/.well-known/oauth-authorization-server`)).json();
 
   expect(prm).toMatchObject({ resource: `${server.url}/mcp`, authorization_servers: [server.url] });
+  expect(prm.scopes_supported).toEqual(["tasks", "tasks:read"]);
   expect(as.code_challenge_methods_supported).toEqual(["S256"]);
 });
 
