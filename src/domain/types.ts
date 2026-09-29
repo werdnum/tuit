@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ValidationError } from "./errors.ts";
 import type { Moment } from "./time.ts";
 import { momentFromColumns } from "./time.ts";
 
@@ -75,6 +76,8 @@ export interface Task {
   target_rule: OffsetRule | null;
   deadline: Moment | null;
   expires: Moment | null;
+  /** Which part of life it belongs to ("home", "tuit"). Flat, one per task, optional. */
+  area: string | null;
   requires: string[];
   prefers: string[];
   recurrence: Recurrence | null;
@@ -144,6 +147,7 @@ export function taskFromRow(r: any): Task {
     target_rule: r.target_rule,
     deadline: momentFromColumns(r.deadline_date, r.deadline_at),
     expires: momentFromColumns(r.expires_date, r.expires_at),
+    area: r.area,
     requires: r.requires,
     prefers: r.prefers,
     recurrence: r.recurrence,
@@ -220,6 +224,40 @@ const COLLAPSE_HOW =
 export const BRIEF_DESCRIPTION = `Short current situation, rendered as Markdown (GitHub-flavoured; no images). Keep it to a few lines a person can take in at a glance on a phone: where things stand, constraints, key links. Put long detail (research, dossiers, pasted email) in a note, or collapse it at the end of the brief with ${COLLAPSE_HOW}.`;
 export const NOTE_DESCRIPTION = `Rendered as Markdown (GitHub-flavoured; no images). Lead with the finding in a line or two; collapse long supporting material with ${COLLAPSE_HOW}.`;
 
+const AREA_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+
+/** An area name: one word, case-insensitive, a leading "#" allowed; "" clears it. */
+export const AreaInput = z.string().max(41);
+
+/** The stored form of an area, or null to clear it. */
+export function normalizeArea(v: string | null): string | null {
+  const a = v?.trim().replace(/^#/, "").toLowerCase() || null;
+  if (a === "none") throw new ValidationError('"none" means no area, so it can\'t be one');
+  if (a !== null && !AREA_PATTERN.test(a)) {
+    throw new ValidationError(
+      `"${v}" isn't an area: use one word of letters, digits, - or _ (e.g. home, tuit, cluster)`,
+    );
+  }
+  return a;
+}
+
+/**
+ * A capture like "#tuit fix the feed" or "fix the feed #tuit" names its area. Only a single
+ * leading or trailing tag counts, so "#123" inside a title stays text.
+ */
+export function splitAreaTag(title: string): { title: string; area: string | null } {
+  const t = title.trim();
+  const lead = /^#([a-z0-9][a-z0-9_-]{0,39})\s+(\S.*)$/i.exec(t);
+  if (lead?.[1] && lead[2] && !/^(\d+|none)$/i.test(lead[1])) {
+    return { title: lead[2], area: lead[1].toLowerCase() };
+  }
+  const trail = /^(.*\S)\s+#([a-z0-9][a-z0-9_-]{0,39})$/i.exec(t);
+  if (trail?.[1] && trail[2] && !/^(\d+|none)$/i.test(trail[2])) {
+    return { title: trail[1], area: trail[2].toLowerCase() };
+  }
+  return { title, area: null };
+}
+
 export const TaskFieldsInput = z
   .object({
     title: z.string().min(1).max(500),
@@ -234,6 +272,7 @@ export const TaskFieldsInput = z
     target_rule: nullable(OffsetRuleInput),
     deadline: nullable(MomentInput),
     expires: nullable(MomentInput),
+    area: nullable(AreaInput),
     requires: z.array(z.string().min(1).max(50)).max(20),
     prefers: z.array(z.string().min(1).max(50)).max(20),
     recurrence: nullable(RecurrenceInput),

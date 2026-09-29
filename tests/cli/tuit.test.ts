@@ -30,6 +30,18 @@ test("a title-only capture shows up in Now", async () => {
   expect(now).toContain("ring the vet about Milo's teeth");
 });
 
+test("now --area lists the area's tasks without claiming there's nothing", async () => {
+  for (let i = 1; i <= 5; i++) await run("add", `chore ${i}`);
+  await run("now");
+  await run("add", "fix the feed cursor", "--area", "tuit");
+  await run("now");
+
+  const tuitNow = await run("now", "--area", "tuit");
+
+  expect(tuitNow).toContain("fix the feed cursor");
+  expect(tuitNow).not.toContain("Nothing");
+});
+
 test("a note appears in the task's history", async () => {
   const id = await addId("Find a pool fence repairer");
 

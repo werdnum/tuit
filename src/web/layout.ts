@@ -152,6 +152,11 @@ button:disabled { opacity: 0.5; }
 .badge.waiting, .badge.urgent { background: var(--urgent-soft); color: var(--urgent); }
 .badge.agent { background: var(--agent-soft); color: var(--agent); text-transform: none; letter-spacing: 0; }
 .badge.private { background: var(--agent-soft); color: var(--agent); }
+.badge.area { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.chips { display: flex; gap: 8px; overflow-x: auto; margin: 10px 0 2px; padding-bottom: 2px; scrollbar-width: none; }
+.chips a { flex: none; display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 18px;
+  background: var(--card); color: var(--text); text-decoration: none; font-size: 15px; }
+.chips a[aria-current=true] { background: var(--accent); color: #fff; }
 .next { font-size: 17px; }
 .status { color: var(--muted); font-size: 15px; }
 .status.urgent { color: var(--urgent); font-weight: 600; }

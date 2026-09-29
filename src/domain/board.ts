@@ -8,11 +8,13 @@ import { type Principal, type Task, taskFromRow } from "./types.ts";
 import {
   type Assessment,
   type Attention,
+  areaFilter,
   assess,
   compareBy,
   type Explanation,
   evaluateQueue,
   explainTask,
+  inAreas,
   parseQueueConfig,
   type QueueConfig,
   type QueueItem,
@@ -46,8 +48,14 @@ export interface Queue {
 
 export interface NowView {
   date: string;
+  /** The area this view is narrowed to, if any. */
+  area: string | null;
+  /** Areas with active tasks the person can see, for filtering. */
+  areas: string[];
   plan: { item: QueueItem; done: boolean }[];
   new_items: QueueItem[];
+  /** When narrowed to an area: its other eligible tasks, beyond today's plan. */
+  also: QueueItem[];
   more_count: number;
   urgent: QueueItem[];
   enough_until: string | null;
@@ -152,34 +160,39 @@ export class Board {
    * Now for this person. While "enough for now" is on, only urgent items come back; the rest is
    * counted in `resting_count` so a client can offer "show anyway".
    */
-  async now(p: Principal): Promise<NowView> {
-    const view = await this.fullNow(p);
+  async now(p: Principal, opts: { area?: string | null } = {}): Promise<NowView> {
+    const view = await this.fullNow(p, opts.area ? areaFilter(opts.area) : null);
     if (!view.enough_until) return view;
-    const hidden = [...view.plan.filter((x) => !x.done).map((x) => x.item), ...view.new_items];
+    const hidden = [
+      ...view.plan.filter((x) => !x.done).map((x) => x.item),
+      ...view.new_items,
+      ...view.also,
+    ];
     // Urgent items already in the list must not disappear along with it.
     const urgent = [...hidden.filter((i) => i.urgent), ...view.urgent];
     return {
       ...view,
       plan: [],
       new_items: [],
+      also: [],
       more_count: 0,
       urgent,
       resting_count: hidden.filter((i) => !i.urgent).length,
     };
   }
 
-  private async fullNow(p: Principal): Promise<NowView> {
+  /**
+   * Narrowing to an area filters what is shown; it never changes the day's plan, which is made
+   * from everything, so switching areas can't reshuffle the list.
+   */
+  private async fullNow(p: Principal, area: string | null = null): Promise<NowView> {
     await this.beforeAccess();
     const now = this.clock.now();
     const users = await this.users();
     const all = await this.assessments(p, now);
     const today = planDay(now);
     const eligible = all
-      .filter(
-        (a) =>
-          queueChecks(NOW_CONFIG, a, p, now).every((c) => c.ok) ||
-          (a.claim_lapsed && a.task.owner === p.userId),
-      )
+      .filter((a) => onNow(a, p, now))
       .sort(compareBy(NOW_CONFIG.order, NOW_CONFIG, p, now));
     const byId = new Map(eligible.map((a) => [a.task.id, a]));
 
@@ -298,12 +311,27 @@ export class Board {
       );
     }
 
+    const areaRows = await this.db.query<{ area: string }>(
+      `SELECT DISTINCT area FROM tasks t WHERE state IN ('open', 'waiting') AND area IS NOT NULL
+         AND ${visibleSql("t", 1)} ORDER BY area`,
+      [p.userId],
+    );
+    const inArea = (t: Task) => area === null || inAreas(t, [area]);
     return {
       date: today,
-      plan: planView,
-      new_items: fresh.map((a) => toItem(a, p, now, users)),
-      more_count: rest.length - fresh.length,
-      urgent: urgent.map((a) => toItem(a, p, now, users)),
+      area,
+      areas: areaRows.rows.map((r) => r.area),
+      plan: planView.filter((x) => inArea(x.item.task)),
+      new_items: fresh.filter((a) => inArea(a.task)).map((a) => toItem(a, p, now, users)),
+      also:
+        area === null
+          ? []
+          : rest
+              // Urgent ones already show in the urgent list, which is built from everything.
+              .filter((a) => !freshIds.has(a.task.id) && !a.urgent && inArea(a.task))
+              .map((a) => toItem(a, p, now, users)),
+      more_count: area === null ? rest.length - fresh.length : 0,
+      urgent: urgent.filter((a) => inArea(a.task)).map((a) => toItem(a, p, now, users)),
       enough_until:
         plan?.enough_until && plan.enough_until > now ? plan.enough_until.toISOString() : null,
       waiting_count: waiting,
@@ -363,6 +391,27 @@ export class Board {
       await notifyLive(c, userId);
     });
     return until ? until.toISOString() : null;
+  }
+
+  /**
+   * Pin (or unpin) a task for this person. Pinning is an explicit "this one first", so it also
+   * moves the task to the top of today's list if one has been made; unpinning leaves it in place.
+   */
+  async pin(p: Principal, id: string, pinned: boolean): Promise<void> {
+    const now = this.clock.now();
+    const day = planDay(now);
+    // Only a task Now would show goes to the top: one finished today would come back ticked.
+    const eligible =
+      pinned && (await this.assessments(p, now)).some((a) => a.task.id === id && onNow(a, p, now));
+    await this.tasks.pin(p, id, pinned, async (c, userId) => {
+      if (!eligible) return;
+      await c.query(
+        `UPDATE day_plans SET task_ids = array_prepend($3::text, array_remove(task_ids, $3::text)),
+           seen_ids = array_append(array_remove(seen_ids, $3::text), $3::text)
+         WHERE user_id = $1 AND local_date = $2`,
+        [userId, day, id],
+      );
+    });
   }
 
   // ---- Queues ----
@@ -499,4 +548,11 @@ export class Board {
     }
     return out;
   }
+}
+
+function onNow(a: Assessment, p: Principal, now: Date): boolean {
+  return (
+    queueChecks(NOW_CONFIG, a, p, now).every((c) => c.ok) ||
+    (a.claim_lapsed && a.task.owner === p.userId)
+  );
 }

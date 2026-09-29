@@ -58,6 +58,8 @@ export const QueueConfig = z
     /** Only tasks that require at least one of these contexts. */
     only_requiring: z.array(z.string()).optional(),
     text: z.string().optional(),
+    /** Only tasks in one of these areas; "none" matches tasks without an area. */
+    areas: z.array(z.string().min(1).max(41)).optional(),
     recurring: z.enum(["only", "exclude"]).optional(),
     owner: z.enum(["me"]).optional(),
     visibility: z.enum(["household", "private"]).optional(),
@@ -221,12 +223,28 @@ function contextSatisfied(cfg: QueueConfig, ctx: string, now: Date): boolean {
   return cfg.contexts === undefined;
 }
 
-/** Filters that also bound the urgent list: who, what text, whose, which visibility. */
+/** An area as a filter names it: case-insensitive, "#" optional, "none" for no area. */
+export function areaFilter(v: string): string {
+  return v.trim().replace(/^#/, "").toLowerCase();
+}
+
+export function inAreas(t: Task, areas: string[]): boolean {
+  return areas.map(areaFilter).includes(t.area ?? "none");
+}
+
+/** Filters that also bound the urgent list: who, what text, whose, which area and visibility. */
 function scopeChecks(cfg: QueueConfig, a: Assessment, viewer: Principal): Check[] {
   const t = a.task;
   const checks: Check[] = [];
   const actor = actorMatches(cfg, t, viewer);
   checks.push({ check: "actor", ok: actor.ok, detail: actor.detail });
+  if (cfg.areas) {
+    checks.push({
+      check: "area",
+      ok: inAreas(t, cfg.areas),
+      detail: t.area ? `area: ${t.area}` : "no area",
+    });
+  }
   if (cfg.text) {
     const hay = `${t.title}\n${t.brief}\n${t.next_action}`.toLowerCase();
     checks.push({

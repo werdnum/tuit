@@ -54,7 +54,9 @@ export function restApi(app: App): Hono<AuthEnv> {
     });
   });
 
-  api.get("/now", async (c) => c.json(await board.now(c.get("principal"))));
+  api.get("/now", async (c) =>
+    c.json(await board.now(c.get("principal"), { area: c.req.query("area") || null })),
+  );
   api.post("/now/more", async (c) => {
     await board.showMore(c.get("principal"));
     return c.json(await board.now(c.get("principal")));
@@ -153,7 +155,7 @@ export function restApi(app: App): Hono<AuthEnv> {
     "/tasks/:id/pin",
     mutation(async (id, input, c) => {
       const { pinned } = z.object({ pinned: z.boolean() }).strict().parse(input);
-      await tasks.pin(c.get("principal"), id, pinned);
+      await board.pin(c.get("principal"), id, pinned);
       return { id };
     }),
   );

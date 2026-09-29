@@ -48,6 +48,10 @@ from others, and a household queue shows each viewer only what that viewer may s
 
 - **title** is the outcome. **brief** is the short editable current situation. **next_action** is
   the one thing to do next. **done_means** is optional, mainly for agent work.
+- **area** is which part of life a task belongs to (`home`, `tuit`, `cluster`): one optional
+  lowercase word. It is deliberately flat and single — not a project hierarchy, and not a tag
+  set — so "show me the Tuit stuff" has one exact answer. A capture that starts or ends with
+  `#word` files the task there.
 - **next actor** is whose turn it is: a named human, a named agent, or anyone. Capture defaults to
   the creator. **owner** is who is responsible overall (defaults to the creator). They differ once
   a task changes hands.
@@ -210,8 +214,8 @@ on screen until their next update, navigation or 10-minute refresh.
 
 ## Attention: Now and queues
 
-A queue is typed, stored data. It has a filter (actor, states, contexts available, text, recurrence,
-visibility), an ordering (a fixed list of rule names), a `visible_limit`, and an enabled flag.
+A queue is typed, stored data. It has a filter (actor, states, contexts available, text, area,
+recurrence, visibility), an ordering (a fixed list of rule names), a `visible_limit`, and an enabled flag.
 Queues never mutate tasks. Appearing in an agent's queue grants nothing; `claim` is the dispatch
 step.
 
@@ -222,7 +226,7 @@ step.
 - **Explain**: for any queue and task, the engine returns the list of checks it applied (included,
   excluded because X, beyond visible limit at position N). Preview evaluates an unsaved config.
 - **Urgent**: every queue result carries an `urgent` list evaluated outside the visible limit. It
-  obeys the queue's actor, text and visibility filters, but ignores availability, snooze,
+  obeys the queue's actor, text, area and visibility filters, but ignores availability, snooze,
   contexts and the limit.
 - **Ordering rules** (fixed set): `pinned`, `urgency` (deadline proximity), `target` (target
   reached / nearest), `staleness` (routine gap ratio), `preferred_context`, `oldest`.
@@ -243,6 +247,16 @@ someone else holds the next action, because a commitment stays theirs.
   them too; only urgent items show through it.
 - There is no rollover ceremony. A new day computes a fresh shortlist, and expired items are
   already gone.
+- **Narrowing to an area** filters what Now shows (the plan, new items and urgent ones in that
+  area) and lists the area's other eligible tasks beneath. It never changes the day's plan, which
+  is always made from everything, so switching between areas can't reshuffle the list.
+
+### Priority
+
+There are no priority numbers. Order comes from what is explainable: urgency, a recent handoff,
+target, staleness, then age. The one manual lever is the **pin**, per person: a pinned task sorts
+first in every list, and pinning it moves it to the top of today's plan straight away. An agent
+asked "this matters more" pins it rather than inventing a deadline.
 
 ## Deliberate simplifications
 

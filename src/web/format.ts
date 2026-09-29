@@ -61,6 +61,10 @@ export function stateBadge(t: Task): Html {
   return html`<span class="badge ${t.state}">${t.state}</span>`;
 }
 
+export function areaBadge(t: Task): Html {
+  return t.area ? html`<span class="badge area" data-area="${t.area}">#${t.area}</span>` : html``;
+}
+
 export function privateBadge(t: Task): Html {
   return t.visibility === "private" ? html`<span class="badge private">private</span>` : html``;
 }

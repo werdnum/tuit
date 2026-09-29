@@ -6,7 +6,7 @@ import { ZodError, z } from "zod";
 import { type AuthEnv, safeNext } from "../api/auth.ts";
 import type { App } from "../app.ts";
 import { ConflictError, DomainError, NotFoundError, ValidationError } from "../domain/errors.ts";
-import type { Principal, Task } from "../domain/types.ts";
+import { type Principal, splitAreaTag, type Task } from "../domain/types.ts";
 import type { Explanation } from "../domain/views.ts";
 import { actorText, momentEditText, whenText } from "./format.ts";
 import { type Flash, MANIFEST } from "./layout.ts";
@@ -237,29 +237,33 @@ export function webRoutes(app: App): Hono<AuthEnv> {
 
   r.get(
     "/",
-    view(async (c, ctx) => c.html(nowPage(ctx, await board.now(ctx.me)))),
+    view(async (c, ctx) =>
+      c.html(nowPage(ctx, await board.now(ctx.me, { area: c.req.query("area") || null }))),
+    ),
   );
   r.post(
     "/capture",
     action(async (_c, p, form) => {
       const title = (form.title ?? "").trim();
       if (!title) throw new ValidationError("Type something to capture");
-      await tasks.create(p, { title });
-      return "/";
+      // Capturing while looking at an area files it there, unless the title names its own.
+      const tagged = form.area && form.area !== "none" && !splitAreaTag(title).area;
+      await tasks.create(p, tagged ? { title, area: form.area } : { title });
+      return undefined;
     }),
   );
   r.post(
     "/now/more",
     action(async (_c, p) => {
       await board.showMore(p);
-      return "/";
+      return undefined;
     }),
   );
   r.post(
     "/now/enough",
     action(async (_c, p, form) => {
       await board.enoughForNow(p, form.on !== "0");
-      return "/";
+      return undefined;
     }),
   );
 
@@ -349,6 +353,10 @@ export function webRoutes(app: App): Hono<AuthEnv> {
     ),
   );
   r.post(
+    "/tasks/:id/pin",
+    taskAction((p, id, form) => board.pin(p, id, form.pinned !== "0")),
+  );
+  r.post(
     "/tasks/:id/snooze",
     taskAction((p, id, form) => tasks.snooze(p, id, form.until?.trim() || null)),
   );
@@ -436,6 +444,7 @@ export function webRoutes(app: App): Hono<AuthEnv> {
         title: form.title,
         next_action: form.next_action ?? "",
         done_means: form.done_means ?? "",
+        area: form.area ?? "",
         expected_revision: revision(form),
       }),
     ),

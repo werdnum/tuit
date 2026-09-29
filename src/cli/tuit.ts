@@ -350,8 +350,11 @@ function printNow(v: NowView): void {
     out(`Enough for now, until ${fmtInstant(v.enough_until, false)}. Only urgent items show.`);
     out(c.dim("  (tuit enough --off to bring the list back)"));
   } else {
-    out(c.bold(`Now · ${fmtDate(v.date)}`));
-    if (v.plan.length === 0) out(c.dim("  Nothing needs you right now."));
+    const areaLabel = v.area === "none" ? "no area" : `#${v.area}`;
+    out(c.bold(`Now · ${fmtDate(v.date)}${v.area ? ` · ${areaLabel}` : ""}`));
+    if (v.plan.length + v.new_items.length + v.also.length === 0) {
+      out(c.dim(`  Nothing${v.area ? ` in ${areaLabel}` : ""} needs you right now.`));
+    }
     for (const p of v.plan) {
       out(
         p.done
@@ -364,7 +367,15 @@ function printNow(v: NowView): void {
       out(c.bold("New since this morning"));
       for (const i of v.new_items) out(itemLine(i, "  [ ] "));
     }
+    if (v.also.length) {
+      out();
+      out(c.bold(`${v.plan.length || v.new_items.length ? "Also in" : "In"} ${areaLabel}`));
+      for (const i of v.also) out(itemLine(i, "  [ ] "));
+    }
     if (v.more_count > 0) out(c.dim(`  +${v.more_count} more (tuit now --more)`));
+    if (!v.area && v.areas.length) {
+      out(c.dim(`  Areas: ${v.areas.map((a) => `#${a}`).join(" ")} (tuit now --area NAME)`));
+    }
   }
   if (v.waiting_count > 0) {
     out(c.dim(`${v.waiting_count} waiting on someone or something (tuit search to find them)`));
@@ -395,7 +406,7 @@ async function printTask(
   const s = v.status;
   const row = (k: string, val: string) => out(`${c.dim(k.padEnd(10))}${val}`);
   out(
-    `${c.bold(t.title)}  ${stateBadge(t.state)}${t.visibility === "private" ? " [private]" : ""}`,
+    `${c.bold(t.title)}  ${stateBadge(t.state)}${t.area ? ` #${t.area}` : ""}${t.visibility === "private" ? " [private]" : ""}${s.pinned ? " [pinned]" : ""}`,
   );
   row("id", `${t.id}  (rev ${t.revision})`);
   const flags = [
@@ -503,14 +514,16 @@ async function plainTaskPost(ctx: Ctx, verb: string, sub: string, body: unknown)
 
 const commands: Record<string, Command> = {
   now: {
-    usage: "tuit [now] [--more]",
+    usage: "tuit [now] [--more] [--area NAME]",
     summary: "What deserves attention now: urgent items, today's shortlist, what's new",
-    options: { more: { type: "boolean" } },
+    options: { more: { type: "boolean" }, area: { type: "string" } },
     async run(ctx) {
       const client = ctx.client();
-      const v = ctx.values.more
-        ? await client.request<NowView>("POST", "/api/now/more", {}, true)
-        : await client.get<NowView>("/api/now");
+      const area = str(ctx.values, "area");
+      if (ctx.values.more) await client.request<NowView>("POST", "/api/now/more", {}, true);
+      const v = await client.get<NowView>(
+        area ? `/api/now?area=${encodeURIComponent(area)}` : "/api/now",
+      );
       ctx.json ? printJson(v) : printNow(v);
     },
   },
@@ -528,7 +541,8 @@ const commands: Record<string, Command> = {
   add: {
     usage:
       "tuit add <title...> [--deadline X] [--target X] [--expires X] [--available X] [--private]\n" +
-      "         [--to ACTOR] [--brief T] [--action T] [--every N | --since-done N] [--last-done X]",
+      "         [--to ACTOR] [--brief T] [--action T] [--every N | --since-done N] [--last-done X]\n" +
+      "         [--area A]   (or end the title with #area)",
     summary: "Capture a task (title is all you need)",
     options: {
       deadline: { type: "string" },
@@ -542,6 +556,7 @@ const commands: Record<string, Command> = {
       every: { type: "string" },
       "since-done": { type: "string" },
       "last-done": { type: "string" },
+      area: { type: "string" },
     },
     async run(ctx) {
       const v = ctx.values;
@@ -573,6 +588,7 @@ const commands: Record<string, Command> = {
           next_action: str(v, "action"),
           recurrence,
           last_done: str(v, "last-done"),
+          area: str(v, "area"),
         }),
       );
       confirm(ctx, "Added", created);
@@ -771,7 +787,7 @@ const commands: Record<string, Command> = {
     usage:
       "tuit edit <id> [--title T] [--brief T] [--action T] [--done-means T] [--to ACTOR]\n" +
       "         [--deadline X] [--target X] [--expires X] [--available X]   (X = none clears)\n" +
-      "         [--private | --household] [--requires a,b] [--prefers a,b] [--rev N]",
+      "         [--private | --household] [--requires a,b] [--prefers a,b] [--area A] [--rev N]",
     summary: "Change fields (pass --rev to refuse if someone else changed it first)",
     options: {
       title: { type: "string" },
@@ -787,6 +803,7 @@ const commands: Record<string, Command> = {
       household: { type: "boolean" },
       requires: { type: "string" },
       prefers: { type: "string" },
+      area: { type: "string" },
       rev: { type: "string" },
     },
     run(ctx) {
@@ -807,6 +824,7 @@ const commands: Record<string, Command> = {
         visibility: v.private ? "private" : v.household ? "household" : undefined,
         requires: listOpt(str(v, "requires")),
         prefers: listOpt(str(v, "prefers")),
+        area: str(v, "area") === "none" ? "" : str(v, "area"),
         expected_revision: intOpt(v, "rev"),
       });
       if (Object.keys(body).filter((k) => k !== "expected_revision").length === 0) {
