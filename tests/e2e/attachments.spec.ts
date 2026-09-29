@@ -101,6 +101,36 @@ test.describe("without Google Drive configured", () => {
   });
 });
 
+test("files picked together are attached all or none", async ({
+  page,
+  signIn,
+  alexApi,
+  baseURL,
+}) => {
+  const { task } = await alexApi.post("/api/tasks", { title: "Scan the old photo albums" });
+  for (let i = 0; i < 49; i++) {
+    await alexApi.post(`/api/tasks/${task.id}/attachments`, {
+      url: `https://drive.google.com/file/d/album${i}/view`,
+    });
+  }
+  await signIn(page, "alex");
+
+  const res = await page.request.post(`/tasks/${task.id}/attachments/drive`, {
+    headers: { origin: baseURL as string },
+    form: {
+      back: `/tasks/${task.id}`,
+      items: JSON.stringify([
+        { url: "https://drive.google.com/file/d/new1/view", title: "One more" },
+        { url: "https://drive.google.com/file/d/new2/view", title: "One too many" },
+      ]),
+    },
+  });
+
+  expect(res.ok()).toBe(true);
+  const { task: stored } = await alexApi.get(`/api/tasks/${task.id}`);
+  expect(stored.attachments).toHaveLength(49);
+});
+
 test.describe("with Google Drive configured", () => {
   test.use({ serverEnv: PICKER_ENV });
 

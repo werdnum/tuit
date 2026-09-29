@@ -402,7 +402,7 @@ export function webRoutes(app: App): Hono<AuthEnv> {
       } catch {
         throw new ValidationError("Google Drive sent something unexpected. Try again.");
       }
-      for (const item of items) await tasks.attach(p, id, item);
+      return tasks.attachAll(p, id, items);
     }),
   );
   r.post(

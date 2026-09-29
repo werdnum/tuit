@@ -729,29 +729,50 @@ export class TaskService {
   /** Attach a link to a file. Attaching a link the task already has changes nothing. */
   async attach(p: Principal, id: string, raw: unknown): Promise<Task> {
     const input = AttachInput.parse(raw);
-    const url = attachmentUrl(input.url).toString();
-    return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision);
-      if (t.attachments.some((a) => a.url === url)) return t;
-      if (t.attachments.length >= MAX_ATTACHMENTS) {
+    return this.attachAll(p, id, [input], input);
+  }
+
+  /**
+   * Attach several links in one transaction, so a batch that can't all be attached (one bad
+   * link, or one past the limit) attaches none of them.
+   */
+  async attachAll(
+    p: Principal,
+    id: string,
+    items: AttachInput[],
+    opts: { expected_revision?: number; idempotency_key?: string } = {},
+  ): Promise<Task> {
+    const parsed = items.map((raw) => AttachInput.parse(raw));
+    const urls = parsed.map((i) => attachmentUrl(i.url).toString());
+    return this.mutate(p, opts.idempotency_key, async (c, now) => {
+      const t = await this.lockTask(c, p, id, opts.expected_revision);
+      const added: Attachment[] = [];
+      parsed.forEach((input, i) => {
+        const url = urls[i] as string;
+        if ([...t.attachments, ...added].some((a) => a.url === url)) return;
+        added.push({
+          id: newId(),
+          url,
+          title: input.title?.trim() || titleFromUrl(new URL(url)),
+          mime_type: input.mime_type?.trim() ?? "",
+          added_at: now.toISOString(),
+          added_by: { user: p.userId, agent: p.agent },
+        });
+      });
+      if (added.length === 0) return t;
+      if (t.attachments.length + added.length > MAX_ATTACHMENTS) {
         throw new ValidationError(
           `A task can have at most ${MAX_ATTACHMENTS} attachments. Link a folder instead.`,
         );
       }
-      const a: Attachment = {
-        id: newId(),
-        url,
-        title: input.title?.trim() || titleFromUrl(new URL(url)),
-        mime_type: input.mime_type?.trim() ?? "",
-        added_at: now.toISOString(),
-        added_by: { user: p.userId, agent: p.agent },
-      };
-      t.attachments = [...t.attachments, a];
+      t.attachments = [...t.attachments, ...added];
       this.bump(t, now);
       await writeTask(c, t);
-      await addActivity(c, p, t.id, "attached", a.title, now, {
-        data: { attachment_id: a.id, url: a.url },
-      });
+      for (const a of added) {
+        await addActivity(c, p, t.id, "attached", a.title, now, {
+          data: { attachment_id: a.id, url: a.url },
+        });
+      }
       await addEvent(c, p, "updated", { taskId: t.id }, now, { fields: ["attachments"] });
       return t;
     });
