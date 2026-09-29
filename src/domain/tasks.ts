@@ -20,6 +20,8 @@ import {
   type ActivityEntry,
   type Actor,
   type ActorInput,
+  AttachInput,
+  type Attachment,
   activityFromRow,
   CheckpointInput,
   CLOSED_STATES,
@@ -27,6 +29,8 @@ import {
   CloseInput,
   CompleteInput,
   CreateTaskInput,
+  DetachInput,
+  MAX_ATTACHMENTS,
   type OffsetRule,
   type Principal,
   type Task,
@@ -87,6 +91,7 @@ const TASK_COLUMNS = [
   "requires",
   "prefers",
   "recurrence",
+  "attachments",
   "last_done_at",
   "last_skip_at",
   "claim_id",
@@ -137,6 +142,7 @@ function taskColumns(t: Task): unknown[] {
     t.requires,
     t.prefers,
     t.recurrence ? JSON.stringify(t.recurrence) : null,
+    JSON.stringify(t.attachments),
     t.last_done_at,
     t.last_skip_at,
     t.claim?.id ?? null,
@@ -238,6 +244,35 @@ export function recomputeDerivedDates(t: Task): void {
     const a = anchorOf(t.target_rule);
     t.target = a ? addDays(a, t.target_rule.offset_days) : null;
   }
+}
+
+/** A link a person can open: http(s) only, and no credentials baked into it. */
+export function attachmentUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    throw new ValidationError("That isn't a link. Paste the file's full address (https://...).");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new ValidationError("Attachments must be http(s) links");
+  }
+  if (url.username || url.password) {
+    throw new ValidationError("Remove the username or password from the link");
+  }
+  return url;
+}
+
+/** A readable stand-in title when the adder gave none: the host and path, trimmed. */
+function titleFromUrl(url: URL): string {
+  let path = url.pathname === "/" ? "" : url.pathname;
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // A malformed escape ("/%E9") is still a valid link; show the path as written.
+  }
+  const text = `${url.hostname}${path}`;
+  return text.length > 80 ? `${text.slice(0, 79)}…` : text;
 }
 
 /** "Thursday" as a completion time means that day; record it at local noon. */
@@ -450,6 +485,7 @@ export class TaskService {
         requires: input.requires ?? [],
         prefers: input.prefers ?? [],
         recurrence: input.recurrence ?? null,
+        attachments: [],
         last_done_at: null,
         last_skip_at: null,
         claim: null,
@@ -690,6 +726,76 @@ export class TaskService {
     });
   }
 
+  /** Attach a link to a file. Attaching a link the task already has changes nothing. */
+  async attach(p: Principal, id: string, raw: unknown): Promise<Task> {
+    const input = AttachInput.parse(raw);
+    return this.attachAll(p, id, [input], input);
+  }
+
+  /**
+   * Attach several links in one transaction, so a batch that can't all be attached (one bad
+   * link, or one past the limit) attaches none of them.
+   */
+  async attachAll(
+    p: Principal,
+    id: string,
+    items: AttachInput[],
+    opts: { expected_revision?: number; idempotency_key?: string } = {},
+  ): Promise<Task> {
+    const parsed = items.map((raw) => AttachInput.parse(raw));
+    const urls = parsed.map((i) => attachmentUrl(i.url).toString());
+    return this.mutate(p, opts.idempotency_key, async (c, now) => {
+      const t = await this.lockTask(c, p, id, opts.expected_revision);
+      const added: Attachment[] = [];
+      parsed.forEach((input, i) => {
+        const url = urls[i] as string;
+        if ([...t.attachments, ...added].some((a) => a.url === url)) return;
+        added.push({
+          id: newId(),
+          url,
+          title: input.title?.trim() || titleFromUrl(new URL(url)),
+          mime_type: input.mime_type?.trim() ?? "",
+          added_at: now.toISOString(),
+          added_by: { user: p.userId, agent: p.agent },
+        });
+      });
+      if (added.length === 0) return t;
+      if (t.attachments.length + added.length > MAX_ATTACHMENTS) {
+        throw new ValidationError(
+          `A task can have at most ${MAX_ATTACHMENTS} attachments. Link a folder instead.`,
+        );
+      }
+      t.attachments = [...t.attachments, ...added];
+      this.bump(t, now);
+      await writeTask(c, t);
+      for (const a of added) {
+        await addActivity(c, p, t.id, "attached", a.title, now, {
+          data: { attachment_id: a.id, url: a.url },
+        });
+      }
+      await addEvent(c, p, "updated", { taskId: t.id }, now, { fields: ["attachments"] });
+      return t;
+    });
+  }
+
+  /** Remove a link. The file it points to is untouched; the history keeps the link. */
+  async detach(p: Principal, id: string, raw: unknown): Promise<Task> {
+    const input = DetachInput.parse(raw);
+    return this.mutate(p, input.idempotency_key, async (c, now) => {
+      const t = await this.lockTask(c, p, id, input.expected_revision);
+      const a = t.attachments.find((x) => x.id === input.attachment_id);
+      if (!a) throw new NotFoundError(`Task ${id} has no attachment ${input.attachment_id}`);
+      t.attachments = t.attachments.filter((x) => x.id !== a.id);
+      this.bump(t, now);
+      await writeTask(c, t);
+      await addActivity(c, p, t.id, "detached", a.title, now, {
+        data: { attachment_id: a.id, url: a.url },
+      });
+      await addEvent(c, p, "updated", { taskId: t.id }, now, { fields: ["attachments"] });
+      return t;
+    });
+  }
+
   async close(p: Principal, id: string, raw: unknown): Promise<Task> {
     const input = CloseInput.parse(raw);
     return this.mutate(p, input.idempotency_key, async (c, now) => {
@@ -790,6 +896,10 @@ export class TaskService {
   async claim(p: Principal, input: ClaimInput): Promise<Task | null> {
     if (!p.agent) throw new ValidationError("Only agent credentials can claim work");
     return this.mutate(p, input.idempotency_key, async (c, now) => {
+      // A sweep in another request locks every open task while it runs, and SKIP LOCKED
+      // can't tell its locks from a rival claimer's: without waiting it out, a claim could
+      // come back empty while work remains.
+      await c.query("SELECT pg_advisory_xact_lock_shared(4242002)");
       const eligible = `state = 'open' AND actor_kind = 'agent' AND actor_agent = $1
         AND claim_id IS NULL AND ${visibleSql("t", 2)}`;
       const r = await c.query(

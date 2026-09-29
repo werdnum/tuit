@@ -114,10 +114,28 @@ unless it is created with a `last_done` value.
   label always reports the last *actual* completion, so skipping never resets time-since-done.
 - Calendar-based routines (each Tuesday, with a missed-occurrence policy) are deferred.
 
+### Attachments
+
+A task holds links to files, never the files: an attachment is a URL, a title, an optional MIME
+type and who added it, kept in a `jsonb` column on the task. Storage, previews and access control
+belong to wherever the file lives, usually Google Drive. So the cluster needs no object store,
+backups stay the size of the text, and Tuit holds no Google credential:
+
+- agents upload with their own tools (Family Assistant's Drive access, a connector) and call
+  `attach_link`;
+- people paste a link, or, when configured, use Google's picker in the browser, which signs them
+  in to Google itself with the `drive.file` scope and hands back the link.
+
+Only http(s) links without embedded credentials are accepted. Attaching or removing is a revisioned
+mutation like any edit: it is recorded in the history (`attached`/`detached`, with the link) and
+announced on the feed as `updated` with `fields: ["attachments"]`. A link is exactly as visible as
+its task; whether someone can open it is up to the file's own sharing, which is why uploads through
+the picker can be sent to a household folder.
+
 ## Activity and change history
 
 `activity` is append-only per task. Each entry records a kind (note, research, decision, attempt,
-handoff, completion, skip, state change, edit, system), the author (human, or agent-for-human), when
+handoff, completion, skip, state change, edit, attached, detached, system), the author (human, or agent-for-human), when
 it happened, and when it was recorded. Field edits are logged with before/after values. The web
 feed shows the human-meaningful kinds; system entries remain visible in the inspect view.
 
@@ -236,6 +254,8 @@ someone else holds the next action, because a commitment stays theirs.
   refresh; a database-backed marker would fix that if Tuit ever runs more than one.
 - Notifications are not sent by this service. The feed is the integration point; family-assistant
   (or any agent) owns delivery. Feed consumers acting for a person see only what that person sees.
+- Attachments are links only. Tuit doesn't copy, preview or check access to the file, and removing
+  a link leaves the file alone.
 - No full-text index. Search is `ILIKE` over title, brief, next action and activity bodies, which
   suits a household-sized dataset.
 

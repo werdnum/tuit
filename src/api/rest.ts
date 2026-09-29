@@ -157,6 +157,19 @@ export function restApi(app: App): Hono<AuthEnv> {
       return { id };
     }),
   );
+  api.post(
+    "/tasks/:id/attachments",
+    mutation((id, input, c) => tasks.attach(c.get("principal"), id, input)),
+  );
+  api.delete("/tasks/:id/attachments/:attachmentId", async (c) => {
+    const p = c.get("principal");
+    const input = (await body(c)) as Record<string, unknown>;
+    const t = await tasks.detach(p, c.req.param("id"), {
+      ...input,
+      attachment_id: c.req.param("attachmentId"),
+    });
+    return c.json(await board.view(p, t.id));
+  });
   api.get("/tasks/:id/explain", async (c) =>
     c.json(
       await board.explain(c.get("principal"), c.req.param("id"), c.req.query("queue") || undefined),
