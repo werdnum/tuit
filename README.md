@@ -10,6 +10,8 @@ deserves attention now, and whose turn it is. It spends its complexity on what "
 - **Now**: a short list for today plus anything time-critical. Finishing items doesn't slide
   replacements in, and "Enough for now" is a real option. After a month away there's still no
   backlog: expired things are gone, commitments are surfaced, and the list is short.
+- **Areas and pins**: file a task under one area (`#tuit fix the feed`) and narrow Now to it; pin
+  what matters most to the top. No projects, no priority numbers.
 - **Task detail**: the outcome, a short editable brief (Markdown, with collapsible sections), one next action, and whose turn it is.
   History is append-only; agent entries are marked. Files are attached as links (paste one, or
   pick or upload from Google Drive), so Tuit never stores them.
@@ -65,13 +67,14 @@ absences. Unit tests exist only for rough date parsing, where the edge cases are
 | `src/web/` | Server-rendered, phone-first web UI |
 | `src/cli/`, `bin/tuit` | CLI, a pure REST client |
 | `src/db/migrations/` | SQL migrations, applied on startup |
-| `deploy/kube-config/` | Draft manifests for the cluster (not yet applied) |
 
 ## What's in and what isn't
 
 **Shipped:**
 - sign-in (OIDC) and household/private visibility;
-- title-only capture;
+- title-only capture, with an optional `#area` tag;
+- areas: one flat area per task, area chips on Now, and area filters on queues;
+- pinning (web, MCP, CLI), which also moves a task to the top of today's list;
 - Now with a sticky daily list, "enough for now", urgent items outside every limit, and an
   "away" summary;
 - attachments as links, from the web (including Google's Drive picker when configured), MCP and

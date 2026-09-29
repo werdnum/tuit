@@ -31,13 +31,15 @@ import {
   CreateTaskInput,
   DetachInput,
   MAX_ATTACHMENTS,
+  normalizeArea,
   type OffsetRule,
   type Principal,
+  splitAreaTag,
   type Task,
   taskFromRow,
   UpdateTaskInput,
 } from "./types.ts";
-import { assess } from "./views.ts";
+import { areaFilter, assess } from "./views.ts";
 
 export function newId(): string {
   const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -88,6 +90,7 @@ const TASK_COLUMNS = [
   "deadline_at",
   "expires_date",
   "expires_at",
+  "area",
   "requires",
   "prefers",
   "recurrence",
@@ -139,6 +142,7 @@ function taskColumns(t: Task): unknown[] {
     dAt,
     eDate,
     eAt,
+    t.area,
     t.requires,
     t.prefers,
     t.recurrence ? JSON.stringify(t.recurrence) : null,
@@ -459,12 +463,16 @@ export class TaskService {
     const actor = input.next_actor
       ? await this.resolveActor(input.next_actor, p)
       : ({ kind: "user", user: userId } as Actor);
+    const tagged =
+      input.area === undefined
+        ? splitAreaTag(input.title.trim())
+        : { title: input.title.trim(), area: normalizeArea(input.area) };
     return this.mutate(p, input.idempotency_key, async (c, now) => {
       const nowIso = now.toISOString();
       const t: Task = {
         id: newId(),
         seq: 0,
-        title: input.title.trim(),
+        title: tagged.title,
         brief: input.brief ?? "",
         next_action: input.next_action ?? "",
         done_means: input.done_means ?? "",
@@ -482,6 +490,7 @@ export class TaskService {
         target_rule: input.target_rule ?? null,
         deadline: toMoment(input.deadline, now),
         expires: toMoment(input.expires, now),
+        area: tagged.area,
         requires: input.requires ?? [],
         prefers: input.prefers ?? [],
         recurrence: input.recurrence ?? null,
@@ -527,6 +536,7 @@ export class TaskService {
       if (input.brief !== undefined) t.brief = input.brief;
       if (input.next_action !== undefined) t.next_action = input.next_action;
       if (input.done_means !== undefined) t.done_means = input.done_means;
+      if (input.area !== undefined) t.area = normalizeArea(input.area);
       if (input.requires !== undefined) t.requires = input.requires;
       if (input.prefers !== undefined) t.prefers = input.prefers;
       if (input.recurrence !== undefined) t.recurrence = input.recurrence;
@@ -971,19 +981,23 @@ export class TaskService {
   async search(
     p: Principal,
     text: string,
-    opts: { includeClosed?: boolean; limit?: number } = {},
+    opts: { includeClosed?: boolean; limit?: number; area?: string } = {},
   ): Promise<Task[]> {
     await this.beforeAccess();
     const like = `%${text.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    const area = opts.area === undefined ? undefined : areaFilter(opts.area);
     const r = await this.db.query(
       `SELECT * FROM tasks t
        WHERE ${visibleSql("t", 1)}
          ${opts.includeClosed === false ? "AND state IN ('open','waiting')" : ""}
+         ${area === undefined ? "" : "AND coalesce(area, 'none') = $4"}
          AND (title ILIKE $2 OR brief ILIKE $2 OR next_action ILIKE $2 OR waiting_for ILIKE $2
               OR EXISTS (SELECT 1 FROM activity a WHERE a.task_id = t.id AND a.body ILIKE $2))
        ORDER BY (state IN ('open','waiting')) DESC, updated_at DESC
        LIMIT $3`,
-      [p.userId, like, opts.limit ?? 50],
+      area === undefined
+        ? [p.userId, like, opts.limit ?? 50]
+        : [p.userId, like, opts.limit ?? 50, area],
     );
     return r.rows.map(taskFromRow);
   }

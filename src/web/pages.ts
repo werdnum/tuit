@@ -11,6 +11,7 @@ import {
   activityText,
   actorText,
   agoText,
+  areaBadge,
   authorHtml,
   momentEditText,
   momentHtml,
@@ -39,7 +40,7 @@ function doneForm(t: Task, backTo: string): Html {
 
 function itemRow(
   item: { task: Task; why: string; urgent?: boolean },
-  opts: { done?: boolean; tick?: boolean; backTo: string; badge?: boolean },
+  opts: { done?: boolean; tick?: boolean; backTo: string; badge?: boolean; area?: boolean },
 ): Html {
   const t = item.task;
   const cls = [opts.done ? "done" : "", item.urgent ? "urgent" : ""].join(" ").trim();
@@ -52,7 +53,7 @@ function itemRow(
   return html`<li class="${cls}" data-task="${t.id}">
     ${tickHtml}
     <a class="row-main ${tick ? "" : "solo"}" href="/tasks/${t.id}">
-      <span class="row-title">${t.title} ${opts.badge ? stateBadge(t) : ""} ${privateBadge(t)}</span>
+      <span class="row-title">${t.title} ${opts.badge ? stateBadge(t) : ""} ${opts.area === false ? "" : areaBadge(t)} ${privateBadge(t)}</span>
       ${item.why ? html`<span class="row-why">${item.why}</span>` : ""}
     </a>
     <span class="chev" aria-hidden="true">›</span>
@@ -129,26 +130,46 @@ export function nowPage(ctx: Ctx, v: NowView): Html {
   );
   const enough = v.enough_until !== null;
   const resting = (v as { resting_count?: number }).resting_count ?? 0;
-  const allDone = plan.length > 0 && plan.every((x) => x.done);
-  const nothing = plan.length === 0 && fresh.length === 0 && urgent.length === 0;
+  const also = quiet(ctx, v.also);
+  const allDone = plan.length > 0 && plan.every((x) => x.done) && also.length === 0;
+  const nothing =
+    plan.length === 0 && fresh.length === 0 && urgent.length === 0 && also.length === 0;
+  const self = v.area ? `/?area=${encodeURIComponent(v.area)}` : "/";
+  const areaName = (a: string) => (a === "none" ? "no area" : `#${a}`);
+  // Captures made while narrowed land in that area; "none" is a filter, not an area to file in.
+  const fileTo = v.area && v.area !== "none" ? v.area : null;
+  const row = (i: QueueItem, done = false) =>
+    itemRow(i, { done, backTo: self, area: v.area === null });
 
   const capture = html`<form class="capture" method="post" action="/capture" data-capture>
-    ${back("/")}
-    <input type="text" name="title" aria-label="Capture a task" placeholder="Add something…" autocomplete="off" autocapitalize="sentences" enterkeyhint="done" required maxlength="500">
+    ${back(self)}
+    ${fileTo ? html`<input type="hidden" name="area" value="${fileTo}">` : ""}
+    <input type="text" name="title" aria-label="Capture a task" placeholder="${fileTo ? `Add to #${fileTo}…` : "Add something…"}" autocomplete="off" autocapitalize="sentences" enterkeyhint="done" required maxlength="500">
     <button class="primary" aria-label="Add">Add</button>
   </form>`;
+
+  const chips =
+    v.areas.length || v.area
+      ? html`<nav class="chips" aria-label="Areas" data-areas>
+          <a href="/" aria-current="${v.area === null}">All</a>
+          ${[...new Set([...v.areas, ...(v.area ? [v.area] : [])])].map(
+            (a) =>
+              html`<a href="/?area=${encodeURIComponent(a)}" aria-current="${v.area === a}">${areaName(a)}</a>`,
+          )}
+        </nav>`
+      : "";
 
   const shortlist = enough
     ? html`<section class="calm card" data-enough>
         <div class="big">Enough for now.</div>
         <p class="muted">${resting ? `${resting} ${resting === 1 ? "thing is" : "things are"} resting. ` : ""}The rest will keep. Only time-critical things show until tomorrow morning.</p>
-        <form method="post" action="/now/enough">${back("/")}<input type="hidden" name="on" value="0"><button class="quiet">Show anyway</button></form>
+        <form method="post" action="/now/enough">${back(self)}<input type="hidden" name="on" value="0"><button class="quiet">Show anyway</button></form>
       </section>`
     : html`
       ${
         plan.length
           ? html`<h2>Today</h2>${list(
-              plan.map((x) => itemRow(x.item, { done: x.done, backTo: "/" })),
+              plan.map((x) => row(x.item, x.done)),
               "Today",
             )}`
           : ""
@@ -157,15 +178,23 @@ export function nowPage(ctx: Ctx, v: NowView): Html {
       ${
         fresh.length
           ? html`<h2>${plan.length ? "New since this morning" : "Today"}</h2>${list(
-              fresh.map((i) => itemRow(i, { backTo: "/" })),
+              fresh.map((i) => row(i)),
               plan.length ? "New since this morning" : "Today",
+            )}`
+          : ""
+      }
+      ${
+        also.length
+          ? html`<h2>${plan.length || fresh.length ? "Also in" : "In"} ${areaName(v.area ?? "")}</h2>${list(
+              also.map((i) => row(i)),
+              `In ${areaName(v.area ?? "")}`,
             )}`
           : ""
       }
       ${
         nothing
           ? html`<div class="empty" data-empty>
-              <div class="big">Nothing needs you right now.</div>
+              <div class="big">${v.area ? `Nothing in ${areaName(v.area)} needs you right now.` : "Nothing needs you right now."}</div>
               <div>Anything you add above will wait here until it matters.</div>
             </div>`
           : ""
@@ -173,12 +202,12 @@ export function nowPage(ctx: Ctx, v: NowView): Html {
       <div class="actions">
         ${
           v.more_count > 0
-            ? html`<form method="post" action="/now/more">${back("/")}<button class="wide">Show more (${v.more_count})</button></form>`
+            ? html`<form method="post" action="/now/more">${back(self)}<button class="wide">Show more (${v.more_count})</button></form>`
             : ""
         }
         ${
-          plan.length || fresh.length
-            ? html`<form method="post" action="/now/enough">${back("/")}<input type="hidden" name="on" value="1"><button class="wide quiet">Enough for now</button></form>`
+          plan.length || fresh.length || also.length
+            ? html`<form method="post" action="/now/enough">${back(self)}<input type="hidden" name="on" value="1"><button class="wide quiet">Enough for now</button></form>`
             : ""
         }
       </div>`;
@@ -192,8 +221,9 @@ export function nowPage(ctx: Ctx, v: NowView): Html {
     top: topTitle("Now", today),
     body: html`
       ${capture}
+      ${chips}
       ${v.away ? awayBanner(v.away, ctx) : ""}
-      ${urgentStrip(urgent, "/")}
+      ${urgentStrip(urgent, self)}
       ${shortlist}
       ${
         v.waiting_count
@@ -310,6 +340,7 @@ export function detailPage(
   const verbs = closed
     ? ""
     : html`<div class="verbs">
+        <form method="post" action="${self}/pin">${back(self)}<input type="hidden" name="pinned" value="${s.pinned ? "0" : "1"}"><button>${s.pinned ? "Unpin" : "Pin to top"}</button></form>
         ${doneEarlier(routine ? "Did it earlier…" : "Done earlier…")}
         ${
           routine
@@ -447,7 +478,7 @@ export function detailPage(
     top: html`${backLink("/", "Now")}<a class="iconlink small" href="${self}/inspect">Inspect</a>`,
     body: html`
       <h1>${t.title}</h1>
-      <div>${stateBadge(t)} ${privateBadge(t)}</div>
+      <div>${stateBadge(t)} ${areaBadge(t)} ${privateBadge(t)} ${s.pinned ? html`<span class="badge" data-pinned>pinned</span>` : ""}</div>
       ${statusLine}
       ${nextLine}
       ${s.routine && !s.urgent ? html`<p class="small muted" data-routine>${s.routine.label}</p>` : ""}
@@ -534,6 +565,7 @@ function moreSection(ctx: Ctx, t: Task, isOwner: boolean): Html {
         <label class="field"><span>Title</span><input type="text" name="title" value="${t.title}" required></label>
         <label class="field"><span>Next action</span><input type="text" name="next_action" value="${t.next_action}"></label>
         <label class="field"><span>Done means</span><input type="text" name="done_means" value="${t.done_means}"></label>
+        <label class="field"><span>Area</span><input type="text" name="area" value="${t.area ?? ""}" placeholder="e.g. home, tuit, cluster" autocapitalize="off"></label>
         <button class="wide">Save</button>
       </form>
       <h2>Dates</h2>

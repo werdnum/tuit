@@ -8,6 +8,7 @@ import { ZONE } from "../domain/time.ts";
 import {
   type ActivityEntry,
   ActorInput,
+  AreaInput,
   AttachInput,
   CheckpointInput,
   ClaimInput,
@@ -21,7 +22,7 @@ import {
   type Task,
   UpdateTaskInput,
 } from "../domain/types.ts";
-import { QueueConfig, type QueueItem } from "../domain/views.ts";
+import { inAreas, QueueConfig, type QueueItem } from "../domain/views.ts";
 
 export const TOOL_NAMES = [
   "now",
@@ -38,6 +39,7 @@ export const TOOL_NAMES = [
   "snooze_task",
   "attach_link",
   "remove_attachment",
+  "pin_task",
   "claim_next",
   "release_claim",
   "list_queues",
@@ -72,6 +74,8 @@ Model
 - A human decision needed is NOT waiting: hand off to that human with next_action "Decide: ...". That puts it in their Now.
 - Moments are a calendar date ("sat") or an exact instant ("sat 9am"); they never collapse into each other. Fields: available_from, target (not overdue when missed), deadline (consequences), expires (auto-expires after).
 - Routines (recurrence after_completion / since_done) are one persistent task: complete_task records a completion and it rests; skip_routine passes without resetting "last done".
+- area = which part of life a task belongs to ("home", "tuit", "cluster"): one optional word per task, not a hierarchy. Reuse an existing area (now lists them) rather than inventing near-duplicates. A title captured as "#tuit fix the feed" sets it.
+- Order comes from dates (deadline, target) and pins, not priority numbers. When the person says something matters more, pin_task it; don't invent a deadline to make it sort first.
 
 How to work
 - checkpoint is how you record progress: one call appends a note AND sets brief / next_action / next_actor / state atomically. next_actor is required: name who acts next (yourself as agent:${p.agent ?? "<name>"} to keep it). Update the brief so the next reader (human or another agent in a later session) needs nothing else.
@@ -191,17 +195,20 @@ export async function buildMcpServer(app: App, p: Principal): Promise<McpServer>
 
   tool(
     "now",
-    "The Now view for the person you act for: today's short plan, anything new since the plan was made, and urgent items (always shown). Also returns the current time.",
-    z.object({}).strict(),
+    "The Now view for the person you act for: today's short plan, anything new since the plan was made, and urgent items (always shown). Also returns the current time and the areas in use. With area: only that area, plus its other eligible tasks under also.",
+    z
+      .object({ area: AreaInput.optional().describe('An area, e.g. "tuit"; "none" = no area') })
+      .strict(),
     READ,
-    async () => {
-      const n = await board.now(p);
+    async ({ area }) => {
+      const n = await board.now(p, { area });
       return {
         as_of: app.clock.now().toISOString(),
         timezone: ZONE,
         ...n,
         plan: n.plan.map((x) => ({ item: item(x.item), done: x.done })),
         new_items: n.new_items.map(item),
+        also: n.also.map(item),
         urgent: n.urgent.map(item),
       };
     },
@@ -217,7 +224,7 @@ export async function buildMcpServer(app: App, p: Principal): Promise<McpServer>
 
   tool(
     "find_tasks",
-    'Search or list tasks. With text: searches title, brief, next action and notes, including closed tasks (state "active" limits to open/waiting). Without text: lists tasks in the given states (default active).',
+    'Search or list tasks, optionally in one area. With text: searches title, brief, next action and notes, including closed tasks (state "active" limits to open/waiting). Without text: lists tasks in the given states (default active).',
     z
       .object({
         text: z.string().min(1).optional(),
@@ -225,16 +232,18 @@ export async function buildMcpServer(app: App, p: Principal): Promise<McpServer>
           .union([z.literal("active"), z.array(z.enum(STATES))])
           .optional()
           .describe('"active" (open + waiting) or a list of states'),
+        area: AreaInput.optional().describe('Only this area; "none" = tasks without one'),
         limit: z.number().int().min(1).max(200).default(50),
       })
       .strict(),
     READ,
-    async ({ text, state, limit }) => {
+    async ({ text, state, area, limit }) => {
       const states = state === "active" ? ["open", "waiting"] : state;
       let list = text
-        ? await tasks.search(p, text, { includeClosed: state !== "active", limit: 200 })
+        ? await tasks.search(p, text, { includeClosed: state !== "active", limit: 200, area })
         : await tasks.list(p, states ?? ["open", "waiting"]);
       if (text && Array.isArray(state)) list = list.filter((t) => state.includes(t.state));
+      if (area) list = list.filter((t) => inAreas(t, [area]));
       return { tasks: list.slice(0, limit).map(brief) };
     },
   );
@@ -351,6 +360,17 @@ export async function buildMcpServer(app: App, p: Principal): Promise<McpServer>
     DetachInput.extend({ task_id: taskId }),
     WRITE,
     async ({ task_id, ...input }) => view((await tasks.detach(p, task_id, input)).id),
+  );
+
+  tool(
+    "pin_task",
+    "Pin a task so it comes first in the person's lists and moves to the top of today's plan (pinned: false unpins). Per person; changes no task fields. Use it when the person says something matters more.",
+    z.object({ task_id: taskId, pinned: z.boolean().default(true) }).strict(),
+    WRITE,
+    async ({ task_id, pinned }) => {
+      await board.pin(p, task_id, pinned);
+      return view(task_id);
+    },
   );
 
   tool(
