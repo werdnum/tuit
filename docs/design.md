@@ -283,4 +283,5 @@ asked "this matters more" pins it rather than inventing a deadline.
 
 Calendar-based routines are an accepted scope reduction: the prototype ships
 the two models that need no instances, and calendar routines will need a real template/instance
-split. Also deferred: webhooks/push delivery; offline PWA capture; native iOS.
+split. Also deferred: webhooks/push delivery; offline PWA capture. The native iPhone app (`ios/`) is
+a REST client and polls the feed while open.

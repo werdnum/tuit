@@ -67,6 +67,7 @@ absences. Unit tests exist only for rough date parsing, where the edge cases are
 | `src/web/` | Server-rendered, phone-first web UI |
 | `src/cli/`, `bin/tuit` | CLI, a pure REST client |
 | `src/db/migrations/` | SQL migrations, applied on startup |
+| `ios/` | Native iPhone app (SwiftUI, a REST client); see [ios/README.md](ios/README.md) |
 
 ## What's in and what isn't
 
@@ -89,7 +90,8 @@ absences. Unit tests exist only for rough date parsing, where the edge cases are
 - atomic checkpoint, idempotency keys, revision checks, and claims with side-effect-aware leases;
 - the change feed, and live updates in the web UI driven by it (no refreshing to see changes);
 - export;
-- MCP, OAuth connectors and the CLI.
+- MCP, OAuth connectors and the CLI;
+- a native iPhone app ([ios/](ios/README.md)) with browser sign-in.
 
 **Deferred:**
 - **Calendar-based routines** ("every Tuesday"). They need a real template/instance split.
