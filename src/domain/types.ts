@@ -200,10 +200,17 @@ export const RecurrenceInput = z
 
 const nullable = <T extends z.ZodType>(t: T) => t.nullable().optional();
 
+const COLLAPSE_HOW =
+  "<details><summary>Label</summary>, then a blank line, the Markdown, a blank line, </details> (without the blank lines the inside shows as plain text)";
+
+/** Advertised to agents through the MCP schemas, so the web view they write for stays readable. */
+export const BRIEF_DESCRIPTION = `Short current situation, rendered as Markdown (GitHub-flavoured; no images). Keep it to a few lines a person can take in at a glance on a phone: where things stand, constraints, key links. Put long detail (research, dossiers, pasted email) in a note, or collapse it at the end of the brief with ${COLLAPSE_HOW}.`;
+export const NOTE_DESCRIPTION = `Rendered as Markdown (GitHub-flavoured; no images). Lead with the finding in a line or two; collapse long supporting material with ${COLLAPSE_HOW}.`;
+
 export const TaskFieldsInput = z
   .object({
     title: z.string().min(1).max(500),
-    brief: z.string().max(20_000),
+    brief: z.string().max(20_000).describe(BRIEF_DESCRIPTION),
     next_action: z.string().max(2000),
     done_means: z.string().max(2000),
     visibility: z.enum(["household", "private"]),
@@ -248,9 +255,9 @@ export const NOTE_KINDS = ["note", "research", "decision", "attempt"] as const;
 
 export const CheckpointInput = z
   .object({
-    note: z.string().min(1).max(20_000),
+    note: z.string().min(1).max(20_000).describe(NOTE_DESCRIPTION),
     kind: z.enum(NOTE_KINDS).optional(),
-    brief: z.string().max(20_000).optional(),
+    brief: z.string().max(20_000).optional().describe(BRIEF_DESCRIPTION),
     next_action: z.string().max(2000).optional(),
     next_actor: ActorInput.optional(),
     state: z.enum(["open", "waiting"]).optional(),
@@ -267,7 +274,7 @@ export const CompleteInput = z
   .object({
     /** When it was actually done ("yesterday", "thu", an ISO instant). Defaults to now. */
     at: MomentInput.optional(),
-    note: z.string().max(20_000).optional(),
+    note: z.string().max(20_000).optional().describe(NOTE_DESCRIPTION),
     expected_revision: z.number().int().optional(),
     idempotency_key: z.string().max(200).optional(),
   })

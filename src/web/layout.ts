@@ -155,7 +155,21 @@ button:disabled { opacity: 0.5; }
 .next { font-size: 17px; }
 .status { color: var(--muted); font-size: 15px; }
 .status.urgent { color: var(--urgent); font-weight: 600; }
-.brief { white-space: pre-wrap; overflow-wrap: anywhere; }
+.md { overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md blockquote, .md table, .md details { margin: 6px 0; }
+.md ul, .md ol { padding-left: 22px; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { font-size: 16px; margin: 12px 0 4px; }
+.md blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
+.md :not(pre) > code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+.md table { border-collapse: collapse; font-size: 14px; display: block; overflow-x: auto; }
+.md th, .md td { border: 0.5px solid var(--line); padding: 4px 8px; text-align: left; }
+.md details { border: 0.5px solid var(--line); border-radius: 10px; padding: 0 10px; }
+.md details[open] { padding-bottom: 6px; }
+.md summary { padding: 8px 0; cursor: pointer; color: var(--accent); font-weight: 500; }
+.md li:has(> input[type=checkbox]) { list-style: none; margin-left: -18px; }
+.md li > input[type=checkbox] { margin: 0 4px 0 0; vertical-align: middle; }
 details.sheet { background: var(--card); border-radius: var(--radius); margin-top: 8px; }
 details.sheet > summary { list-style: none; min-height: var(--tap); display: flex; align-items: center; justify-content: space-between;
   padding: 10px 16px; font-weight: 600; color: var(--accent); cursor: pointer; }
@@ -178,7 +192,6 @@ details.sheet > .body { padding: 0 16px 14px; }
 .history li { padding: 10px 16px; border-top: 0.5px solid var(--line); }
 .history li:first-child { border-top: 0; }
 .history .when { font-size: 13px; color: var(--muted); }
-.history .body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .history li.agent { border-left: 3px solid var(--agent); }
 .history li.sys .body { color: var(--muted); font-size: 15px; }
 pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }

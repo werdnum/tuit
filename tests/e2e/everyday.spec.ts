@@ -116,3 +116,34 @@ test("an unsaved brief edit survives adding a note", async ({ page, signIn, alex
     "Last serviced 2024; Coolair quoted $180",
   );
 });
+
+test("a long brief reads as Markdown with its detail collapsed", async ({
+  page,
+  signIn,
+  alexApi,
+}) => {
+  await alexApi.post("/api/tasks", {
+    title: "File US taxes",
+    brief: [
+      "**With the accountant.** Waiting on their engagement letter.",
+      "",
+      "<details>",
+      "<summary>Documents gathered</summary>",
+      "",
+      "- [x] W-2 from employer",
+      "- [ ] 1099-INT from the bank",
+      "",
+      "</details>",
+    ].join("\n"),
+  });
+  await signIn(page, "alex");
+  await nowRow(page, "File US taxes").getByRole("link").click();
+
+  const brief = page.locator("[data-brief]");
+  await expect(brief.locator("strong")).toHaveText("With the accountant.");
+  await expect(brief.getByText("W-2 from employer")).toBeHidden();
+
+  await brief.getByText("Documents gathered").click();
+  await expect(brief.getByText("W-2 from employer")).toBeVisible();
+  await expect(brief.getByRole("checkbox")).toHaveCount(2);
+});

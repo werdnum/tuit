@@ -10,7 +10,7 @@ deserves attention now, and whose turn it is. It spends its complexity on what "
 - **Now**: a short list for today plus anything time-critical. Finishing items doesn't slide
   replacements in, and "Enough for now" is a real option. After a month away there's still no
   backlog: expired things are gone, commitments are surfaced, and the list is short.
-- **Task detail**: the outcome, a short editable brief, one next action, and whose turn it is.
+- **Task detail**: the outcome, a short editable brief (Markdown, with collapsible sections), one next action, and whose turn it is.
   History is append-only; agent entries are marked.
 - **Routines**: "every N days after I actually did it", or "time since done" (quiet until a
   threshold, then "last done 18 days ago", never "overdue"). You can record that you did it
