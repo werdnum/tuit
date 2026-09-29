@@ -350,8 +350,11 @@ function printNow(v: NowView): void {
     out(`Enough for now, until ${fmtInstant(v.enough_until, false)}. Only urgent items show.`);
     out(c.dim("  (tuit enough --off to bring the list back)"));
   } else {
-    out(c.bold(`Now · ${fmtDate(v.date)}${v.area ? ` · #${v.area}` : ""}`));
-    if (v.plan.length === 0) out(c.dim("  Nothing needs you right now."));
+    const areaLabel = v.area === "none" ? "no area" : `#${v.area}`;
+    out(c.bold(`Now · ${fmtDate(v.date)}${v.area ? ` · ${areaLabel}` : ""}`));
+    if (v.plan.length + v.new_items.length + v.also.length === 0) {
+      out(c.dim(`  Nothing${v.area ? ` in ${areaLabel}` : ""} needs you right now.`));
+    }
     for (const p of v.plan) {
       out(
         p.done
@@ -366,7 +369,7 @@ function printNow(v: NowView): void {
     }
     if (v.also.length) {
       out();
-      out(c.bold(`Also in #${v.area}`));
+      out(c.bold(`${v.plan.length || v.new_items.length ? "Also in" : "In"} ${areaLabel}`));
       for (const i of v.also) out(itemLine(i, "  [ ] "));
     }
     if (v.more_count > 0) out(c.dim(`  +${v.more_count} more (tuit now --more)`));
