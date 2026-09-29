@@ -885,7 +885,13 @@ export class TaskService {
     return at ? at.toISOString() : null;
   }
 
-  async pin(p: Principal, id: string, pinned: boolean): Promise<void> {
+  /** `alongside` runs in the same transaction, so anything it changes is live with the pin. */
+  async pin(
+    p: Principal,
+    id: string,
+    pinned: boolean,
+    alongside?: (c: Queryable, userId: string) => Promise<void>,
+  ): Promise<void> {
     const userId = this.requireWriter(p);
     await this.get(p, id);
     // One transaction, so the notification goes out exactly when the change commits.
@@ -895,6 +901,7 @@ export class TaskService {
        ON CONFLICT (user_id, task_id) DO UPDATE SET pinned = EXCLUDED.pinned`,
         [userId, id, pinned],
       );
+      await alongside?.(c, userId);
       await notifyLive(c, userId);
     });
   }

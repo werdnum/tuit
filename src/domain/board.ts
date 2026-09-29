@@ -402,14 +402,16 @@ export class Board {
    * moves the task to the top of today's list if one has been made; unpinning leaves it in place.
    */
   async pin(p: Principal, id: string, pinned: boolean): Promise<void> {
-    await this.tasks.pin(p, id, pinned);
-    if (!pinned || !p.userId) return;
-    await this.db.query(
-      `UPDATE day_plans SET task_ids = array_prepend($3::text, array_remove(task_ids, $3::text)),
-         seen_ids = array_append(array_remove(seen_ids, $3::text), $3::text)
-       WHERE user_id = $1 AND local_date = $2`,
-      [p.userId, planDay(this.clock.now()), id],
-    );
+    const day = planDay(this.clock.now());
+    await this.tasks.pin(p, id, pinned, async (c, userId) => {
+      if (!pinned) return;
+      await c.query(
+        `UPDATE day_plans SET task_ids = array_prepend($3::text, array_remove(task_ids, $3::text)),
+           seen_ids = array_append(array_remove(seen_ids, $3::text), $3::text)
+         WHERE user_id = $1 AND local_date = $2`,
+        [userId, day, id],
+      );
+    });
   }
 
   // ---- Queues ----
