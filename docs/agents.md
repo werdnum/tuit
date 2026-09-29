@@ -63,6 +63,10 @@ Revoking a token in Settings takes effect immediately.
 
   The blank lines after `<summary>` and before `</details>` matter: without them the inside shows
   as plain text.
+- **Files are attached as links.** Tuit stores no files. Put the file where the household can
+  open it (usually a shared Google Drive folder, with your own tools), then `attach_link` its URL
+  with a title a person would recognise. That keeps it on the task page instead of buried in a
+  note. `remove_attachment` takes the attachment id from `get_task`.
 - **Record useful progress, not traces.** "Found a candidate, but they don't service our suburb" is
   progress. "Opened a web page" is not.
 - **Finishing your run doesn't finish the task.** Hand it back with the result and the next

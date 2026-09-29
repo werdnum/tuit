@@ -11,7 +11,8 @@ deserves attention now, and whose turn it is. It spends its complexity on what "
   replacements in, and "Enough for now" is a real option. After a month away there's still no
   backlog: expired things are gone, commitments are surfaced, and the list is short.
 - **Task detail**: the outcome, a short editable brief (Markdown, with collapsible sections), one next action, and whose turn it is.
-  History is append-only; agent entries are marked.
+  History is append-only; agent entries are marked. Files are attached as links (paste one, or
+  pick or upload from Google Drive), so Tuit never stores them.
 - **Routines**: "every N days after I actually did it", or "time since done" (quiet until a
   threshold, then "last done 18 days ago", never "overdue"). You can record that you did it
   yesterday. Skipping doesn't count as doing.
@@ -73,6 +74,8 @@ absences. Unit tests exist only for rough date parsing, where the edge cases are
 - title-only capture;
 - Now with a sticky daily list, "enough for now", urgent items outside every limit, and an
   "away" summary;
+- attachments as links, from the web (including Google's Drive picker when configured), MCP and
+  the CLI;
 - task detail: note, waiting-for (reply / until / another task), snooze, hand off, done, done
   earlier, no longer relevant, shelve, reopen;
 - dates versus instants, with derived dates stored as rules (e.g. deadline − 7 days);

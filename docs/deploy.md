@@ -23,6 +23,10 @@
 | `MCP_JWT_ISSUER` | `https://id.example.com/realms/home` | Optional. Remote MCP connectors authenticate with this authorization server instead of Tuit's built-in one (see below). |
 | `MCP_JWT_AUDIENCE` | `tuit-mcp` (default) | The audience connector tokens must carry. |
 | `MCP_JWT_JWKS_URI` | `http://keycloak.internal/realms/home/protocol/openid-connect/certs` | Optional. Where to fetch signing keys; defaults to the issuer's discovery document. |
+| `GOOGLE_PICKER_API_KEY` | `AIza...` | Optional. With the next two, adds "Choose or upload from Google Drive" to the task page (see below). A browser key: restrict it to your `PUBLIC_URL`. |
+| `GOOGLE_PICKER_CLIENT_ID` | `1234-abc.apps.googleusercontent.com` | A Google OAuth client of type "Web application". |
+| `GOOGLE_PICKER_APP_ID` | `123456789012` | The Google Cloud project number. |
+| `GOOGLE_PICKER_UPLOAD_FOLDER_ID` | `1AbC...` | Optional. Files uploaded through the picker go into this Drive folder (share it with the household) instead of the uploader's My Drive. |
 | `TUIT_TIMEZONE` | `Australia/Sydney` (default) | The household zone for calendar dates. |
 | `TUIT_SWEEP_INTERVAL_MS` | `60000` (default) | Background tick for time-driven feed events. Reads always sweep first anyway. |
 | `TUIT_DEV_LOGIN` | `1` | Local only: pick-a-user login. Refused unless `PUBLIC_URL` is localhost, and forces a loopback bind. |
@@ -69,6 +73,29 @@ audience and a household email allowlist on `/mcp`. Keep everything else behind 
 
 Tuit's own tokens keep working for callers that don't go through the gateway, such as an
 assistant running in the same cluster.
+
+## Google Drive on the task page (optional)
+
+Attachments are links: Tuit never stores files or holds a Google credential. With the three
+`GOOGLE_PICKER_*` settings, the task page also offers Google's own picker to choose a Drive file
+or upload one. It runs entirely in the browser: each person signs in to Google the first time,
+with the `drive.file` scope (only files they pick or upload through it), and the resulting link
+is attached like any other.
+
+In the Google Cloud console, in one project:
+
+1. Enable the **Google Picker API**.
+2. Create an **API key**, restricted to websites `https://tuit.example.com/*` and to the Picker
+   API.
+3. On the OAuth consent screen, add the `.../auth/drive.file` scope. While the app is in testing,
+   add each household member as a test user.
+4. Create an **OAuth client ID** of type *Web application*, with `https://tuit.example.com` as an
+   authorised JavaScript origin. No redirect URI is needed.
+5. The **app ID** is the project number, from the project's settings page.
+
+For uploads that the rest of the household can open, create a Drive folder, share it with them,
+and set `GOOGLE_PICKER_UPLOAD_FOLDER_ID` to the id at the end of its URL. Choosing an existing
+file doesn't change its sharing, so a file only its owner can open stays that way.
 
 ## First run
 

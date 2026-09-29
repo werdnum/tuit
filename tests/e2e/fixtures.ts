@@ -5,6 +5,8 @@ import { type Api, TestServer } from "../harness/server.ts";
 export const MONDAY = "2026-10-05T09:00:00+11:00";
 
 interface Fixtures {
+  /** Extra server environment for a file's tests: `test.use({ serverEnv: {...} })`. */
+  serverEnv: Record<string, string>;
   server: TestServer;
   /** Sign in through the real OIDC login screen. Any login name "x" becomes x@example.com. */
   signIn: (page: Page, login: string) => Promise<Page>;
@@ -31,9 +33,9 @@ async function newPhone(browser: Browser, baseURL: string): Promise<Page> {
 }
 
 export const test = base.extend<Fixtures>({
-  // biome-ignore lint/correctness/noEmptyPattern: Playwright fixture signature
-  server: async ({}, use) => {
-    const server = await TestServer.start();
+  serverEnv: [{}, { option: true }],
+  server: async ({ serverEnv }, use) => {
+    const server = await TestServer.start({ env: serverEnv });
     await server.setClock(MONDAY);
     await use(server);
     await server.stop();
