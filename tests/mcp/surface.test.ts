@@ -104,3 +104,28 @@ test("a checkpoint without next_actor fails and names the missing field", async 
 test("the server instructions tell the agent who it acts for", async () => {
   expect(claude.client.getInstructions()).toMatch(/agent:claude acting for Alex/);
 });
+
+test("brief and note fields tell agents they are Markdown and how to collapse long material", async () => {
+  const { tools } = await claude.client.listTools();
+  const props = (name: string) =>
+    tools.find((t) => t.name === name)?.inputSchema.properties as Record<
+      string,
+      { description?: string }
+    >;
+
+  for (const [tool, field] of [
+    ["create_task", "brief"],
+    ["update_task", "brief"],
+    ["checkpoint", "brief"],
+    ["checkpoint", "note"],
+    ["hand_off", "brief"],
+    ["hand_off", "note"],
+    ["complete_task", "note"],
+    ["skip_routine", "note"],
+  ] as const) {
+    const d = props(tool)[field]?.description ?? "";
+    expect(d, `${tool}.${field}`).toMatch(/Markdown/);
+    expect(d, `${tool}.${field}`).toMatch(/<details><summary>/);
+  }
+  expect(claude.client.getInstructions()).toMatch(/render as Markdown/);
+});

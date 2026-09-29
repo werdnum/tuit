@@ -44,8 +44,25 @@ Revoking a token in Settings takes effect immediately.
 - **A decision a person can make now is a handoff, not a wait.** Hand it to them, with the next
   action written as "Decide: ...". Use `waiting` only for things outside the household: a reply, a
   date, or another task.
-- **Keep the brief current.** The brief is the only context the next agent, or the person, is
-  guaranteed to read. A handoff that relies on your own session memory has failed.
+- **Keep the brief current, and short.** The brief is the only context the next agent, or the person, is
+  guaranteed to read. A handoff that relies on your own session memory has failed. It is read on a
+  phone, so a few lines of current state, not a dossier.
+- **Briefs and notes are Markdown.** GitHub-flavoured (lists, checklists, tables, links; no
+  images), sanitized before display. Put long supporting material in a note, or collapse it:
+
+  ```markdown
+  <details>
+  <summary>Research: three accountants compared</summary>
+
+  | Name | Fee | Notes |
+  | ---- | --- | ----- |
+  | ...  | ... | ...   |
+
+  </details>
+  ```
+
+  The blank lines after `<summary>` and before `</details>` matter: without them the inside shows
+  as plain text.
 - **Record useful progress, not traces.** "Found a candidate, but they don't service our suburb" is
   progress. "Opened a web page" is not.
 - **Finishing your run doesn't finish the task.** Hand it back with the result and the next

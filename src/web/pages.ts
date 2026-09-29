@@ -19,6 +19,7 @@ import {
   whenText,
 } from "./format.ts";
 import { backLink, type Flash, type Html, type LiveMark, page, settingsLink } from "./layout.ts";
+import { markdownHtml } from "./markdown.ts";
 
 export interface Ctx {
   me: Principal;
@@ -391,7 +392,7 @@ export function detailPage(
     ? html`<section class="card pad" data-conflict role="alert">
         <p><strong>Someone else changed the brief while you were editing.</strong> Nothing was lost — here's theirs, and yours is below to merge and save.</p>
         <p class="small muted">Current brief</p>
-        <div class="brief" data-current-brief>${t.brief || html`<span class="muted">(empty)</span>`}</div>
+        <div class="brief md" data-current-brief>${t.brief ? markdownHtml(t.brief) : html`<span class="muted">(empty)</span>`}</div>
         <form method="post" action="${self}/brief">
           ${back(self)}${rev}
           <label class="field"><span>Your version</span><textarea name="brief" rows="6">${d.conflict.mine}</textarea></label>
@@ -399,7 +400,7 @@ export function detailPage(
         </form>
       </section>`
     : html`<section class="card pad">
-        ${t.brief ? html`<div class="brief" data-brief>${t.brief}</div>` : html`<div class="muted" data-brief>No brief yet.</div>`}
+        ${t.brief ? html`<div class="brief md" data-brief>${markdownHtml(t.brief)}</div>` : html`<div class="muted" data-brief>No brief yet.</div>`}
         <details>
           <summary class="small" style="min-height:44px;display:flex;align-items:center;color:var(--accent)">Edit brief</summary>
           <form method="post" action="${self}/brief">
@@ -423,7 +424,7 @@ export function detailPage(
           return html`<li class="${e.author.agent ? "agent" : ""} ${QUIET_KINDS.has(e.kind) ? "sys" : ""}" data-kind="${e.kind}">
             <div class="when">${whenText(e.happened_at, now)} · ${authorHtml(e, users, me)}${late ? html` · recorded ${agoText(e.recorded_at, now)}` : ""}</div>
             <div><strong>${x.head}</strong></div>
-            ${x.body ? html`<div class="body">${x.body}</div>` : ""}
+            ${x.body ? html`<div class="body md">${markdownHtml(x.body)}</div>` : ""}
           </li>`;
         })}
       </ul>
