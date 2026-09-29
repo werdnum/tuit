@@ -265,7 +265,12 @@ export function attachmentUrl(raw: string): URL {
 
 /** A readable stand-in title when the adder gave none: the host and path, trimmed. */
 function titleFromUrl(url: URL): string {
-  const path = url.pathname === "/" ? "" : decodeURIComponent(url.pathname);
+  let path = url.pathname === "/" ? "" : url.pathname;
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // A malformed escape ("/%E9") is still a valid link; show the path as written.
+  }
   const text = `${url.hostname}${path}`;
   return text.length > 80 ? `${text.slice(0, 79)}…` : text;
 }

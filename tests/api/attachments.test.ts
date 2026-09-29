@@ -61,6 +61,14 @@ test("without a title, the link's address stands in for one", async () => {
   expect(task.attachments[0].title).toBe("example.com/receipts/fence.pdf");
 });
 
+test("a link with a malformed escape still attaches, titled as written", async () => {
+  const { task } = await alex.post(`/api/tasks/${taskId}/attachments`, {
+    url: "https://example.com/files/%E9",
+  });
+
+  expect(task.attachments[0].title).toBe("example.com/files/%E9");
+});
+
 test("attaching the same link twice keeps one", async () => {
   await alex.post(`/api/tasks/${taskId}/attachments`, { url: QUOTE });
   const { task } = await alex.post(`/api/tasks/${taskId}/attachments`, { url: QUOTE });
