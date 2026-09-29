@@ -8,11 +8,13 @@ import { ZONE } from "../domain/time.ts";
 import {
   type ActivityEntry,
   ActorInput,
+  AttachInput,
   CheckpointInput,
   ClaimInput,
   CloseInput,
   CompleteInput,
   CreateTaskInput,
+  DetachInput,
   MomentInput,
   NOTE_DESCRIPTION,
   type Principal,
@@ -34,6 +36,8 @@ export const TOOL_NAMES = [
   "close_task",
   "reopen_task",
   "snooze_task",
+  "attach_link",
+  "remove_attachment",
   "claim_next",
   "release_claim",
   "list_queues",
@@ -72,6 +76,7 @@ Model
 How to work
 - checkpoint is how you record progress: one call appends a note AND sets brief / next_action / next_actor / state atomically. next_actor is required: name who acts next (yourself as agent:${p.agent ?? "<name>"} to keep it). Update the brief so the next reader (human or another agent in a later session) needs nothing else.
 - Record useful progress only ("found a repairer but they don't service our suburb"), never execution traces ("opened another page").
+- Files: Tuit keeps links, not files. Put a file somewhere the household can open it (usually Google Drive) and attach_link its share link, rather than pasting links into the brief.
 - brief and notes render as Markdown in the web app (GitHub-flavoured: lists, checklists, tables, links; no images), mostly read on a phone. Keep the brief to a few lines of current state. Long material (research, dossiers, pasted email) goes in a note, or into a collapsed section: <details><summary>Label</summary>, blank line, Markdown, blank line, </details>.
 - complete_task with "at" records an earlier completion ("yesterday", "thu 6pm").
 - claim_next is dispatch: it atomically takes the oldest open task handed to you, with a lease. side_effects defaults to true: a lapsed claim is then never retried automatically and goes to the owner to check. Pass side_effects: false only for work with no effect outside this tracker (research, drafting), which may be retried. Being in a queue grants nothing; claim first.
@@ -330,6 +335,22 @@ export async function buildMcpServer(app: App, p: Principal): Promise<McpServer>
       await tasks.snooze(p, task_id, until);
       return view(task_id);
     },
+  );
+
+  tool(
+    "attach_link",
+    "Attach a file to a task as a link (a photo, receipt, quote, PDF). Tuit stores only the link, so first put the file somewhere the household can open it (usually Google Drive, with your own tools) and pass its share link. Give it a title a person would recognise. Attaching a link the task already has does nothing.",
+    AttachInput.extend({ task_id: taskId }),
+    WRITE,
+    async ({ task_id, ...input }) => view((await tasks.attach(p, task_id, input)).id),
+  );
+
+  tool(
+    "remove_attachment",
+    "Remove an attachment link from a task (by the attachment's id from get_task). The file itself is untouched and the task history keeps the link.",
+    DetachInput.extend({ task_id: taskId }),
+    WRITE,
+    async ({ task_id, ...input }) => view((await tasks.detach(p, task_id, input)).id),
   );
 
   tool(

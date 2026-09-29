@@ -104,6 +104,10 @@ export function activityText(
       };
     case "skip":
       return { head: "Skipped this time", body: e.body };
+    case "attached":
+      return { head: `Attached ${e.body}`, body: "" };
+    case "detached":
+      return { head: `Removed attachment ${e.body}`, body: "" };
     case "state_change":
       return { head: e.body || `Now ${data.state?.to ?? ""}`, body: "" };
     case "edit":

@@ -24,6 +24,18 @@ export interface Config {
   /** Expose POST /__test/clock so the whole stack can be driven through time. */
   testClock: boolean;
   sweepIntervalMs: number;
+  /**
+   * Google Picker on the task page, for attaching Drive files. All three come from one Google
+   * Cloud project; the browser gets its own drive.file token, so the server holds no Google
+   * credential. Off unless all three are set. Uploads go to `uploadFolderId` when set (a folder
+   * shared with the household), otherwise to the uploader's My Drive.
+   */
+  googlePicker: {
+    apiKey: string;
+    clientId: string;
+    appId: string;
+    uploadFolderId: string | null;
+  } | null;
 }
 
 /**
@@ -85,5 +97,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     devLogin,
     testClock: env.TUIT_TEST_CLOCK === "1",
     sweepIntervalMs: Number(env.TUIT_SWEEP_INTERVAL_MS ?? 60_000),
+    googlePicker:
+      env.GOOGLE_PICKER_API_KEY && env.GOOGLE_PICKER_CLIENT_ID && env.GOOGLE_PICKER_APP_ID
+        ? {
+            apiKey: env.GOOGLE_PICKER_API_KEY,
+            clientId: env.GOOGLE_PICKER_CLIENT_ID,
+            appId: env.GOOGLE_PICKER_APP_ID,
+            uploadFolderId: env.GOOGLE_PICKER_UPLOAD_FOLDER_ID || null,
+          }
+        : null,
   };
 }

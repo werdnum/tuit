@@ -20,6 +20,8 @@ import {
   type ActivityEntry,
   type Actor,
   type ActorInput,
+  AttachInput,
+  type Attachment,
   activityFromRow,
   CheckpointInput,
   CLOSED_STATES,
@@ -27,6 +29,8 @@ import {
   CloseInput,
   CompleteInput,
   CreateTaskInput,
+  DetachInput,
+  MAX_ATTACHMENTS,
   type OffsetRule,
   type Principal,
   type Task,
@@ -87,6 +91,7 @@ const TASK_COLUMNS = [
   "requires",
   "prefers",
   "recurrence",
+  "attachments",
   "last_done_at",
   "last_skip_at",
   "claim_id",
@@ -137,6 +142,7 @@ function taskColumns(t: Task): unknown[] {
     t.requires,
     t.prefers,
     t.recurrence ? JSON.stringify(t.recurrence) : null,
+    JSON.stringify(t.attachments),
     t.last_done_at,
     t.last_skip_at,
     t.claim?.id ?? null,
@@ -238,6 +244,30 @@ export function recomputeDerivedDates(t: Task): void {
     const a = anchorOf(t.target_rule);
     t.target = a ? addDays(a, t.target_rule.offset_days) : null;
   }
+}
+
+/** A link a person can open: http(s) only, and no credentials baked into it. */
+export function attachmentUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    throw new ValidationError("That isn't a link. Paste the file's full address (https://...).");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new ValidationError("Attachments must be http(s) links");
+  }
+  if (url.username || url.password) {
+    throw new ValidationError("Remove the username or password from the link");
+  }
+  return url;
+}
+
+/** A readable stand-in title when the adder gave none: the host and path, trimmed. */
+function titleFromUrl(url: URL): string {
+  const path = url.pathname === "/" ? "" : decodeURIComponent(url.pathname);
+  const text = `${url.hostname}${path}`;
+  return text.length > 80 ? `${text.slice(0, 79)}…` : text;
 }
 
 /** "Thursday" as a completion time means that day; record it at local noon. */
@@ -450,6 +480,7 @@ export class TaskService {
         requires: input.requires ?? [],
         prefers: input.prefers ?? [],
         recurrence: input.recurrence ?? null,
+        attachments: [],
         last_done_at: null,
         last_skip_at: null,
         claim: null,
@@ -686,6 +717,55 @@ export class TaskService {
       await writeTask(c, t);
       await addActivity(c, p, t.id, "skip", input.note ?? "", now);
       await addEvent(c, p, "skipped", { taskId: t.id }, now);
+      return t;
+    });
+  }
+
+  /** Attach a link to a file. Attaching a link the task already has changes nothing. */
+  async attach(p: Principal, id: string, raw: unknown): Promise<Task> {
+    const input = AttachInput.parse(raw);
+    const url = attachmentUrl(input.url).toString();
+    return this.mutate(p, input.idempotency_key, async (c, now) => {
+      const t = await this.lockTask(c, p, id, input.expected_revision);
+      if (t.attachments.some((a) => a.url === url)) return t;
+      if (t.attachments.length >= MAX_ATTACHMENTS) {
+        throw new ValidationError(
+          `A task can have at most ${MAX_ATTACHMENTS} attachments. Link a folder instead.`,
+        );
+      }
+      const a: Attachment = {
+        id: newId(),
+        url,
+        title: input.title?.trim() || titleFromUrl(new URL(url)),
+        mime_type: input.mime_type?.trim() ?? "",
+        added_at: now.toISOString(),
+        added_by: { user: p.userId, agent: p.agent },
+      };
+      t.attachments = [...t.attachments, a];
+      this.bump(t, now);
+      await writeTask(c, t);
+      await addActivity(c, p, t.id, "attached", a.title, now, {
+        data: { attachment_id: a.id, url: a.url },
+      });
+      await addEvent(c, p, "updated", { taskId: t.id }, now, { fields: ["attachments"] });
+      return t;
+    });
+  }
+
+  /** Remove a link. The file it points to is untouched; the history keeps the link. */
+  async detach(p: Principal, id: string, raw: unknown): Promise<Task> {
+    const input = DetachInput.parse(raw);
+    return this.mutate(p, input.idempotency_key, async (c, now) => {
+      const t = await this.lockTask(c, p, id, input.expected_revision);
+      const a = t.attachments.find((x) => x.id === input.attachment_id);
+      if (!a) throw new NotFoundError(`Task ${id} has no attachment ${input.attachment_id}`);
+      t.attachments = t.attachments.filter((x) => x.id !== a.id);
+      this.bump(t, now);
+      await writeTask(c, t);
+      await addActivity(c, p, t.id, "detached", a.title, now, {
+        data: { attachment_id: a.id, url: a.url },
+      });
+      await addEvent(c, p, "updated", { taskId: t.id }, now, { fields: ["attachments"] });
       return t;
     });
   }

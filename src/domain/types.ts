@@ -42,6 +42,17 @@ export interface Waiting {
   follow_up: Moment | null;
 }
 
+/** A link to a file kept elsewhere. Tuit stores the reference, never the file. */
+export interface Attachment {
+  id: string;
+  url: string;
+  title: string;
+  /** Empty when the adder didn't say. */
+  mime_type: string;
+  added_at: string;
+  added_by: { user: string | null; agent: string | null };
+}
+
 export interface Task {
   id: string;
   /** Capture order; a stable tie-breaker when timestamps are equal. */
@@ -67,6 +78,7 @@ export interface Task {
   requires: string[];
   prefers: string[];
   recurrence: Recurrence | null;
+  attachments: Attachment[];
   last_done_at: string | null;
   last_skip_at: string | null;
   claim: {
@@ -135,6 +147,7 @@ export function taskFromRow(r: any): Task {
     requires: r.requires,
     prefers: r.prefers,
     recurrence: r.recurrence,
+    attachments: r.attachments,
     last_done_at: iso(r.last_done_at),
     last_skip_at: iso(r.last_skip_at),
     claim: r.claim_id
@@ -269,6 +282,35 @@ export const CheckpointInput = z
   })
   .strict();
 export type CheckpointInput = z.infer<typeof CheckpointInput>;
+
+export const MAX_ATTACHMENTS = 50;
+
+export const ATTACH_URL_DESCRIPTION =
+  "An http(s) link to the file, e.g. a Google Drive share link. Tuit keeps only the link: upload the file with your own tools first. Anyone who can see the task sees the link, but opening it depends on the file's own sharing settings.";
+
+export const AttachInput = z
+  .object({
+    url: z.string().min(1).max(2048).describe(ATTACH_URL_DESCRIPTION),
+    title: z
+      .string()
+      .max(300)
+      .optional()
+      .describe("What the file is, as a person would name it (defaults to the link's address)"),
+    mime_type: z.string().max(200).optional(),
+    expected_revision: z.number().int().optional(),
+    idempotency_key: z.string().max(200).optional(),
+  })
+  .strict();
+export type AttachInput = z.infer<typeof AttachInput>;
+
+export const DetachInput = z
+  .object({
+    attachment_id: z.string().min(1).max(100),
+    expected_revision: z.number().int().optional(),
+    idempotency_key: z.string().max(200).optional(),
+  })
+  .strict();
+export type DetachInput = z.infer<typeof DetachInput>;
 
 export const CompleteInput = z
   .object({

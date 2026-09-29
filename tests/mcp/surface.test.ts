@@ -58,6 +58,7 @@ test("the tool surface is small and task-oriented", async () => {
 
   expect(tools.map((t) => t.name).sort()).toEqual(
     [
+      "attach_link",
       "checkpoint",
       "claim_next",
       "close_task",
@@ -72,6 +73,7 @@ test("the tool surface is small and task-oriented", async () => {
       "now",
       "preview_queue",
       "release_claim",
+      "remove_attachment",
       "reopen_task",
       "run_queue",
       "save_queue",

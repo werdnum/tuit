@@ -1,6 +1,7 @@
 import { html, raw } from "hono/html";
 import type { DateTime } from "luxon";
 import type { TokenInfo } from "../api/auth.ts";
+import type { Config } from "../config.ts";
 import type { NowView, Queue } from "../domain/board.ts";
 import type { UserInfo } from "../domain/tasks.ts";
 import { local, type Moment } from "../domain/time.ts";
@@ -230,6 +231,7 @@ export function detailPage(
     activity: ActivityEntry[];
     showAll: boolean;
     conflict?: Conflict;
+    picker: Config["googlePicker"];
   },
 ): Html {
   const { task: t, status: s } = d;
@@ -456,10 +458,59 @@ export function detailPage(
       ${note}
       <h2>Brief</h2>
       ${briefSection}
+      ${attachmentsSection(t, d.picker)}
       ${history}
       ${moreSection(ctx, t, isOwner)}
     `,
   });
+}
+
+/** Where a link goes, in a person's words. */
+function linkSource(url: string): string {
+  const host = new URL(url).hostname.replace(/^www\./, "");
+  if (host === "drive.google.com") return "Google Drive";
+  if (host === "docs.google.com") return "Google Docs";
+  return host;
+}
+
+function attachmentsSection(t: Task, picker: Config["googlePicker"]): Html {
+  const self = `/tasks/${t.id}`;
+  const list = t.attachments.length
+    ? html`<ul class="list" data-attachments>
+        ${t.attachments.map(
+          (a) => html`<li data-attachment="${a.id}">
+            <a class="row-main solo" href="${a.url}" target="_blank" rel="noopener noreferrer">
+              <span class="row-title">${a.title}</span>
+              <span class="row-why">${linkSource(a.url)}</span>
+            </a>
+            <form class="inline" method="post" action="${self}/attachments/remove">
+              ${back(self)}<input type="hidden" name="attachment_id" value="${a.id}">
+              <button class="quiet" aria-label="Remove ${a.title}">Remove</button>
+            </form>
+          </li>`,
+        )}
+      </ul>`
+    : "";
+  const drive = picker
+    ? html`<button type="button" class="wide" data-drive-pick data-api-key="${picker.apiKey}" data-client-id="${picker.clientId}" data-app-id="${picker.appId}" data-folder="${picker.uploadFolderId ?? ""}">Choose or upload from Google Drive</button>
+        <p class="small muted" data-drive-status role="status"></p>
+        <form method="post" action="${self}/attachments/drive" data-drive-form hidden>${back(self)}<input type="hidden" name="items"></form>`
+    : "";
+  return html`<h2>Attachments</h2>
+    ${list}
+    <details class="sheet">
+      <summary>Attach a file</summary>
+      <div class="body">
+        ${drive}
+        <form method="post" action="${self}/attachments">
+          ${back(self)}
+          <label class="field"><span>Link</span><input type="url" name="url" required placeholder="https://drive.google.com/…" autocapitalize="off"></label>
+          <label class="field"><span>Title (optional)</span><input type="text" name="title" placeholder="e.g. Plumber's quote"></label>
+          <button class="wide">Attach link</button>
+        </form>
+        <p class="small muted">Tuit keeps the link, not the file. Opening it needs access to the file itself, so keep household files in a shared folder.</p>
+      </div>
+    </details>`;
 }
 
 function moreSection(ctx: Ctx, t: Task, isOwner: boolean): Html {

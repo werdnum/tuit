@@ -436,6 +436,82 @@ document.addEventListener("click", (e) => {
   const el = document.getElementById(b.dataset.copy);
   if (el && navigator.clipboard) navigator.clipboard.writeText(el.textContent.trim()).then(() => { b.textContent = "Copied"; });
 });
+
+// Google Drive picker on the task page, when configured. Google's scripts load only once
+// someone opens the sheet holding the button, and the Drive token lives in this page's memory.
+// Listeners are on the document because a swap replaces the body.
+let driveToken = null;
+let driveLoading = null;
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.async = true; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+function driveLoad() {
+  if (!driveLoading) {
+    driveLoading = Promise.all([
+      loadScript("https://accounts.google.com/gsi/client"),
+      loadScript("https://apis.google.com/js/api.js").then(() => new Promise((r) => gapi.load("picker", r))),
+    ]).catch((err) => { driveLoading = null; throw err; });
+  }
+  return driveLoading;
+}
+function driveStatus(b, text) {
+  const s = b.parentElement.querySelector("[data-drive-status]");
+  if (s) s.textContent = text;
+}
+document.addEventListener("toggle", (e) => {
+  const d = e.target;
+  if (d instanceof HTMLDetailsElement && d.open && d.querySelector("[data-drive-pick]")) driveLoad().catch(() => {});
+}, true);
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-drive-pick]");
+  if (!b) return;
+  if (!(window.google && google.accounts && google.picker)) {
+    driveStatus(b, "Connecting to Google Drive…");
+    driveLoad().then(
+      () => driveStatus(b, "Ready: tap the button again."),
+      () => driveStatus(b, "Couldn't reach Google Drive. Paste a link instead."),
+    );
+    return;
+  }
+  if (driveToken && driveToken.expires > Date.now()) { drivePick(b); return; }
+  // Asked for inside the tap, so the browser lets Google's sign-in window open.
+  google.accounts.oauth2.initTokenClient({
+    client_id: b.dataset.clientId,
+    scope: "https://www.googleapis.com/auth/drive.file",
+    callback: (r) => {
+      if (r.error) { driveStatus(b, "Google sign-in didn't finish."); return; }
+      driveToken = { value: r.access_token, expires: Date.now() + (Number(r.expires_in) - 60) * 1000 };
+      drivePick(b);
+    },
+    error_callback: () => driveStatus(b, "Google sign-in didn't finish."),
+  }).requestAccessToken();
+});
+function drivePick(b) {
+  const form = b.parentElement.querySelector("form[data-drive-form]");
+  const upload = new google.picker.DocsUploadView();
+  if (b.dataset.folder) upload.setParent(b.dataset.folder);
+  new google.picker.PickerBuilder()
+    .addView(new google.picker.DocsView(google.picker.ViewId.DOCS).setIncludeFolders(true).setSelectFolderEnabled(true))
+    .addView(upload)
+    .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+    .setOAuthToken(driveToken.value)
+    .setDeveloperKey(b.dataset.apiKey)
+    .setAppId(b.dataset.appId)
+    .setOrigin(location.origin)
+    .setCallback((data) => {
+      if (data.action !== google.picker.Action.PICKED || !form) return;
+      form.elements.namedItem("items").value = JSON.stringify(
+        data.docs.map((d) => ({ url: d.url, title: d.name, mime_type: d.mimeType })),
+      );
+      form.requestSubmit();
+    })
+    .build()
+    .setVisible(true);
+}
 `;
 
 const ICONS = {

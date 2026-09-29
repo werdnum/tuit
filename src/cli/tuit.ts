@@ -446,6 +446,10 @@ async function printTask(
     out(c.dim("brief"));
     for (const line of t.brief.split("\n")) out(`  ${line}`);
   }
+  if (t.attachments.length) {
+    out(c.dim("attachments"));
+    for (const a of t.attachments) out(`  ${a.title}  ${c.dim(a.url)}  ${c.dim(`(${a.id})`)}`);
+  }
   const history = all ? v.activity : v.activity.filter((a) => !HIDDEN_HISTORY_KINDS.has(a.kind));
   if (history.length) {
     out(c.dim(`history${all ? "" : " (--all for edits and system entries)"}`));
@@ -686,6 +690,32 @@ const commands: Record<string, Command> = {
         }),
       );
       confirm(ctx, "Waiting:", r);
+    },
+  },
+  attach: {
+    usage: "tuit attach <id> <url> [--title T]",
+    summary: "Attach a link to a file (Tuit keeps the link, not the file)",
+    options: { title: { type: "string" } },
+    run(ctx) {
+      const url = need(ctx.args, 1, "url");
+      return taskMutation(ctx, "Attached:", (id) => `/api/tasks/${id}/attachments`, {
+        url,
+        title: str(ctx.values, "title"),
+      });
+    },
+  },
+  detach: {
+    usage: "tuit detach <id> <attachment-id>",
+    summary: "Remove an attachment link (the file itself is untouched)",
+    run(ctx) {
+      const attachment = need(ctx.args, 1, "attachment id");
+      return taskMutation(
+        ctx,
+        "Removed attachment:",
+        (id) => `/api/tasks/${id}/attachments/${encodeURIComponent(attachment)}`,
+        {},
+        "DELETE",
+      );
     },
   },
   snooze: {

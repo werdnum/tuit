@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { ZodError } from "zod";
+import { ZodError, z } from "zod";
 import { type AuthEnv, safeNext } from "../api/auth.ts";
 import type { App } from "../app.ts";
 import { ConflictError, DomainError, NotFoundError, ValidationError } from "../domain/errors.ts";
@@ -27,6 +27,14 @@ import {
 } from "./pages.ts";
 
 const FLASH_COOKIE = "tuit_flash";
+
+/** What the Drive picker hands back for the files someone chose or uploaded. */
+const PickedFiles = z
+  .array(
+    z.object({ url: z.string(), title: z.string().optional(), mime_type: z.string().optional() }),
+  )
+  .min(1)
+  .max(20);
 type Form = Record<string, string>;
 type WebContext = Context<AuthEnv>;
 
@@ -269,6 +277,7 @@ export function webRoutes(app: App): Hono<AuthEnv> {
       ...v,
       activity,
       showAll: c.req.query("all") === "1",
+      picker: app.config.googlePicker,
       conflict: opts.conflictMine !== undefined ? { mine: opts.conflictMine } : undefined,
     });
     return c.html(html, opts.conflictMine !== undefined ? 409 : 200);
@@ -376,6 +385,29 @@ export function webRoutes(app: App): Hono<AuthEnv> {
   r.post(
     "/tasks/:id/reopen",
     taskAction((p, id, form) => tasks.reopen(p, id, { expected_revision: revision(form) })),
+  );
+
+  r.post(
+    "/tasks/:id/attachments",
+    taskAction((p, id, form) =>
+      tasks.attach(p, id, { url: form.url ?? "", title: form.title?.trim() || undefined }),
+    ),
+  );
+  r.post(
+    "/tasks/:id/attachments/drive",
+    taskAction(async (p, id, form) => {
+      let items: z.infer<typeof PickedFiles>;
+      try {
+        items = PickedFiles.parse(JSON.parse(form.items ?? ""));
+      } catch {
+        throw new ValidationError("Google Drive sent something unexpected. Try again.");
+      }
+      for (const item of items) await tasks.attach(p, id, item);
+    }),
+  );
+  r.post(
+    "/tasks/:id/attachments/remove",
+    taskAction((p, id, form) => tasks.detach(p, id, { attachment_id: form.attachment_id ?? "" })),
   );
 
   // A brief edit that loses a race re-renders with both versions, so the edit isn't lost.
