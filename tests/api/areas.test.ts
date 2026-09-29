@@ -114,6 +114,18 @@ describe("pinning", () => {
     expect(titles(now.new_items)).toEqual([]);
   });
 
+  test("pinning a task finished today doesn't put it back on today's list", async () => {
+    for (let i = 1; i <= 3; i++) await add(alex, `chore ${i}`);
+    const id = await add(alex, "already sorted");
+    await alex.get("/api/now");
+    await alex.post(`/api/tasks/${id}/complete`);
+    const before = planTitles(await alex.get("/api/now"));
+
+    await alex.post(`/api/tasks/${id}/pin`, { pinned: true });
+
+    expect(planTitles(await alex.get("/api/now"))).toEqual(before);
+  });
+
   test("a pinned task sorts first when the next day's list is made", async () => {
     for (let i = 1; i <= 6; i++) await add(alex, `chore ${i}`);
     const id = await add(alex, "the one that matters");

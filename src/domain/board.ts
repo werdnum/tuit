@@ -192,11 +192,7 @@ export class Board {
     const all = await this.assessments(p, now);
     const today = planDay(now);
     const eligible = all
-      .filter(
-        (a) =>
-          queueChecks(NOW_CONFIG, a, p, now).every((c) => c.ok) ||
-          (a.claim_lapsed && a.task.owner === p.userId),
-      )
+      .filter((a) => onNow(a, p, now))
       .sort(compareBy(NOW_CONFIG.order, NOW_CONFIG, p, now));
     const byId = new Map(eligible.map((a) => [a.task.id, a]));
 
@@ -402,9 +398,13 @@ export class Board {
    * moves the task to the top of today's list if one has been made; unpinning leaves it in place.
    */
   async pin(p: Principal, id: string, pinned: boolean): Promise<void> {
-    const day = planDay(this.clock.now());
+    const now = this.clock.now();
+    const day = planDay(now);
+    // Only a task Now would show goes to the top: one finished today would come back ticked.
+    const eligible =
+      pinned && (await this.assessments(p, now)).some((a) => a.task.id === id && onNow(a, p, now));
     await this.tasks.pin(p, id, pinned, async (c, userId) => {
-      if (!pinned) return;
+      if (!eligible) return;
       await c.query(
         `UPDATE day_plans SET task_ids = array_prepend($3::text, array_remove(task_ids, $3::text)),
            seen_ids = array_append(array_remove(seen_ids, $3::text), $3::text)
@@ -548,4 +548,11 @@ export class Board {
     }
     return out;
   }
+}
+
+function onNow(a: Assessment, p: Principal, now: Date): boolean {
+  return (
+    queueChecks(NOW_CONFIG, a, p, now).every((c) => c.ok) ||
+    (a.claim_lapsed && a.task.owner === p.userId)
+  );
 }
