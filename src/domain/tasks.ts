@@ -790,6 +790,10 @@ export class TaskService {
   async claim(p: Principal, input: ClaimInput): Promise<Task | null> {
     if (!p.agent) throw new ValidationError("Only agent credentials can claim work");
     return this.mutate(p, input.idempotency_key, async (c, now) => {
+      // A sweep in another request locks every open task while it runs, and SKIP LOCKED
+      // can't tell its locks from a rival claimer's: without waiting it out, a claim could
+      // come back empty while work remains.
+      await c.query("SELECT pg_advisory_xact_lock_shared(4242002)");
       const eligible = `state = 'open' AND actor_kind = 'agent' AND actor_agent = $1
         AND claim_id IS NULL AND ${visibleSql("t", 2)}`;
       const r = await c.query(
