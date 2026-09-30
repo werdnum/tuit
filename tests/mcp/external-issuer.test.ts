@@ -37,7 +37,8 @@ beforeEach(async () => {
   server = await TestServer.start({
     env: {
       MCP_JWT_ISSUER: issuer,
-      MCP_JWT_AUDIENCE: "tuit-mcp",
+      MCP_JWT_AUDIENCE: "tuit-mcp,tuit-api",
+      MCP_JWT_PERSONAL_CLIENTS: "tuit-ios",
       MCP_JWT_JWKS_URI: `http://127.0.0.1:${port}/certs`,
     },
   });
@@ -112,4 +113,25 @@ test("the household's own tokens still work alongside the issuer's", async () =>
 
   expect(now.plan).toEqual([]);
   await mcp.close();
+});
+
+test("a personal client's token acts as the person themself, not as an agent", async () => {
+  const app = await sign(
+    { email: "sam@example.com", email_verified: true, azp: "tuit-ios", sub: "kc-user-1" },
+    { audience: "tuit-api" },
+  );
+  const me = await fetch(`${server.url}/api/me`, { headers: { authorization: `Bearer ${app}` } });
+  expect(await me.json()).toMatchObject({
+    user: { id: "sam" },
+    agent: null,
+    can_write: true,
+    timezone: "Australia/Sydney",
+  });
+
+  const created = await fetch(`${server.url}/api/tasks`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${app}`, "content-type": "application/json" },
+    body: JSON.stringify({ title: "ring the plumber" }),
+  });
+  expect((await created.json()).task.created_by).toEqual({ user: "sam", agent: null });
 });

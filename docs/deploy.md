@@ -21,7 +21,9 @@
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | `tuit` / secret | |
 | `OIDC_TRUST_UNVERIFIED_EMAIL` | `1` | Only set this if the provider fully controls users' emails but doesn't mark them verified. |
 | `MCP_JWT_ISSUER` | `https://id.example.com/realms/home` | Optional. Remote MCP connectors authenticate with this authorization server instead of Tuit's built-in one (see below). |
-| `MCP_JWT_AUDIENCE` | `tuit-mcp` (default) | The audience connector tokens must carry. |
+| `MCP_JWT_AUDIENCE` | `tuit-mcp,tuit-api` | Audiences accepted from the issuer, comma-separated. Default `tuit-mcp`. |
+| `MCP_JWT_PERSONAL_CLIENTS` | `tuit-ios` | Optional. Clients whose tokens act as the person themself, not as an agent (the iPhone app). |
+| `TUIT_IOS_APP_IDS` | `H7NBC2S52X.dev.andrewgarrett.tuit` | Optional. `<Team ID>.<bundle id>` of the iPhone app, comma-separated for several. Served in `apple-app-site-association`, so only that app receives the sign-in callback link. |
 | `MCP_JWT_JWKS_URI` | `http://keycloak.internal/realms/home/protocol/openid-connect/certs` | Optional. Where to fetch signing keys; defaults to the issuer's discovery document. |
 | `GOOGLE_PICKER_API_KEY` | `AIza...` | Optional. With the next two, adds "Choose or upload from Google Drive" to the task page (see below). A browser key: restrict it to your `PUBLIC_URL`. |
 | `GOOGLE_PICKER_CLIENT_ID` | `1234-abc.apps.googleusercontent.com` | A Google OAuth client of type "Web application". |
@@ -42,7 +44,10 @@ These paths serve machine clients and do their own authentication:
 - `/mcp` accepts bearer tokens.
 - `/oauth/*` and `/.well-known/oauth-*` are the OAuth server for remote MCP connectors such as
   claude.ai and ChatGPT. Consent still happens behind the normal sign-in.
-- `/api/*` accepts bearer tokens for the CLI and automations.
+- `/api/*` accepts bearer tokens for the CLI, automations and the iPhone app.
+- `/.well-known/apple-app-site-association` and `/.well-known/app-auth-callback` must be public.
+  The identity provider sends the iPhone app's sign-in code to the second, and Apple fetches the
+  first to learn that only the Tuit app may receive it.
 
 If an access proxy blocks these paths, remote connectors can't connect. Header-capable clients
 still can, for example with the proxy's service tokens.
@@ -73,6 +78,20 @@ audience and a household email allowlist on `/mcp`. Keep everything else behind 
 
 Tuit's own tokens keep working for callers that don't go through the gateway, such as an
 assistant running in the same cluster.
+
+### The iPhone app
+
+The app signs in with the same issuer, as a public client with PKCE (e.g. `tuit-ios`, with consent
+required). Its redirect URI is `https://<PUBLIC_URL host>/.well-known/app-auth-callback`, it asks
+for `openid email offline_access`, and its access tokens carry `aud=tuit-api`. Tuit issues no
+tokens for it, so no Tuit endpoint has to face the internet for sign-in.
+
+- Add `tuit-api` to `MCP_JWT_AUDIENCE` and the client to `MCP_JWT_PERSONAL_CLIENTS`, so its tokens
+  act as the person, not as an agent.
+- Set `TUIT_IOS_APP_IDS`.
+- Expose `/api` publicly, with the gateway checking the issuer, `aud=tuit-api` and the household
+  email allowlist, as for `/mcp`. The web UI doesn't use `/api`, so nothing else needs it from
+  outside.
 
 ## Google Drive on the task page (optional)
 
