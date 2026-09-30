@@ -4,20 +4,21 @@ import Foundation
 import Observation
 import UIKit
 
-/// Who is signed in, to which server, and the household roster. Sign-in opens
-/// /app/authorize in a browser sheet (the person's normal SSO), confirms there, and swaps
-/// the one-time code plus PKCE verifier for a personal token kept in the Keychain.
+/// Who is signed in, to which server, and the household roster. Sign-in is OpenID Connect
+/// with the household's identity provider (Keycloak) in a browser sheet: a public client with
+/// PKCE whose code comes back on a Universal Link only this app receives. Tuit then sees the
+/// provider's access tokens, which the gateway checks before Tuit does.
 @Observable
 final class Session {
     /// The server this build's associated domains cover (Project.swift). Browser sign-in only
     /// works there; any other server needs a pasted token.
     static let defaultServer = Bundle.main.object(forInfoDictionaryKey: "TuitServer") as? String ?? ""
     static let signInHost = URL(string: defaultServer)?.host()
+    static let callbackPath = "/.well-known/app-auth-callback"
     private static let serverKey = "tuit_server_url"
-    private static let tokenKey = "tuit_token"
 
     var serverURL: String
-    private(set) var token: String?
+    private(set) var credentials: Credentials?
     private(set) var me: Me?
     var signingIn = false
     var error: String?
@@ -30,22 +31,22 @@ final class Session {
 
     init() {
         serverURL = UserDefaults.standard.string(forKey: Self.serverKey) ?? Self.defaultServer
-        token = Keychain.read(Self.tokenKey)
+        credentials = Credentials.stored()
         #if DEBUG
         // For simulator runs and screenshots: `simctl launch` with TUIT_SERVER and TUIT_TOKEN.
         let env = ProcessInfo.processInfo.environment
         if let server = env["TUIT_SERVER"], let debugToken = env["TUIT_TOKEN"] {
             serverURL = server
-            token = debugToken
+            credentials = .debug(debugToken)
         }
         #endif
     }
 
-    var isSignedIn: Bool { token != nil }
+    var isSignedIn: Bool { credentials != nil }
 
     var api: API? {
-        guard let token, let base = URL(string: serverURL) else { return nil }
-        return API(base: base, token: token)
+        guard let credentials, let base = URL(string: serverURL) else { return nil }
+        return API(base: base, credentials: credentials)
     }
 
     func name(of userId: String) -> String {
@@ -82,24 +83,42 @@ final class Session {
         }
         error = nil
         signingIn = true
+        Task { await startSignIn(host: host) }
+    }
+
+    private func startSignIn(host: String) async {
+        let provider: IdentityProvider
+        do {
+            provider = try await IdentityProvider.discover()
+        } catch {
+            self.error = error.localizedDescription
+            signingIn = false
+            return
+        }
         let verifier = Self.randomURLSafe(32)
         let state = Self.randomURLSafe(16)
+        let redirect = "https://\(host)\(Self.callbackPath)"
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded
-        var comps = URLComponents(url: base.appending(path: "app/authorize"), resolvingAgainstBaseURL: false)!
+        var comps = URLComponents(url: provider.authorizationEndpoint, resolvingAgainstBaseURL: false)!
         comps.queryItems = [
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "client_id", value: IdentityProvider.clientId),
+            URLQueryItem(name: "redirect_uri", value: redirect),
+            // offline_access: a refresh token that outlives the browser session.
+            URLQueryItem(name: "scope", value: "openid email offline_access"),
             URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
             URLQueryItem(name: "state", value: state),
-            URLQueryItem(name: "device", value: UIDevice.current.name),
         ]
         authSession?.cancel()
         let session = ASWebAuthenticationSession(
             url: comps.url!,
             // A Universal Link iOS only hands to this app, because the server's
             // apple-app-site-association names it. A tuit:// scheme could be claimed by any app.
-            callback: .https(host: host, path: "/.well-known/app-auth-callback")
+            callback: .https(host: host, path: Self.callbackPath)
         ) { [weak self] url, err in
             Task { @MainActor in
-                await self?.finishSignIn(base: base, callback: url, error: err, verifier: verifier, state: state)
+                await self?.finishSignIn(provider, redirect: redirect, callback: url, error: err, verifier: verifier, state: state)
             }
         }
         session.presentationContextProvider = presenter
@@ -110,7 +129,9 @@ final class Session {
         }
     }
 
-    private func finishSignIn(base: URL, callback: URL?, error err: Error?, verifier: String, state: String) async {
+    private func finishSignIn(
+        _ provider: IdentityProvider, redirect: String, callback: URL?, error err: Error?, verifier: String, state: String
+    ) async {
         defer { signingIn = false; authSession = nil }
         if let err {
             if (err as? ASWebAuthenticationSessionError)?.code != .canceledLogin {
@@ -131,40 +152,40 @@ final class Session {
             return
         }
         do {
-            var req = URLRequest(url: base.appending(path: "app/token"))
-            req.httpMethod = "POST"
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONEncoder().encode(["code": code, "code_verifier": verifier])
-            let (data, response) = try await URLSession.shared.data(for: req)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-                let message = (try? API.decoder.decode(APIErrorBody.self, from: data))?.message
-                error = message ?? "Sign-in failed. Try again."
+            let grant = try await TokenGrant.request(provider.tokenEndpoint, [
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                "redirect_uri": redirect,
+                "client_id": IdentityProvider.clientId,
+            ])
+            guard let credentials = Credentials.signedIn(provider, grant) else {
+                error = "The sign-in service didn't allow staying signed in. Try again."
                 return
             }
-            struct Granted: Decodable { var token: String }
-            let granted = try JSONDecoder().decode(Granted.self, from: data)
-            use(token: granted.token)
+            remember(credentials)
             await refreshMe()
+        } catch APIError.unauthenticated {
+            error = "That sign-in expired. Try again."
         } catch {
-            self.error = "Couldn't reach \(base.host() ?? "the server"): \(error.localizedDescription)"
+            self.error = error.localizedDescription
         }
     }
 
-    /// For a personal token made in Settings → Tokens, e.g. when the server has no browser sign-in.
+    /// For a personal token made in Settings → Tokens, e.g. on a server without app sign-in.
     func signIn(withToken raw: String) async {
         guard normalizedServer() != nil else {
             error = "That doesn't look like a web address."
             return
         }
-        use(token: raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        remember(.pasted(raw.trimmingCharacters(in: .whitespacesAndNewlines)))
         await refreshMe()
         if me == nil { signOutLocally() }
     }
 
-    private func use(token: String) {
+    private func remember(_ credentials: Credentials) {
         UserDefaults.standard.set(serverURL, forKey: Self.serverKey)
-        Keychain.write(Self.tokenKey, token)
-        self.token = token
+        self.credentials = credentials
         cursor = nil
     }
 
@@ -183,18 +204,13 @@ final class Session {
     }
 
     func signOut() async {
-        if let token, let base = URL(string: serverURL) {
-            var req = URLRequest(url: base.appending(path: "app/signout"))
-            req.httpMethod = "POST"
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            _ = try? await URLSession.shared.data(for: req)
-        }
+        await credentials?.revoke()
         signOutLocally()
     }
 
     private func signOutLocally() {
-        Keychain.delete(Self.tokenKey)
-        token = nil
+        Credentials.clear()
+        credentials = nil
         me = nil
         cursor = nil
     }

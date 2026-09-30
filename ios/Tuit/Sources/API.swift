@@ -20,9 +20,9 @@ enum APIError: LocalizedError {
 
 /// A thin client for the REST API. Every rule (urgency, recurrence, visibility) is the
 /// server's; this only moves JSON.
-struct API: Sendable {
+struct API {
     let base: URL
-    let token: String
+    let credentials: Credentials
 
     static let decoder: JSONDecoder = {
         let d = JSONDecoder()
@@ -54,6 +54,18 @@ struct API: Sendable {
 
     private func send<T: Decodable, B: Encodable>(
         _ method: String, _ path: String, query: [String: String] = [:], body: B?
+    ) async throws -> T {
+        do {
+            return try await attempt(method, path, query: query, body: body, token: credentials.accessToken())
+        } catch APIError.unauthenticated where credentials.canRefresh {
+            // The access token may have been revoked or expired early: renew once and retry.
+            let fresh = try await credentials.accessToken(forceRefresh: true)
+            return try await attempt(method, path, query: query, body: body, token: fresh)
+        }
+    }
+
+    private func attempt<T: Decodable, B: Encodable>(
+        _ method: String, _ path: String, query: [String: String], body: B?, token: String
     ) async throws -> T {
         var comps = URLComponents(url: base.appending(path: "api" + path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty { comps.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) } }

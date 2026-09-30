@@ -4,6 +4,9 @@ let team = "H7NBC2S52X"
 /// The household's server. Browser sign-in only works for a host listed in the app's associated
 /// domains, whose apple-app-site-association names this app (TUIT_IOS_APP_IDS on the server).
 let host = "tuit.andrewgarrett.dev"
+/// The app signs in here as a public PKCE client; the gateway checks its tokens on /api.
+let issuer = "https://id.andrewgarrett.dev/realms/master"
+let clientId = "tuit-ios"
 
 let project = Project(
     name: "Tuit",
@@ -30,6 +33,8 @@ let project = Project(
                 "CFBundleShortVersionString": "$(MARKETING_VERSION)",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
                 "TuitServer": .string("https://\(host)"),
+                "TuitIssuer": .string(issuer),
+                "TuitClientId": .string(clientId),
                 "UILaunchScreen": ["UIColorName": "LaunchBackground"],
                 "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"],
                 "UISupportedInterfaceOrientations~ipad": [

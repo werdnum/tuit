@@ -20,24 +20,34 @@ interpret anything itself: urgency, labels, recurrence and visibility all come f
 
 ## Signing in
 
-The app opens `/app/authorize` in a browser sheet (`ASWebAuthenticationSession`). There the
-person signs in with the normal SSO and confirms "Sign in to the Tuit app?". The server then
-redirects to `https://<host>/.well-known/app-auth-callback` with a one-time code. That is a
-Universal Link: iOS gives it only to this app, because the app's associated domains list the host
-and the server's `apple-app-site-association` names the app. A `tuit://` scheme would not do,
-because any app can claim one. The app swaps the code and its PKCE verifier at `POST /app/token`
-for a **personal token**. The token is stored in the Keychain and appears in Settings → Tokens as
-"Tuit app on <device>". Signing out revokes it (`POST /app/signout`).
+The app signs in with the household's identity provider (Keycloak), not with Tuit. It uses
+standard OpenID Connect in a browser sheet (`ASWebAuthenticationSession`), as the public client
+`tuit-ios` with PKCE and a consent screen:
+
+1. It opens Keycloak's authorization endpoint, found from `TuitIssuer` in Project.swift.
+2. Keycloak sends the code to `https://<host>/.well-known/app-auth-callback`. That is a Universal
+   Link: iOS gives it only to this app, because the app's associated domains list the host and
+   the server's `apple-app-site-association` names the app. A `tuit://` scheme would not do,
+   because any app can claim one.
+3. The app redeems the code and its PKCE verifier at Keycloak's token endpoint. It asks for
+   `offline_access`, so the refresh token outlives the browser session.
+4. The refresh token lives in the Keychain. Access tokens (`aud=tuit-api`) are kept in memory
+   and renewed shortly before they lapse, or once after a 401.
+5. On `/api`, the gateway checks each access token before Tuit sees it, as for `/mcp`. Tuit
+   checks it again and, because `tuit-ios` is a personal client, acts as the person rather than
+   as an agent.
+6. Signing out revokes the refresh token at Keycloak.
+
+Tuit itself issues nothing for the app.
 
 For this to work:
 
-- the server is the one in `Project.swift` (`host`, currently `tuit.andrewgarrett.dev`), since
-  entitlements are fixed at build time;
-- the server has `TUIT_IOS_APP_IDS=H7NBC2S52X.dev.andrewgarrett.tuit`;
-- `/.well-known/*`, `/api/*`, `/app/token` and `/app/signout` get past any access proxy (see
-  docs/deploy.md), because Apple's CDN and the app can't sign in to one.
+- the server is the one in `Project.swift` (`host`), since entitlements are fixed at build time;
+- Keycloak has the `tuit-ios` client, with that callback as its redirect URI;
+- Tuit has `TUIT_IOS_APP_IDS`, `tuit-api` in `MCP_JWT_AUDIENCE`, and `tuit-ios` in
+  `MCP_JWT_PERSONAL_CLIENTS` (see docs/deploy.md).
 
-Any other server, including `npm run local`, works with a pasted personal token from
+Any other server, such as `npm run local`, works with a pasted personal token from
 Settings → Tokens.
 
 ## On your iPhone
