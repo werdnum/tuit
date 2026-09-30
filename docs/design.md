@@ -34,6 +34,12 @@ and wire formats live in the code and tests.
   tokens. Consent happens behind the person's normal SSO session. The result is an ordinary agent
   token bound to whoever approved it, so there is no second permission model. A connector that
   asks for read-only access cannot be granted write.
+- The **iPhone app** signs in with the identity provider itself, as a public client with PKCE, and
+  presents the provider's access tokens like a connector does. Its client is configured as
+  *personal*, so it acts as the person rather than as an agent. The provider sends the code to an
+  https Universal Link on Tuit's host (`/.well-known/app-auth-callback`), which
+  `apple-app-site-association` gives only to the Tuit app's Team ID and bundle ID; a custom URL
+  scheme could be claimed by any app.
 - An email counts only if the identity provider marks it verified.
 
 ### Visibility

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { ZodError } from "zod";
+import { appLinkRoutes } from "./api/app-link.ts";
 import { Auth, type AuthEnv } from "./api/auth.ts";
 import { oauthRoutes } from "./api/oauth.ts";
 import { restApi } from "./api/rest.ts";
@@ -67,6 +68,7 @@ export function buildApp(config: Config, db: Database): { app: App; http: Hono<A
   }
 
   http.route("/", oauthRoutes(app));
+  http.route("/", appLinkRoutes(app));
   http.route("/api", restApi(app));
   http.route("/mcp", mcpRoutes(app));
   http.route("/", webRoutes(app));

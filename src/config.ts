@@ -16,7 +16,22 @@ export interface Config {
    * remote MCP connectors. When set, the built-in OAuth server is switched off and the
    * protected-resource metadata points connectors at this issuer instead.
    */
-  mcpJwt: { issuer: string; audience: string; jwksUri: string | null } | null;
+  mcpJwt: {
+    issuer: string;
+    /** Any of these audiences is accepted: tuit-mcp for connectors, tuit-api for the app. */
+    audiences: string[];
+    jwksUri: string | null;
+    /**
+     * Clients whose tokens act as the person themself rather than as an agent, e.g. the
+     * iPhone app (tuit-ios). Everything else from the issuer is an agent named after its client.
+     */
+    personalClients: string[];
+  } | null;
+  /**
+   * "<Team ID>.<bundle id>" of native iPhone apps allowed to receive the sign-in callback, e.g.
+   * "H7NBC2S52X.dev.andrewgarrett.tuit". Served in apple-app-site-association.
+   */
+  iosAppIds: string[];
   /** Accept an email the provider doesn't mark verified. Off unless the IdP controls emails. */
   oidcTrustUnverifiedEmail: boolean;
   /** Pick-a-user login with no identity provider. Only honoured for a localhost public URL. */
@@ -56,6 +71,12 @@ export function parseUsers(spec: string): HouseholdUser[] {
     });
 }
 
+const list = (s: string) =>
+  s
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -90,10 +111,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     mcpJwt: env.MCP_JWT_ISSUER
       ? {
           issuer: env.MCP_JWT_ISSUER,
-          audience: env.MCP_JWT_AUDIENCE ?? "tuit-mcp",
+          audiences: list(env.MCP_JWT_AUDIENCE ?? "tuit-mcp"),
           jwksUri: env.MCP_JWT_JWKS_URI ?? null,
+          personalClients: list(env.MCP_JWT_PERSONAL_CLIENTS ?? ""),
         }
       : null,
+    iosAppIds: list(env.TUIT_IOS_APP_IDS ?? ""),
     devLogin,
     testClock: env.TUIT_TEST_CLOCK === "1",
     sweepIntervalMs: Number(env.TUIT_SWEEP_INTERVAL_MS ?? 60_000),

@@ -164,7 +164,8 @@ export class Auth {
 
   /**
    * An access token from the external issuer: the email claim picks the household member and
-   * the client it was issued to becomes the agent name ("tuit-claude-ai" -> "claude-ai").
+   * the client it was issued to becomes the agent name ("tuit-claude-ai" -> "claude-ai"), except
+   * for personal clients such as the iPhone app, which act as the person themself.
    */
   private async jwtPrincipal(token: string): Promise<Principal | null> {
     const cfg = this.config.mcpJwt;
@@ -173,7 +174,7 @@ export class Auth {
     try {
       ({ payload } = await jwtVerify(token, await this.keySet(), {
         issuer: cfg.issuer,
-        audience: cfg.audience,
+        audience: cfg.audiences,
       }));
     } catch {
       return null;
@@ -185,6 +186,9 @@ export class Auth {
     const user = this.config.users.find((u) => u.email === email);
     if (!user) return null;
     const client = String(payload.azp ?? payload.client_id ?? "connector");
+    if (cfg.personalClients.includes(client)) {
+      return { userId: user.id, agent: null, canWrite: true, key: `jwt:${client}:${user.id}` };
+    }
     const agent =
       client
         .replace(/^tuit-/, "")

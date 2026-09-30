@@ -2,6 +2,7 @@ import { type Context, Hono } from "hono";
 import { z } from "zod";
 import type { App } from "../app.ts";
 import { ForbiddenError, ValidationError } from "../domain/errors.ts";
+import { ZONE } from "../domain/time.ts";
 import { ActorInput, ClaimInput, MomentInput, NOTE_KINDS } from "../domain/types.ts";
 import type { AuthEnv } from "./auth.ts";
 
@@ -51,6 +52,8 @@ export function restApi(app: App): Hono<AuthEnv> {
       agent: p.agent,
       can_write: p.canWrite,
       household: users.map((u) => ({ id: u.id, name: u.name })),
+      // Calendar dates ("deadline: 2026-10-03") are days in this zone, for clients to show.
+      timezone: ZONE,
     });
   });
 
