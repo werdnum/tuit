@@ -1,8 +1,11 @@
 import Foundation
 import SwiftUI
 
-/// The household's zone: calendar dates from the server are days there, not on the phone.
-let householdZone = TimeZone(identifier: "Australia/Sydney")!
+enum Household {
+    /// Calendar dates from the server are days in the household's zone, not the phone's. Set
+    /// from /api/me; Sydney until then (the server's default).
+    static var zone = TimeZone(identifier: "Australia/Sydney")!
+}
 
 enum Fmt {
     private static let iso: ISO8601DateFormatter = {
@@ -35,15 +38,15 @@ enum Fmt {
         case .date(let d):
             let f = DateFormatter()
             f.dateFormat = "yyyy-MM-dd"
-            f.timeZone = householdZone
+            f.timeZone = Household.zone
             guard let day = f.date(from: d) else { return d }
             var cal = Calendar(identifier: .gregorian)
-            cal.timeZone = householdZone
+            cal.timeZone = Household.zone
             if cal.isDateInToday(day) { return "today" }
             if cal.isDateInTomorrow(day) { return "tomorrow" }
             if cal.isDateInYesterday(day) { return "yesterday" }
             let out = DateFormatter()
-            out.timeZone = householdZone
+            out.timeZone = Household.zone
             out.setLocalizedDateFormatFromTemplate(cal.isDate(day, equalTo: .now, toGranularity: .year) ? "EEE d MMM" : "d MMM yyyy")
             return out.string(from: day)
         }
@@ -57,7 +60,7 @@ enum Fmt {
         case .at(let a):
             date(a).map {
                 let f = DateFormatter()
-                f.timeZone = householdZone
+                f.timeZone = Household.zone
                 f.dateFormat = "yyyy-MM-dd HH:mm"
                 return f.string(from: $0)
             } ?? a
@@ -67,7 +70,7 @@ enum Fmt {
     /// A day as the API's date string, in the household's zone.
     static func day(_ d: Date) -> String {
         let f = DateFormatter()
-        f.timeZone = householdZone
+        f.timeZone = Household.zone
         f.dateFormat = "yyyy-MM-dd"
         return f.string(from: d)
     }

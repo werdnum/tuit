@@ -294,7 +294,7 @@ struct CaptureField: View {
     private func add() async {
         var title = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, let api = session.api else { return }
-        if let area, !title.contains("#") { title += " #\(area)" }
+        if let area, !namesArea(title) { title += " #\(area)" }
         sending = true
         defer { sending = false }
         do {
@@ -306,4 +306,21 @@ struct CaptureField: View {
             self.error = session.handle(error)
         }
     }
+}
+
+/// Whether the server will file this capture under an area itself: a single #word at the start
+/// or end, as in `splitAreaTag` (src/domain/types.ts). "#3" or "#none" don't count, nor does a
+/// tag in the middle.
+func namesArea(_ title: String) -> Bool {
+    let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    let tag = "#([a-z0-9][a-z0-9_-]{0,39})"
+    for pattern in ["^\(tag)\\s+\\S", "\\S\\s+\(tag)$"] {
+        guard let re = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+              let m = re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
+              let r = Range(m.range(at: 1), in: t)
+        else { continue }
+        let word = t[r].lowercased()
+        if word != "none", !word.allSatisfy(\.isNumber) { return true }
+    }
+    return false
 }

@@ -1,0 +1,3 @@
+# Pins Tuist for Xcode Cloud (ci_scripts/ci_post_clone.sh) and anyone using mise locally.
+[tools]
+tuist = "4.195.6"

@@ -9,7 +9,10 @@ import UIKit
 /// the one-time code plus PKCE verifier for a personal token kept in the Keychain.
 @Observable
 final class Session {
-    static let defaultServer = ""
+    /// The server this build's associated domains cover (Project.swift). Browser sign-in only
+    /// works there; any other server needs a pasted token.
+    static let defaultServer = Bundle.main.object(forInfoDictionaryKey: "TuitServer") as? String ?? ""
+    static let signInHost = URL(string: defaultServer)?.host()
     private static let serverKey = "tuit_server_url"
     private static let tokenKey = "tuit_token"
 
@@ -73,6 +76,10 @@ final class Session {
             error = "That doesn't look like a web address."
             return
         }
+        guard let host = base.host(), host == Self.signInHost else {
+            error = "This app can only sign in to \(Self.signInHost ?? "its own server") in the browser. For another server, use a token."
+            return
+        }
         error = nil
         signingIn = true
         let verifier = Self.randomURLSafe(32)
@@ -85,7 +92,12 @@ final class Session {
             URLQueryItem(name: "device", value: UIDevice.current.name),
         ]
         authSession?.cancel()
-        let session = ASWebAuthenticationSession(url: comps.url!, callbackURLScheme: "tuit") { [weak self] url, err in
+        let session = ASWebAuthenticationSession(
+            url: comps.url!,
+            // A Universal Link iOS only hands to this app, because the server's
+            // apple-app-site-association names it. A tuit:// scheme could be claimed by any app.
+            callback: .https(host: host, path: "/.well-known/app-auth-callback")
+        ) { [weak self] url, err in
             Task { @MainActor in
                 await self?.finishSignIn(base: base, callback: url, error: err, verifier: verifier, state: state)
             }
@@ -160,6 +172,7 @@ final class Session {
         guard let api else { return }
         do {
             me = try await api.get("/me")
+            if let zone = me?.timezone.flatMap(TimeZone.init(identifier:)) { Household.zone = zone }
             if me?.agent != nil {
                 error = "That token belongs to an agent. Use a personal token or sign in."
                 signOutLocally()

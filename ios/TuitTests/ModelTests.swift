@@ -48,3 +48,23 @@ private let taskJSON = #"""
     #expect((json["waiting"] as? [String: Any])?["follow_up"] as? String == "fri")
     #expect(json["idempotency_key"] is String)
 }
+
+@Test func captureKeepsItsOwnAreaTagOnly() {
+    #expect(namesArea("#tuit fix the feed"))
+    #expect(namesArea("fix the feed #Tuit"))
+    #expect(!namesArea("Ask about #3"))
+    #expect(!namesArea("ask about #3 today"))
+    #expect(!namesArea("fix #tuit feed"))
+    #expect(!namesArea("#none thing"))
+    #expect(!namesArea("#tuit"))
+}
+
+@Test func calendarDatesUseTheHouseholdZone() throws {
+    let saved = Household.zone
+    defer { Household.zone = saved }
+    let instant = try #require(ISO8601DateFormatter().date(from: "2026-10-02T20:00:00Z"))
+    Household.zone = TimeZone(identifier: "Australia/Sydney")!
+    #expect(Fmt.day(instant) == "2026-10-03")
+    Household.zone = TimeZone(identifier: "America/Los_Angeles")!
+    #expect(Fmt.day(instant) == "2026-10-02")
+}

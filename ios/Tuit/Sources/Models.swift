@@ -221,6 +221,8 @@ struct Me: Codable {
     var agent: String?
     var canWrite: Bool
     var household: [User]
+    /// Calendar dates are days in this zone. Missing from servers older than the app.
+    var timezone: String?
 }
 
 struct TaskList: Codable {

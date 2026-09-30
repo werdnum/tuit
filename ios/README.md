@@ -16,19 +16,29 @@ interpret anything itself: urgency, labels, recurrence and visibility all come f
 - **Tasks**: search, or browse by state.
 - **Live updates**: while the app is open it polls `/api/changes` every 15 seconds and
   reloads when the feed moves.
-- `tuit://tasks/<id>` opens a task.
+- `tuit://tasks/<id>` opens a task (the scheme is only for links, never for sign-in).
 
 ## Signing in
 
 The app opens `/app/authorize` in a browser sheet (`ASWebAuthenticationSession`). There the
-person signs in with the normal SSO and confirms "Sign in to the Tuit app?". The server
-redirects to `tuit://signed-in` with a one-time code, and the app swaps the code and its PKCE
-verifier at `POST /app/token` for a **personal token**. The token is stored in the Keychain
-and appears in Settings → Tokens as "Tuit app on <device>". Signing out revokes it
-(`POST /app/signout`). This path works whether or not the built-in OAuth server is on, i.e.
-also when connectors use Keycloak.
+person signs in with the normal SSO and confirms "Sign in to the Tuit app?". The server then
+redirects to `https://<host>/.well-known/app-auth-callback` with a one-time code. That is a
+Universal Link: iOS gives it only to this app, because the app's associated domains list the host
+and the server's `apple-app-site-association` names the app. A `tuit://` scheme would not do,
+because any app can claim one. The app swaps the code and its PKCE verifier at `POST /app/token`
+for a **personal token**. The token is stored in the Keychain and appears in Settings → Tokens as
+"Tuit app on <device>". Signing out revokes it (`POST /app/signout`).
 
-Pasting a personal token made in Settings → Tokens works too.
+For this to work:
+
+- the server is the one in `Project.swift` (`host`, currently `tuit.andrewgarrett.dev`), since
+  entitlements are fixed at build time;
+- the server has `TUIT_IOS_APP_IDS=H7NBC2S52X.dev.andrewgarrett.tuit`;
+- `/.well-known/*`, `/api/*`, `/app/token` and `/app/signout` get past any access proxy (see
+  docs/deploy.md), because Apple's CDN and the app can't sign in to one.
+
+Any other server, including `npm run local`, works with a pasted personal token from
+Settings → Tokens.
 
 ## On your iPhone
 
@@ -43,10 +53,29 @@ It generates the project, builds a Release build, installs it and launches it. A
 cable install you can pair the phone over Wi-Fi in Xcode (Window → Devices), and later installs
 don't need the cable.
 
+## TestFlight with Xcode Cloud
+
+The Xcode project isn't checked in. `ci_scripts/ci_post_clone.sh` installs the Tuist version
+pinned in `.mise.toml` and generates it after Xcode Cloud clones the repo. One-time setup, on a
+Mac with Xcode signed in to team `H7NBC2S52X`:
+
+1. The App Store Connect app record for `dev.andrewgarrett.tuit` exists.
+2. In the Apple Developer portal, the App ID `dev.andrewgarrett.tuit` has **Associated Domains**
+   enabled. Automatic signing usually does this on the first signed build.
+3. Run `cd ios && tuist generate`, open `Tuit.xcodeproj`, then choose Product → Xcode Cloud →
+   Create Workflow for the `Tuit` scheme and grant access to `werdnum/tuit`.
+4. Edit the workflow:
+   - start condition: changes to `main` under `ios/`;
+   - action: **Archive**, platform iOS;
+   - post-action: **TestFlight Internal Testing**, to your internal group.
+5. Start a build. The build number comes from Xcode Cloud.
+
+Nothing about the workflow is stored in the repo. If `ci_post_clone.sh` fails to find Tuist,
+check that the workflow's clone includes `ios/.mise.toml`.
+
 ## Building
 
-The Xcode project is generated from `Project.swift` with [Tuist](https://tuist.dev)
-(`brew install tuist`) and is not checked in.
+Generate the project with [Tuist](https://tuist.dev) (`brew install tuist`, or `mise install`):
 
 ```bash
 cd ios
@@ -56,8 +85,8 @@ xcodebuild -project Tuit.xcodeproj -scheme Tuit \
 ```
 
 Signing is automatic, with team `H7NBC2S52X` and bundle id `dev.andrewgarrett.tuit`. To use
-another team, change both in `Project.swift`. If the repo is on a network or shared volume,
-pass `-derivedDataPath` pointing at a local disk.
+another team, change both in `Project.swift`, along with `host`. If the repo is on a network or
+shared volume, pass `-derivedDataPath` pointing at a local disk.
 
 ### Against a local server
 
