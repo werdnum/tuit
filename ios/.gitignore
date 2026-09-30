@@ -1,4 +1,10 @@
+# Keep the generated project and shared scheme visible to Xcode Cloud's workflow editor.
 *.xcodeproj
+!Tuit.xcodeproj/
+Tuit.xcodeproj/xcuserdata/
+xcuserdata/
 *.xcworkspace
+!Tuit.xcodeproj/project.xcworkspace/
+!Tuit.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 Derived/
 build/

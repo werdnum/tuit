@@ -65,9 +65,11 @@ don't need the cable.
 
 ## TestFlight with Xcode Cloud
 
-The Xcode project isn't checked in. `ci_scripts/ci_post_clone.sh` installs the Tuist version
-pinned in `.mise.toml` and generates it after Xcode Cloud clones the repo. One-time setup, on a
-Mac with Xcode signed in to team `H7NBC2S52X`:
+The generated Xcode project and shared scheme are checked in so Xcode Cloud can discover the
+archive scheme in its workflow editor. `ci_scripts/ci_post_clone.sh` installs the Tuist version
+pinned in `.mise.toml` and regenerates the project after Xcode Cloud clones the repo. When
+`Project.swift` changes, regenerate and commit the project too. One-time setup, on a Mac with
+Xcode signed in to team `H7NBC2S52X`:
 
 1. The App Store Connect app record for `dev.andrewgarrett.tuit` exists.
 2. In the Apple Developer portal, the App ID `dev.andrewgarrett.tuit` has **Associated Domains**
