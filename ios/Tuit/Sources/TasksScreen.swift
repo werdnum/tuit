@@ -28,6 +28,7 @@ struct TasksScreen: View {
                 }
                 ForEach(tasks) { t in
                     NavigationLink(value: t.id) { TaskListRow(task: t) }
+                        .contextMenu { TaskShareButton(task: t) }
                 }
             }
         }

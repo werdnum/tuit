@@ -99,6 +99,7 @@ struct NowScreen: View {
         NavigationLink(value: item.task.id) {
             TaskRow(item: item, done: done)
         }
+        .contextMenu { TaskShareButton(task: item.task) }
         .swipeActions(edge: .leading) {
             if !done {
                 Button { Task { await act(item) { api in

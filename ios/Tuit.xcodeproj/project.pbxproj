@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		016FB4E7569F19CAF6CF013B /* TaskSharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 439F087516A2F80CE1061E18 /* TaskSharing.swift */; };
 		059E46409D7F5F81AEC566A5 /* API.swift in Sources */ = {isa = PBXBuildFile; fileRef = A866555149843BAF61AD2026 /* API.swift */; };
 		1B45162E226D9AFE8CCD1419 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 31BCC71EB5172C176692FE38 /* PrivacyInfo.xcprivacy */; };
 		21A09B51E313B0C6FB4C50A8 /* CaptureIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B17092B78BF01F47DF5065 /* CaptureIntent.swift */; };
@@ -64,6 +65,7 @@
 		15B17092B78BF01F47DF5065 /* CaptureIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureIntent.swift; sourceTree = "<group>"; };
 		31BCC71EB5172C176692FE38 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		3D73E5A54E1B3514D07CA5E1 /* TuitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TuitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		439F087516A2F80CE1061E18 /* TaskSharing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskSharing.swift; sourceTree = "<group>"; };
 		4E59CEA820FD377F504DBA71 /* TuitTests-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TuitTests-Info.plist"; sourceTree = "<group>"; };
 		4FDB24E0B656BE47042C35E7 /* Tuit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tuit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		702B5BDCD31A0183B5D8E6EE /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -133,6 +135,7 @@
 				9EC1DAC11121ABFDE2D83360 /* Session.swift */,
 				DA626FD9E98F20BEE7A35111 /* Sheets.swift */,
 				D5F31EA8ECFD850DD856CEB5 /* TaskDetailScreen.swift */,
+				439F087516A2F80CE1061E18 /* TaskSharing.swift */,
 				A160032DA9AEF184ADA87852 /* TasksScreen.swift */,
 				7B5C654DC25F7A724B332880 /* TuitApp.swift */,
 			);
@@ -322,6 +325,7 @@
 				28F92A3CFF1C46EBCD508269 /* Session.swift in Sources */,
 				CF3EC7D0BC6D3E5E69BC68C3 /* Sheets.swift in Sources */,
 				C2868F55EAC37B815864A9A6 /* TaskDetailScreen.swift in Sources */,
+				016FB4E7569F19CAF6CF013B /* TaskSharing.swift in Sources */,
 				A88E5A81E3BE150BDF15DEAD /* TasksScreen.swift in Sources */,
 				D42F27A471267C658F196766 /* TuitApp.swift in Sources */,
 			);

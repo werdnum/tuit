@@ -14,6 +14,9 @@ interpret anything itself: urgency, labels, recurrence and visibility all come f
   Every change sends `expected_revision`, so a concurrent edit shows up as a conflict instead
   of being overwritten.
 - **Tasks**: search, or browse by state.
+- **Sharing**: tap Share in a task, or long-press a task in Now or Tasks and choose
+  Share task. This opens the iOS share sheet with the task's web link; recipients still need
+  access to the task, and sharing doesn't change its visibility.
 - **Live updates**: while the app is open it polls `/api/changes` every 15 seconds and
   reloads when the feed moves.
 - `tuit://tasks/<id>` opens a task (the scheme is only for links, never for sign-in).

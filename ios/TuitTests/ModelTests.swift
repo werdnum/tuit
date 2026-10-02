@@ -68,3 +68,17 @@ private let taskJSON = #"""
     Household.zone = TimeZone(identifier: "America/Los_Angeles")!
     #expect(Fmt.day(instant) == "2026-10-02")
 }
+
+@Test func sharingUsesTheSignedInServerAndWebRoute() {
+    #expect(TaskSharing.url(server: "https://tuit.example.com/", taskID: "mygvj5ep")?.absoluteString
+            == "https://tuit.example.com/tasks/mygvj5ep")
+    #expect(TaskSharing.url(server: "http://localhost:8080/tuit/", taskID: "mygvj5ep")?.absoluteString
+            == "http://localhost:8080/tuit/tasks/mygvj5ep")
+}
+
+@Test func sharingOmitsServerCredentialsAndQuery() {
+    #expect(TaskSharing.url(server: "https://user:secret@tuit.example.com/?token=secret#now", taskID: "mygvj5ep")?.absoluteString
+            == "https://tuit.example.com/tasks/mygvj5ep")
+    #expect(TaskSharing.url(server: "tuit://tasks", taskID: "mygvj5ep") == nil)
+    #expect(TaskSharing.url(server: "", taskID: "mygvj5ep") == nil)
+}
