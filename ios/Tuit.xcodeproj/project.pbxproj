@@ -9,19 +9,24 @@
 /* Begin PBXBuildFile section */
 		016FB4E7569F19CAF6CF013B /* TaskSharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 439F087516A2F80CE1061E18 /* TaskSharing.swift */; };
 		059E46409D7F5F81AEC566A5 /* API.swift in Sources */ = {isa = PBXBuildFile; fileRef = A866555149843BAF61AD2026 /* API.swift */; };
+		1139D649F5A2A478896E06F2 /* OfflineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4C53A3FCB893D3D0ADBE8B /* OfflineTests.swift */; };
 		1B45162E226D9AFE8CCD1419 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 31BCC71EB5172C176692FE38 /* PrivacyInfo.xcprivacy */; };
 		21A09B51E313B0C6FB4C50A8 /* CaptureIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B17092B78BF01F47DF5065 /* CaptureIntent.swift */; };
 		28F92A3CFF1C46EBCD508269 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EC1DAC11121ABFDE2D83360 /* Session.swift */; };
 		3D196335C4423BE4F1B02E5F /* TuistBundle+Tuit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F87DF40E3A4878EBEDCB98 /* TuistBundle+Tuit.swift */; };
+		3F4F38C567761B0D04DF29CB /* OfflineUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 628D04EBFD324EED45C122C1 /* OfflineUITests.swift */; };
 		5CE6568C2A73994CEF03EE62 /* Credentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECE314DE53727EF8B6D90C6F /* Credentials.swift */; };
 		686AD71D49DD4947146B80C4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 80AB2C32FF6740FA218C3474 /* Assets.xcassets */; };
 		6D756CA10089C0CE66600416 /* Formatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B540EA828C9E5933B42B5FB2 /* Formatting.swift */; };
+		8462E1D8318294E3EBF3D359 /* OfflineStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4249A281BA28891066A4417 /* OfflineStatus.swift */; };
 		87AA386DDAC9C0E78979ED9A /* NowScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 747F5B61516EE8749F7AC0F4 /* NowScreen.swift */; };
 		A0DAE0EE057EF6DB0CFF35BC /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6FDDF7DA019D9268DE2F26F /* ModelTests.swift */; };
 		A127111F28F860D00B44120E /* TuistAssets+Tuit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E133198F95B22AC7181A78DF /* TuistAssets+Tuit.swift */; };
 		A88E5A81E3BE150BDF15DEAD /* TasksScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A160032DA9AEF184ADA87852 /* TasksScreen.swift */; };
+		B3F6299C7F7DC3996C8AF3C2 /* OfflineIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F3D2FD310F42161F708B92 /* OfflineIntegrationTests.swift */; };
 		C2868F55EAC37B815864A9A6 /* TaskDetailScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F31EA8ECFD850DD856CEB5 /* TaskDetailScreen.swift */; };
 		C64454B8242C0D08E4143FEF /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702B5BDCD31A0183B5D8E6EE /* Models.swift */; };
+		CE52738BA40DCD2A2C8B6C6F /* OfflineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BABE66F7FC18457D503C7BA /* OfflineStore.swift */; };
 		CF3EC7D0BC6D3E5E69BC68C3 /* Sheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA626FD9E98F20BEE7A35111 /* Sheets.swift */; };
 		D42F27A471267C658F196766 /* TuitApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5C654DC25F7A724B332880 /* TuitApp.swift */; };
 		DE1E4A2BA1555FA3EE7D82DB /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = B02057653338FB9691E6FB8D /* Keychain.swift */; };
@@ -35,10 +40,27 @@
 			remoteGlobalIDString = 273A14D3691F57E7AA1F523B;
 			remoteInfo = Tuit;
 		};
+		96B31EA808D138504D8E2173 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2A4649C901B24FAD0366E8EB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 273A14D3691F57E7AA1F523B;
+			remoteInfo = Tuit;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		2A828747D017C514CC5EEF0F /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C5CD892F3AEFA501E5D440CF /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
@@ -61,23 +83,30 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		03F3D2FD310F42161F708B92 /* OfflineIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineIntegrationTests.swift; sourceTree = "<group>"; };
 		06F87DF40E3A4878EBEDCB98 /* TuistBundle+Tuit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TuistBundle+Tuit.swift"; sourceTree = "<group>"; };
 		15B17092B78BF01F47DF5065 /* CaptureIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureIntent.swift; sourceTree = "<group>"; };
 		31BCC71EB5172C176692FE38 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		3D73E5A54E1B3514D07CA5E1 /* TuitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TuitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		439F087516A2F80CE1061E18 /* TaskSharing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskSharing.swift; sourceTree = "<group>"; };
+		4CEDB69C4C2C378341665B7B /* TuitUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TuitUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E59CEA820FD377F504DBA71 /* TuitTests-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TuitTests-Info.plist"; sourceTree = "<group>"; };
 		4FDB24E0B656BE47042C35E7 /* Tuit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tuit.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		628D04EBFD324EED45C122C1 /* OfflineUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineUITests.swift; sourceTree = "<group>"; };
 		702B5BDCD31A0183B5D8E6EE /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		71A2D9F38A399BA71AC7BDEA /* Tuit.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Tuit.entitlements; sourceTree = "<group>"; };
 		747F5B61516EE8749F7AC0F4 /* NowScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowScreen.swift; sourceTree = "<group>"; };
 		7B5C654DC25F7A724B332880 /* TuitApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TuitApp.swift; sourceTree = "<group>"; };
 		80AB2C32FF6740FA218C3474 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8D4C53A3FCB893D3D0ADBE8B /* OfflineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineTests.swift; sourceTree = "<group>"; };
+		9BABE66F7FC18457D503C7BA /* OfflineStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineStore.swift; sourceTree = "<group>"; };
 		9EC1DAC11121ABFDE2D83360 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		A160032DA9AEF184ADA87852 /* TasksScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksScreen.swift; sourceTree = "<group>"; };
+		A39ACBFCBE60789A8673F967 /* TuitUITests-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TuitUITests-Info.plist"; sourceTree = "<group>"; };
 		A866555149843BAF61AD2026 /* API.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = API.swift; sourceTree = "<group>"; };
 		B02057653338FB9691E6FB8D /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		B540EA828C9E5933B42B5FB2 /* Formatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatting.swift; sourceTree = "<group>"; };
+		D4249A281BA28891066A4417 /* OfflineStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineStatus.swift; sourceTree = "<group>"; };
 		D439CE0730C255022AE31377 /* Tuit-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Tuit-Info.plist"; sourceTree = "<group>"; };
 		D5F31EA8ECFD850DD856CEB5 /* TaskDetailScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailScreen.swift; sourceTree = "<group>"; };
 		D6FDDF7DA019D9268DE2F26F /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
@@ -88,6 +117,13 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		4C920BB8BC7BEB505A373AF9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		81005946DE818163FFEAF3B4 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -118,6 +154,8 @@
 			isa = PBXGroup;
 			children = (
 				D6FDDF7DA019D9268DE2F26F /* ModelTests.swift */,
+				03F3D2FD310F42161F708B92 /* OfflineIntegrationTests.swift */,
+				8D4C53A3FCB893D3D0ADBE8B /* OfflineTests.swift */,
 			);
 			path = TuitTests;
 			sourceTree = "<group>";
@@ -132,6 +170,8 @@
 				B02057653338FB9691E6FB8D /* Keychain.swift */,
 				702B5BDCD31A0183B5D8E6EE /* Models.swift */,
 				747F5B61516EE8749F7AC0F4 /* NowScreen.swift */,
+				D4249A281BA28891066A4417 /* OfflineStatus.swift */,
+				9BABE66F7FC18457D503C7BA /* OfflineStore.swift */,
 				9EC1DAC11121ABFDE2D83360 /* Session.swift */,
 				DA626FD9E98F20BEE7A35111 /* Sheets.swift */,
 				D5F31EA8ECFD850DD856CEB5 /* TaskDetailScreen.swift */,
@@ -147,6 +187,7 @@
 			children = (
 				D439CE0730C255022AE31377 /* Tuit-Info.plist */,
 				4E59CEA820FD377F504DBA71 /* TuitTests-Info.plist */,
+				A39ACBFCBE60789A8673F967 /* TuitUITests-Info.plist */,
 			);
 			path = InfoPlists;
 			sourceTree = "<group>";
@@ -190,6 +231,7 @@
 			children = (
 				4FDB24E0B656BE47042C35E7 /* Tuit.app */,
 				3D73E5A54E1B3514D07CA5E1 /* TuitTests.xctest */,
+				4CEDB69C4C2C378341665B7B /* TuitUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -203,12 +245,21 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
+		D4EE19C41ACE3AFBEB7C96A5 /* TuitUITests */ = {
+			isa = PBXGroup;
+			children = (
+				628D04EBFD324EED45C122C1 /* OfflineUITests.swift */,
+			);
+			path = TuitUITests;
+			sourceTree = "<group>";
+		};
 		DFCCBE1F18B7D4125DA2A42A /* Project */ = {
 			isa = PBXGroup;
 			children = (
 				0E904DAF1995D5BC72DC46D2 /* Derived */,
 				5B60684580DD29829744ECE1 /* Tuit */,
 				184AEDC0DFC22E1BA4EAEB97 /* TuitTests */,
+				D4EE19C41ACE3AFBEB7C96A5 /* TuitUITests */,
 			);
 			name = Project;
 			sourceTree = "<group>";
@@ -235,6 +286,27 @@
 			productName = Tuit;
 			productReference = 4FDB24E0B656BE47042C35E7 /* Tuit.app */;
 			productType = "com.apple.product-type.application";
+		};
+		399A6CA43199CAB28448A961 /* TuitUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 89345BEFF114946683ECBD0C /* Build configuration list for PBXNativeTarget "TuitUITests" */;
+			buildPhases = (
+				BAB2ACB03B73DA400F1904BE /* Sources */,
+				4272B7A43250E710CE2A2802 /* Resources */,
+				81005946DE818163FFEAF3B4 /* Frameworks */,
+				C5CD892F3AEFA501E5D440CF /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				036FE32A475075724CC7CBE8 /* PBXTargetDependency */,
+			);
+			name = TuitUITests;
+			packageProductDependencies = (
+			);
+			productName = TuitUITests;
+			productReference = 4CEDB69C4C2C378341665B7B /* TuitUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		C196443E93786179B1154510 /* TuitTests */ = {
 			isa = PBXNativeTarget;
@@ -265,6 +337,9 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				TargetAttributes = {
+					399A6CA43199CAB28448A961 = {
+						TestTargetID = 273A14D3691F57E7AA1F523B;
+					};
 					C196443E93786179B1154510 = {
 						TestTargetID = 273A14D3691F57E7AA1F523B;
 					};
@@ -285,6 +360,7 @@
 			targets = (
 				273A14D3691F57E7AA1F523B /* Tuit */,
 				C196443E93786179B1154510 /* TuitTests */,
+				399A6CA43199CAB28448A961 /* TuitUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -296,6 +372,13 @@
 			files = (
 				686AD71D49DD4947146B80C4 /* Assets.xcassets in Resources */,
 				1B45162E226D9AFE8CCD1419 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4272B7A43250E710CE2A2802 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -322,6 +405,8 @@
 				DE1E4A2BA1555FA3EE7D82DB /* Keychain.swift in Sources */,
 				C64454B8242C0D08E4143FEF /* Models.swift in Sources */,
 				87AA386DDAC9C0E78979ED9A /* NowScreen.swift in Sources */,
+				8462E1D8318294E3EBF3D359 /* OfflineStatus.swift in Sources */,
+				CE52738BA40DCD2A2C8B6C6F /* OfflineStore.swift in Sources */,
 				28F92A3CFF1C46EBCD508269 /* Session.swift in Sources */,
 				CF3EC7D0BC6D3E5E69BC68C3 /* Sheets.swift in Sources */,
 				C2868F55EAC37B815864A9A6 /* TaskDetailScreen.swift in Sources */,
@@ -336,12 +421,28 @@
 			buildActionMask = 2147483647;
 			files = (
 				A0DAE0EE057EF6DB0CFF35BC /* ModelTests.swift in Sources */,
+				B3F6299C7F7DC3996C8AF3C2 /* OfflineIntegrationTests.swift in Sources */,
+				1139D649F5A2A478896E06F2 /* OfflineTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BAB2ACB03B73DA400F1904BE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3F4F38C567761B0D04DF29CB /* OfflineUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		036FE32A475075724CC7CBE8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = Tuit;
+			target = 273A14D3691F57E7AA1F523B /* Tuit */;
+			targetProxy = 96B31EA808D138504D8E2173 /* PBXContainerItemProxy */;
+		};
 		C887DD5439B32393F95866C6 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = Tuit;
@@ -515,6 +616,34 @@
 			};
 			name = Debug;
 		};
+		82CDD0BE2AAD7690EBBCDF2C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "Derived/InfoPlists/TuitUITests-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-L$(DT_TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.andrewgarrett.tuit.uitests;
+				PRODUCT_NAME = TuitUITests;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Tuit;
+			};
+			name = Release;
+		};
 		B13421AA6B2BD63E7D5DC070 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -544,6 +673,38 @@
 				TEST_TARGET_NAME = Tuit;
 			};
 			name = Release;
+		};
+		F1843282F136EFAC90B273E2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "Derived/InfoPlists/TuitUITests-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-L$(DT_TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.andrewgarrett.tuit.uitests;
+				PRODUCT_NAME = TuitUITests;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = (
+					"$(inherited)",
+					DEBUG,
+				);
+				SWIFT_COMPILATION_MODE = singlefile;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Tuit;
+			};
+			name = Debug;
 		};
 		F69D9485CA3469636DE2DEF5 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -613,6 +774,15 @@
 			buildConfigurations = (
 				476A0E3F02AB4FB44B3636A9 /* Debug */,
 				3A8A4468263652D7CD0B100F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		89345BEFF114946683ECBD0C /* Build configuration list for PBXNativeTarget "TuitUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F1843282F136EFAC90B273E2 /* Debug */,
+				82CDD0BE2AAD7690EBBCDF2C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

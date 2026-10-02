@@ -39,6 +39,17 @@
                ReferencedContainer = "container:Tuit.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "399A6CA43199CAB28448A961"
+               BuildableName = "TuitUITests.xctest"
+               BlueprintName = "TuitUITests"
+               ReferencedContainer = "container:Tuit.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

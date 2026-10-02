@@ -21,12 +21,15 @@ struct TaskDetailScreen: View {
         Group {
             if let view {
                 content(view)
+            } else if let error {
+                ContentUnavailableView("Not saved on this phone", systemImage: "wifi.slash", description: Text(error))
             } else {
                 ProgressView()
             }
         }
         .navigationTitle(view?.task.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .top) { OfflineBanner() }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if let task = view?.task { TaskShareButton(task: task) }
@@ -207,6 +210,7 @@ struct TaskDetailScreen: View {
                 Button { Task { await mutate { api, t in try await api.post("/tasks/\(t.id)/pin", PinBody(pinned: !v.status.pinned)) } } } label: {
                     Label(v.status.pinned ? "Unpin" : "Pin to the top", systemImage: v.status.pinned ? "pin.slash" : "pin")
                 }
+                .disabled(session.offlineStore?.offline == true)
                 Button { sheet = .edit } label: { Label("Edit", systemImage: "pencil") }
             }
             Section {
@@ -228,6 +232,7 @@ struct TaskDetailScreen: View {
         } label: {
             Label("Snooze", systemImage: "moon.zzz")
         }
+        .disabled(session.offlineStore?.offline == true)
     }
 
     @ViewBuilder
@@ -260,6 +265,9 @@ struct TaskDetailScreen: View {
 
     private func load() async {
         guard let api = session.api else { return }
+        if let data = session.offlineStore?.cached("/tasks/\(taskId)") {
+            view = try? API.decoder.decode(TaskView.self, from: data)
+        }
         do {
             view = try await api.get("/tasks/\(taskId)")
         } catch {
@@ -271,6 +279,8 @@ struct TaskDetailScreen: View {
         guard let api = session.api, let task = view?.task else { return }
         do {
             _ = try await fn(api, task)
+            error = nil
+        } catch APIError.queued {
             error = nil
         } catch {
             self.error = session.handle(error)

@@ -15,8 +15,12 @@ struct CaptureIntent: AppIntent {
         guard let api = Session().api else {
             throw IntentFailure("Open Tuit and sign in first.")
         }
-        let view: TaskView = try await api.post("/tasks", CaptureBody(title: what))
-        return .result(dialog: "Added “\(view.task.title)”.")
+        do {
+            let view: TaskView = try await api.post("/tasks", CaptureBody(title: what))
+            return .result(dialog: "Added “\(view.task.title)”.")
+        } catch APIError.queued {
+            return .result(dialog: "Saved “\(what)” on this phone. It will sync when Tuit reconnects.")
+        }
     }
 }
 

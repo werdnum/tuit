@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// The identity provider the app signs in with (Keycloak), from Info.plist (Project.swift).
 struct IdentityProvider: Codable {
@@ -33,6 +34,8 @@ final class Credentials {
     private static let refreshKey = "tuit_refresh_token"
     private static let providerKey = "tuit_identity_provider"
     private static let staticKey = "tuit_token"
+    private static let offlineKey = "tuit_offline_identity"
+    let offlineIdentity: String
 
     private enum Kind {
         case provider(IdentityProvider, refresh: String)
@@ -43,7 +46,15 @@ final class Credentials {
     private var access: (token: String, expires: Date)?
     private var refreshing: Task<String, Error>?
 
-    private init(_ kind: Kind) { self.kind = kind }
+    private init(_ kind: Kind, debugIdentity: String? = nil) {
+        self.kind = kind
+        if let debugIdentity { offlineIdentity = debugIdentity }
+        else {
+            let identity = Keychain.read(Self.offlineKey) ?? UUID().uuidString
+            Keychain.write(Self.offlineKey, identity)
+            offlineIdentity = identity
+        }
+    }
 
     /// Whatever the Keychain holds from an earlier sign-in, if anything.
     static func stored() -> Credentials? {
@@ -73,11 +84,11 @@ final class Credentials {
     }
 
     #if DEBUG
-    static func debug(_ token: String) -> Credentials { Credentials(.pasted(token)) }
+    static func debug(_ token: String) -> Credentials { Credentials(.pasted(token), debugIdentity: SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()) }
     #endif
 
     static func clear() {
-        for key in [refreshKey, providerKey, staticKey] { Keychain.delete(key) }
+        for key in [refreshKey, providerKey, staticKey, offlineKey] { Keychain.delete(key) }
     }
 
     /// A token to send now. Renews the access token a little before it lapses; several callers

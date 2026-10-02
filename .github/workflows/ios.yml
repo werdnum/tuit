@@ -1,0 +1,44 @@
+name: iOS offline tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install test tools
+        run: |
+          brew install mise postgresql@16
+          echo "$(brew --prefix postgresql@16)/bin" >> "$GITHUB_PATH"
+      - run: npm ci
+      - name: Generate iOS project
+        working-directory: ios
+        run: |
+          mise install
+          mise exec -- tuist generate --no-open
+      - name: Select an available iPhone simulator
+        run: |
+          xcrun simctl list devices available --json > /tmp/tuit-devices.json
+          node --input-type=module -e 'import fs from "node:fs"; const devices = JSON.parse(fs.readFileSync("/tmp/tuit-devices.json")).devices; const phone = Object.entries(devices).filter(([runtime]) => runtime.includes("iOS")).flatMap(([, list]) => list).find(d => d.name.startsWith("iPhone")); if (!phone) throw Error("No iPhone simulator"); fs.appendFileSync(process.env.GITHUB_ENV, `TUIT_IOS_DESTINATION=platform=iOS Simulator,id=${phone.udid}\n`);'
+      - name: Test offline persistence, real REST replay and cold launch UI
+        run: npm run test:ios:offline
+      - name: Upload simulator results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-offline-results
+          path: /tmp/tuit-offline-derived/Logs/Test/*.xcresult
+          retention-days: 7

@@ -91,13 +91,14 @@ absences. Unit tests exist only for rough date parsing, where the edge cases are
 - the change feed, and live updates in the web UI driven by it (no refreshing to see changes);
 - export;
 - MCP, OAuth connectors and the CLI;
-- a native iPhone app ([ios/](ios/README.md)) with browser sign-in.
+- a native iPhone app ([ios/](ios/README.md)) with browser sign-in, saved offline browsing and
+  durable offline capture/task changes.
 
 **Deferred:**
 - **Calendar-based routines** ("every Tuesday"). They need a real template/instance split.
 - **Webhook or push delivery** of the feed. The feed is the integration point, and
   family-assistant owns notifications.
-- **Offline capture.** There's no service worker.
+- **Browser offline capture.** There's no service worker; native iPhone offline support is shipped.
 - **A browser surface for display tokens.** They work over the API only.
 - **An idempotency key on capture from the web** (a double-submit on a flaky connection can
   create two tasks).

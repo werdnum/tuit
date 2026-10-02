@@ -140,12 +140,14 @@ struct SettingsScreen: View {
             } footer: {
                 Text("Queues, tokens and agent connectors are managed on the web.")
             }
+            OfflineChangesSection()
             Section {
                 Button("Sign out", role: .destructive) { confirming = true }
             }
         }
         .navigationTitle("Settings")
-        .confirmationDialog("Sign out of Tuit on this phone?", isPresented: $confirming, titleVisibility: .visible) {
+        .safeAreaInset(edge: .top) { OfflineBanner() }
+        .confirmationDialog(session.offlineStore?.pending.isEmpty == false ? "Sign out and discard unsynced changes?" : "Sign out of Tuit on this phone?", isPresented: $confirming, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { Task { await session.signOut() } }
         }
     }

@@ -227,6 +227,11 @@ struct Me: Codable {
 
 struct TaskList: Codable {
     var tasks: [TaskItem]
+
+    // The server's search spans states; both saved and live results need this filter.
+    func inState(_ state: String) -> [TaskItem] {
+        tasks.filter { state == "active" ? !$0.isClosed : $0.state == state }
+    }
 }
 
 struct ChangePage: Codable {
