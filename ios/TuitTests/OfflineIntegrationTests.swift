@@ -77,6 +77,32 @@ struct OfflineIntegrationTests {
         try await mode("online")
     }
 
+    @Test func multipleOfflineEditsToTheSameSavedRevisionSyncInOrder() async throws {
+        guard let config = try await config() else { return }
+        try await mode("online")
+        let store = OfflineStore(server: config.base, file: FileManager.default.temporaryDirectory.appending(path: "\(UUID())/offline.json"))
+        defer { store.clear() }
+        let api = API(base: URL(string: config.base)!, credentials: .debug(config.token), offlineStore: store)
+        let created: TaskView = try await api.post("/tasks", CaptureBody(title: "Ordered offline edits"))
+        try await mode("offline")
+        do {
+            let _: TaskView = try await api.post("/tasks/\(created.task.id)/checkpoint", CheckpointBody(note: "Offline note", nextAction: "Call the vet", expectedRevision: created.task.revision))
+        } catch APIError.queued { }
+        let edit = EditBody(title: "Edited on the flight", expectedRevision: created.task.revision)
+        do {
+            let _: TaskView = try await api.patch("/tasks/\(created.task.id)", edit)
+        } catch APIError.queued { }
+        #expect(store.pending.count == 2)
+        try await mode("online")
+        try await api.sync()
+        #expect(store.pending.isEmpty)
+        let current: TaskView = try await api.get("/tasks/\(created.task.id)")
+        #expect(current.task.title == "Edited on the flight")
+        #expect(current.task.nextAction == "Call the vet")
+        #expect(current.task.revision == created.task.revision + 2)
+        #expect(current.activity?.contains { $0.body == "Offline note" } == true)
+    }
+
     @Test func concurrentServerEditBlocksOfflineEditWithoutOverwriting() async throws {
         guard let config = try await config() else { return }
         try await mode("online")

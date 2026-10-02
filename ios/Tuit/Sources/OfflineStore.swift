@@ -177,6 +177,20 @@ final class OfflineStore {
                 let view = try API.decoder.decode(TaskView.self, from: data)
                 var next = state
                 next.pending.removeAll { $0.id == item.id }
+                // Later edits made against the same saved revision can follow our own edit.
+                // Never remove the check: a remote edit after this response still conflicts.
+                let original = (try? JSONSerialization.jsonObject(with: item.body)) as? [String: Any]
+                if let revision = original?["expected_revision"] as? Int {
+                    let taskPath = "/tasks/" + view.task.id
+                    for index in next.pending.indices {
+                        let pending = next.pending[index]
+                        guard pending.path == taskPath || pending.path.hasPrefix(taskPath + "/"),
+                              var json = (try? JSONSerialization.jsonObject(with: pending.body)) as? [String: Any],
+                              json["expected_revision"] as? Int == revision else { continue }
+                        json["expected_revision"] = view.task.revision
+                        next.pending[index].body = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
+                    }
+                }
                 next.snapshots[Self.key("/tasks/" + view.task.id)] = Snapshot(data: data, savedAt: .now)
                 try commit(next)
                 responses[item.id] = data

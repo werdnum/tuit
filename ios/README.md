@@ -36,7 +36,9 @@ when the app returns to the foreground, during its regular polling, or with **Sy
 Changes appear in task lists after the server accepts them. Completion preserves when you tapped
 Done, rather than recording the eventual reconnection time.
 
-The exact request, idempotency key and expected revision survive retries. A lost response cannot
+The request and idempotency key survive retries. Successive edits from the same saved revision
+chain through the server revisions acknowledged for your own changes; every send still checks
+its revision, so another person's intervening edit produces a conflict. A lost response cannot
 create another capture or completion. Conflicts and rejected changes stay visible and stop the
 outbox: review the current task, discard the rejected change and make a new edit. Retry resends
 the original request; it never removes the revision check. Signing out discards saved data and

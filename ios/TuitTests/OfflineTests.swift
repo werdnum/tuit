@@ -73,6 +73,26 @@ struct OfflineTests {
         #expect(second.offlineIdentity != first.offlineIdentity)
     }
 
+    @Test func chainedRevisionKeepsIdempotencyKeyAndLeavesDifferentRevisionsAlone() async throws {
+        let store = store()
+        defer { store.clear() }
+        _ = try store.enqueue(method: "PATCH", path: "/tasks/mygvj5ep", body: API.encoder.encode(EditBody(title: "first", expectedRevision: 1)))
+        let chained = EditBody(title: "second", expectedRevision: 1)
+        _ = try store.enqueue(method: "PATCH", path: "/tasks/mygvj5ep", body: API.encoder.encode(chained))
+        _ = try store.enqueue(method: "PATCH", path: "/tasks/mygvj5ep", body: API.encoder.encode(EditBody(title: "different", expectedRevision: 99)))
+        var sent = 0
+        try await store.sync { _ in
+            sent += 1
+            if sent > 1 { throw APIError.transport("Stop after first acknowledgement") }
+            return response
+        }
+        let second = try JSONSerialization.jsonObject(with: #require(store.pending.first?.body)) as! [String: Any]
+        #expect(second["expected_revision"] as? Int == 2)
+        #expect(second["idempotency_key"] as? String == chained.idempotencyKey)
+        let other = try JSONSerialization.jsonObject(with: #require(store.pending.last?.body)) as! [String: Any]
+        #expect(other["expected_revision"] as? Int == 99)
+    }
+
     @Test func queriesAreIsolatedAndCanonical() throws {
         let store = store()
         defer { store.clear() }
