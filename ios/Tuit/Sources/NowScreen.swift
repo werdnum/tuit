@@ -23,11 +23,20 @@ struct NowScreen: View {
         .listStyle(.insetGrouped)
         .navigationTitle(area.map { "Now · #\($0)" } ?? "Now")
         .toolbar { toolbar }
+        .safeAreaInset(edge: .top) { OfflineBanner() }
         .refreshable { await load() }
         .errorBanner($error)
         .task { await load() }
         .onChange(of: session.changeTick) { Task { await load() } }
-        .onChange(of: area) { Task { await load() } }
+        .onChange(of: area) { previous, selected in
+            if session.offlineStore?.offline == true,
+               session.offlineStore?.cached("/now", query: selected.map { ["area": $0] } ?? [:]) == nil {
+                error = "This area's Now view hasn't been saved yet. Use Tasks to browse saved tasks offline."
+                area = previous
+                return
+            }
+            Task { await load() }
+        }
         .navigationDestination(for: String.self) { id in TaskDetailScreen(taskId: id) }
     }
 
@@ -61,6 +70,7 @@ struct NowScreen: View {
                         .font(.callout).foregroundStyle(.secondary)
                     if now.restingCount > 0 {
                         Button("Show my list anyway (\(now.restingCount))") { Task { await enough(false) } }
+                            .disabled(session.offlineStore?.offline == true)
                     }
                 }
                 .padding(.vertical, 4)
@@ -74,6 +84,7 @@ struct NowScreen: View {
                 ForEach(now.plan) { row in self.row(row.item, done: row.done) }
                 if now.moreCount > 0 {
                     Button("Show \(now.moreCount) more") { Task { await more() } }
+                        .disabled(session.offlineStore?.offline == true)
                 }
             } header: {
                 Text("Today")
@@ -113,10 +124,12 @@ struct NowScreen: View {
                 let _: TaskView = try await api.post("/tasks/\(item.task.id)/snooze", SnoozeBody(until: "tomorrow"))
             } } } label: { Label("Tomorrow", systemImage: "moon.zzz") }
             .tint(.indigo)
+            .disabled(session.offlineStore?.offline == true)
             Button { Task { await act(item) { api in
                 let _: TaskView = try await api.post("/tasks/\(item.task.id)/pin", PinBody(pinned: !item.pinned))
             } } } label: { Label(item.pinned ? "Unpin" : "Pin", systemImage: item.pinned ? "pin.slash" : "pin") }
             .tint(.orange)
+            .disabled(session.offlineStore?.offline == true)
         }
     }
 
@@ -139,11 +152,18 @@ struct NowScreen: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
+            .disabled(session.offlineStore?.offline == true)
         }
     }
 
     private func load() async {
         guard let api = session.api else { return }
+        let query = area.map { ["area": $0] } ?? [:]
+        if let data = session.offlineStore?.cached("/now", query: query) {
+            now = try? API.decoder.decode(NowView.self, from: data)
+        } else if now?.area != area {
+            now = nil
+        }
         busy = true
         defer { busy = false }
         do {
@@ -157,6 +177,8 @@ struct NowScreen: View {
         guard let api = session.api else { return }
         do {
             try await fn(api)
+        } catch APIError.queued {
+            error = nil
         } catch {
             self.error = session.handle(error)
         }
@@ -272,6 +294,7 @@ struct CaptureField: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 TextField("Capture something…", text: $text)
+                    .accessibilityIdentifier("capture-field")
                     .focused($focused)
                     .submitLabel(.done)
                     .onSubmit { Task { await add() } }
@@ -300,6 +323,10 @@ struct CaptureField: View {
         defer { sending = false }
         do {
             let _: TaskView = try await api.post("/tasks", CaptureBody(title: title))
+            text = ""
+            error = nil
+            await onAdded()
+        } catch APIError.queued {
             text = ""
             error = nil
             await onAdded()

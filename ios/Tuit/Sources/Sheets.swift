@@ -43,6 +43,9 @@ private struct SheetForm<Content: View>: View {
             try await submit(api)
             await done()
             dismiss()
+        } catch APIError.queued {
+            await done()
+            dismiss()
         } catch {
             self.error = session.handle(error)
             // A conflict means the task moved on; show the new state behind the sheet.

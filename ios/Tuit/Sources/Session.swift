@@ -28,6 +28,7 @@ final class Session {
     private var authSession: ASWebAuthenticationSession?
     private let presenter = Presenter()
     private var cursor: String?
+    private(set) var offlineStore: OfflineStore?
 
     init() {
         serverURL = UserDefaults.standard.string(forKey: Self.serverKey) ?? Self.defaultServer
@@ -39,14 +40,20 @@ final class Session {
             serverURL = server
             credentials = .debug(debugToken)
         }
+        if env["TUIT_RESET_OFFLINE"] == "1", let credentials {
+            try? FileManager.default.removeItem(at: OfflineStore.file(for: credentials.offlineIdentity))
+        }
         #endif
+        if let credentials { offlineStore = OfflineStore.open(server: serverURL, identity: credentials.offlineIdentity) }
+        if let data = offlineStore?.cached("/me") { me = try? API.decoder.decode(Me.self, from: data) }
+        if let zone = me?.timezone.flatMap(TimeZone.init(identifier:)) { Household.zone = zone }
     }
 
     var isSignedIn: Bool { credentials != nil }
 
     var api: API? {
         guard let credentials, let base = URL(string: serverURL) else { return nil }
-        return API(base: base, credentials: credentials)
+        return API(base: base, credentials: credentials, offlineStore: offlineStore)
     }
 
     func name(of userId: String) -> String {
@@ -185,6 +192,9 @@ final class Session {
 
     private func remember(_ credentials: Credentials) {
         UserDefaults.standard.set(serverURL, forKey: Self.serverKey)
+        offlineStore?.clear()
+        offlineStore = OfflineStore.open(server: serverURL, identity: credentials.offlineIdentity)
+        me = nil
         self.credentials = credentials
         cursor = nil
     }
@@ -204,11 +214,14 @@ final class Session {
     }
 
     func signOut() async {
-        await credentials?.revoke()
+        let old = credentials
         signOutLocally()
+        await old?.revoke()
     }
 
     private func signOutLocally() {
+        offlineStore?.clear()
+        offlineStore = nil
         Credentials.clear()
         credentials = nil
         me = nil
@@ -231,20 +244,55 @@ final class Session {
     /// don't appear in the feed, but those come from this app and reload on their own.
     func watchChanges() async {
         while !Task.isCancelled {
+            await syncPending()
             await checkForChanges()
             try? await Task.sleep(for: .seconds(15))
         }
     }
 
+    func syncNow() async {
+        await syncPending()
+        await checkForChanges()
+        await refreshMe()
+    }
+
+    func syncPending() async {
+        guard let api else { return }
+        let count = offlineStore?.pending.count ?? 0
+        do {
+            try await api.sync()
+            if offlineStore?.pending.count != count { changeTick += 1 }
+        } catch { handle(error) }
+    }
+
     func checkForChanges() async {
         guard let api else { return }
+        let wasOffline = offlineStore?.offline == true
         do {
             let page: ChangePage = try await api.get("/changes", query: ["after": cursor ?? "latest", "limit": "500"])
-            if cursor != nil, !page.events.isEmpty { changeTick += 1 }
+            let moved = cursor == nil || !page.events.isEmpty || wasOffline
             cursor = page.cursor
+            if moved {
+                changeTick += 1
+                await prepareOffline()
+            }
         } catch {
             handle(error)
         }
+    }
+
+    /// Refresh all visible tasks and their detail/history so browsing and search work on a trip.
+    private func prepareOffline() async {
+        guard let api else { return }
+        do {
+            let list: TaskList = try await api.get("/tasks")
+            guard offlineStore?.offline == false else { return }
+            for task in list.tasks {
+                try Task.checkCancellation()
+                let _: TaskView = try await api.get("/tasks/\(task.id)")
+                if offlineStore?.offline == true { return }
+            }
+        } catch { handle(error) }
     }
 
     // MARK: Helpers

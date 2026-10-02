@@ -67,5 +67,15 @@ let project = Project(
             sources: ["TuitTests/**"],
             dependencies: [.target(name: "Tuit")]
         ),
+        .target(
+            name: "TuitUITests",
+            destinations: [.iPhone, .iPad],
+            product: .uiTests,
+            bundleId: "dev.andrewgarrett.tuit.uitests",
+            deploymentTargets: .iOS("17.4"),
+            infoPlist: .extendingDefault(with: ["NSAppTransportSecurity": ["NSAllowsLocalNetworking": true]]),
+            sources: ["TuitUITests/**"],
+            dependencies: [.target(name: "Tuit")]
+        ),
     ]
 )

@@ -21,6 +21,50 @@ interpret anything itself: urgency, labels, recurrence and visibility all come f
   reloads when the feed moves.
 - `tuit://tasks/<id>` opens a task (the scheme is only for links, never for sign-in).
 
+## Offline use
+
+After signing in online, Tuit saves Now, your tasks, their briefs and history on this phone.
+Saved screens appear immediately after a cold launch. While disconnected, Tasks searches the
+saved titles, briefs, next actions and notes. The banner marks saved data; urgency and dates
+remain the server's last assessment until you reconnect. A view that hasn't finished downloading
+shows a clear message instead of an endless spinner.
+
+Capture (including Siri/Shortcuts), notes, edits, handoffs, waiting, completion, skipping,
+closing, reopening and attachment changes are saved to an ordered outbox **before** sending.
+Captures and changes remain visible in Settings → Saved changes across app restarts. They sync
+when the app returns to the foreground, during its regular polling, or with **Sync now**.
+Changes appear in task lists after the server accepts them. Completion preserves when you tapped
+Done, rather than recording the eventual reconnection time.
+
+The exact request, idempotency key and expected revision survive retries. A lost response cannot
+create another capture or completion. Conflicts and rejected changes stay visible and stop the
+outbox: review the current task, discard the rejected change and make a new edit. Retry resends
+the original request; it never removes the revision check. Signing out discards saved data and
+unsynced changes, with a confirmation that names that consequence. Snapshots and the outbox
+belong to one sign-in and server, use iOS file protection, and are excluded from backup.
+
+Snooze, pin, Show more and Enough for now still require a connection. Those endpoints do not
+have durable idempotency keys; the app does not silently replay them. Offline search covers only
+successfully downloaded data, and automatic syncing needs the app in the foreground.
+
+### Offline tests
+
+```bash
+npm ci
+cd ios && mise exec -- tuist generate --no-open && cd ..
+npm run test:ios:offline
+```
+
+The runner starts an isolated PostgreSQL database and the real REST server, then runs Swift
+persistence/API tests, real-server integration tests, and an iPhone simulator UI test. Its local
+proxy deliberately disconnects requests and drops a response after a committed write. Tests
+verify deduplicated captures, completion/history, revision conflicts, saved browsing and capture
+across cold launches, and reconnection. The xcresult includes a real simulator screenshot.
+The fixture cleans up its server and database. Port 18089 must be free. Set
+`TUIT_IOS_DESTINATION` or `TUIT_IOS_DERIVED_DATA` to override the simulator or build directory.
+Ordinary Xcode tests run the persistence/API suite without the fixture; use the runner for full
+integration and UI coverage. GitHub's iOS workflow runs the full fixture-backed suite on PRs.
+
 ## Signing in
 
 The app signs in with the household's identity provider (Keycloak), not with Tuit. It uses
@@ -117,6 +161,6 @@ SIMCTL_CHILD_TUIT_OPEN=<task id> xcrun simctl launch booted dev.andrewgarrett.tu
 ## Not yet
 
 - Push notifications. The server doesn't send any; family-assistant owns delivery.
-- Widgets, and offline capture.
+- Widgets.
 - Queues. They're configured on the web.
 - Full block Markdown. Briefs render inline Markdown, and list items become bullets.

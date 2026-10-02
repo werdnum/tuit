@@ -33,6 +33,7 @@ struct TasksScreen: View {
             }
         }
         .navigationTitle("Tasks")
+        .safeAreaInset(edge: .top) { OfflineBanner() }
         .searchable(text: $query, prompt: "Title, brief, notes…")
         .task(id: "\(filter)|\(query)") {
             // Debounce typing; a newer keystroke cancels this task.
@@ -50,6 +51,11 @@ struct TasksScreen: View {
         guard let api = session.api else { return }
         var q = ["state": filter]
         if !query.trimmed.isEmpty { q["q"] = query.trimmed }
+        if let data = session.offlineStore?.cached("/tasks", query: q),
+           let list = try? API.decoder.decode(TaskList.self, from: data) {
+            tasks = list.tasks
+            loaded = true
+        }
         do {
             let list: TaskList = try await api.get("/tasks", query: q)
             // Search spans every state; narrow it to the chosen one here.
