@@ -53,18 +53,13 @@ struct TasksScreen: View {
         if !query.trimmed.isEmpty { q["q"] = query.trimmed }
         if let data = session.offlineStore?.cached("/tasks", query: q),
            let list = try? API.decoder.decode(TaskList.self, from: data) {
-            tasks = list.tasks
+            tasks = list.inState(filter)
             loaded = true
         }
         do {
             let list: TaskList = try await api.get("/tasks", query: q)
             // Search spans every state; narrow it to the chosen one here.
-            tasks = list.tasks.filter { t in
-                switch filter {
-                case "active": !t.isClosed
-                default: t.state == filter
-                }
-            }
+            tasks = list.inState(filter)
             loaded = true
         } catch {
             self.error = session.handle(error)

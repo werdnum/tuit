@@ -151,12 +151,14 @@ final class OfflineStore {
         guard active else { throw CancellationError() }
         if unreadable { throw APIError.server(storageError ?? "Saved data is unavailable.") }
         do {
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(next).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-            var url = file
+            var directory = file.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
-            try url.setResourceValues(values)
+            try directory.setResourceValues(values)
+            // Apply attributes before the durable write, so attribute failure cannot report
+            // failure after an outbox item was already saved on disk.
+            try JSONEncoder().encode(next).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             state = next
             storageError = nil
         } catch {
@@ -174,7 +176,7 @@ final class OfflineStore {
             do {
                 let data = try await send(item)
                 guard active else { return }
-                let view = try API.decoder.decode(TaskView.self, from: data)
+                var view = try API.decoder.decode(TaskView.self, from: data)
                 var next = state
                 next.pending.removeAll { $0.id == item.id }
                 // Later edits made against the same saved revision can follow our own edit.
@@ -191,7 +193,16 @@ final class OfflineStore {
                         next.pending[index].body = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
                     }
                 }
-                next.snapshots[Self.key("/tasks/" + view.task.id)] = Snapshot(data: data, savedAt: .now)
+                let detailKey = Self.key("/tasks/" + view.task.id)
+                // Mutation responses omit history; retain downloaded history until a detail GET
+                // can replace it with the complete authoritative activity list.
+                var snapshotData = data
+                if view.activity == nil, let saved = state.snapshots[detailKey],
+                   let previous = try? API.decoder.decode(TaskView.self, from: saved.data) {
+                    view.activity = previous.activity
+                    snapshotData = try API.encoder.encode(view)
+                }
+                next.snapshots[detailKey] = Snapshot(data: snapshotData, savedAt: .now)
                 try commit(next)
                 responses[item.id] = data
                 // Responses are only for callers currently waiting; bound background replay memory.

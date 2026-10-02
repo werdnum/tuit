@@ -93,6 +93,39 @@ struct OfflineTests {
         #expect(other["expected_revision"] as? Int == 99)
     }
 
+    @Test func exactSavedSearchResultsStillRespectTheSelectedState() throws {
+        let store = store()
+        defer { store.clear() }
+        let waiting = try API.decoder.decode(TaskView.self, from: response).task
+        var done = waiting
+        done.id = "done-task"
+        done.state = "done"
+        let query = ["state": "done", "q": "vet"]
+        // REST search includes every matching closed state regardless of this state parameter.
+        try store.save(API.encoder.encode(TaskList(tasks: [waiting, done])), path: "/tasks", query: query)
+        let cached = try API.decoder.decode(TaskList.self, from: #require(store.cached("/tasks", query: query)))
+        #expect(cached.inState("done").map(\.id) == [done.id])
+        #expect(cached.inState("waiting").map(\.id) == [waiting.id])
+        #expect(cached.inState("active").map(\.id) == [waiting.id])
+    }
+
+    @Test func mutationAcknowledgementRetainsDownloadedHistory() async throws {
+        let store = store()
+        defer { store.clear() }
+        let previous = try API.decoder.decode(TaskView.self, from: response)
+        try store.save(response, path: "/tasks/" + previous.task.id)
+        _ = try store.enqueue(method: "POST", path: "/tasks/\(previous.task.id)/complete", body: API.encoder.encode(CompleteBody(expectedRevision: previous.task.revision)))
+        var mutation = previous
+        mutation.task.state = "done"
+        mutation.task.revision += 1
+        mutation.activity = nil
+        try await store.sync { _ in try API.encoder.encode(mutation) }
+        let saved = try API.decoder.decode(TaskView.self, from: #require(store.cached("/tasks/" + previous.task.id)))
+        #expect(saved.task.state == "done")
+        #expect(saved.task.revision == previous.task.revision + 1)
+        #expect(saved.activity == previous.activity)
+    }
+
     @Test func queriesAreIsolatedAndCanonical() throws {
         let store = store()
         defer { store.clear() }

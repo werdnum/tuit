@@ -48,8 +48,17 @@ nonisolated final class OfflineUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         try await mode("online")
-        app.buttons["Sync now"].tap()
-        XCTAssertTrue(app.staticTexts["Everything is synced."].waitForExistence(timeout: 15))
+        // Smaller CI simulators may place this row under the floating tab bar.
+        // Wait for any foreground replay to finish and bring the control fully into view.
+        app.swipeUp()
+        let sync = app.buttons["Sync now"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true AND hittable == true"), object: sync)
+        guard await XCTWaiter.fulfillment(of: [ready], timeout: 30) == .completed else {
+            XCTFail("Sync control did not become ready")
+            return
+        }
+        sync.tap()
+        XCTAssertTrue(app.staticTexts["Everything is synced."].waitForExistence(timeout: 30))
         app.tabBars.buttons["Tasks"].tap()
         XCTAssertTrue(app.staticTexts[title].firstMatch.waitForExistence(timeout: 15))
         app.terminate()
