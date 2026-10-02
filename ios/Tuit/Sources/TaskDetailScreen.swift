@@ -27,6 +27,11 @@ struct TaskDetailScreen: View {
         }
         .navigationTitle(view?.task.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if let task = view?.task { TaskShareButton(task: task) }
+            }
+        }
         .errorBanner($error)
         .task { await load() }
         .refreshable { await load() }
