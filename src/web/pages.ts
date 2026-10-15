@@ -7,6 +7,9 @@ import type { UserInfo } from "../domain/tasks.ts";
 import { local, type Moment } from "../domain/time.ts";
 import type { ActivityEntry, Principal, Task } from "../domain/types.ts";
 import type { Explanation, QueueItem, QueueResult, TaskStatus } from "../domain/views.ts";
+import type { Device } from "../notify/channels.ts";
+import type { LogEntry, NotifySettings } from "../notify/notifier.ts";
+import { CATEGORIES, CATEGORY_LABELS, describeRule } from "../notify/rules.ts";
 import {
   activityText,
   actorText,
@@ -912,6 +915,7 @@ export function settingsPage(
         <div class="small muted">${me?.email ?? ""}</div>
         <form method="post" action="/logout" data-hard class="actions"><button class="wide">Sign out</button></form>
       </div>
+      <div class="actions"><a class="btn wide" href="/settings/notifications">Notifications</a></div>
       ${
         issued
           ? html`<section class="card pad" style="margin-top:12px" data-issued>
@@ -974,6 +978,149 @@ export function settingsPage(
               "Tokens",
             )
           : html`<p class="muted small" style="margin:0 4px">No tokens.</p>`
+      }
+    `,
+  });
+}
+
+// ---------------------------------------------------------------- Notifications
+
+export interface NotificationsData {
+  settings: NotifySettings;
+  devices: Device[];
+  recent: LogEntry[];
+  webPushKey: string;
+  areas: string[];
+}
+
+const STATUS_TEXT: Record<LogEntry["status"], string> = {
+  sent: "sent",
+  held: "held for quiet hours",
+  retry: "push service failed, retrying",
+  undelivered: "not delivered",
+};
+
+export function notificationsPage(ctx: Ctx, d: NotificationsData): Html {
+  const { settings } = d;
+  const ruleById = new Map(settings.rules.map((r) => [r.id, r]));
+  const checked = (on: boolean) => (on ? raw("checked") : "");
+  return page({
+    title: "Notifications",
+    tab: null,
+    flash: ctx.flash,
+    live: ctx.live,
+    top: backLink("/settings", "Settings"),
+    body: html`
+      <h1>Notifications</h1>
+      <section class="card pad" data-push data-key="${d.webPushKey}" data-endpoints="${JSON.stringify(d.devices.filter((x) => x.kind === "web").map((x) => x.address))}">
+        <div><strong>This device</strong></div>
+        <p class="small muted" data-push-status>Checking whether this browser can show notifications…</p>
+        <div class="actions">
+          <button type="button" class="primary" data-push-on hidden>Turn on for this device</button>
+          <button type="button" data-push-off hidden>Turn off for this device</button>
+        </div>
+      </section>
+
+      <h2>Devices</h2>
+      ${
+        d.devices.length
+          ? list(
+              d.devices.map(
+                (dev) => html`<li data-device="${dev.id}">
+                  <div class="row-main solo">
+                    <span class="row-title">${dev.label}</span>
+                    <span class="row-why">${dev.kind === "apns" ? "iPhone app" : "browser"} · added ${whenText(dev.created_at, ctx.now)}${dev.last_sent_at ? ` · last sent ${whenText(dev.last_sent_at, ctx.now)}` : ""}${dev.last_error ? ` · last failed: ${dev.last_error}` : ""}</span>
+                  </div>
+                  <form method="post" action="/settings/notifications/devices/${dev.id}/remove" style="padding-right:8px"><button class="danger">Remove</button></form>
+                </li>`,
+              ),
+              "Devices",
+            )
+          : html`<p class="muted small" style="margin:0 4px">No devices yet. Turn notifications on above, or in the iPhone app's settings.</p>`
+      }
+      ${
+        d.devices.length
+          ? html`<form method="post" action="/settings/notifications/test" class="actions"><button class="wide">Send a test notification</button></form>`
+          : ""
+      }
+
+      <h2>When to tell me</h2>
+      <p class="small muted" style="margin:0 4px">You hear about a change when any rule here matches it. Your own changes never notify you; an agent working for you counts as someone else.</p>
+      ${
+        settings.rules.length
+          ? list(
+              settings.rules.map(
+                (rule) => html`<li data-rule="${rule.id}">
+                  <div class="row-main solo">
+                    <span class="row-title">${describeRule(rule)}</span>
+                    <span class="row-why">${rule.enabled ? "" : html`<span class="badge">off</span> `}${rule.quiet_ok ? "even during quiet hours" : ""}</span>
+                  </div>
+                  <form method="post" action="/settings/notifications/rules/${rule.id}/toggle" style="padding-right:4px"><button>${rule.enabled ? "Turn off" : "Turn on"}</button></form>
+                  <form method="post" action="/settings/notifications/rules/${rule.id}/delete" style="padding-right:8px"><button class="danger" aria-label="Delete rule">Delete</button></form>
+                </li>`,
+              ),
+              "Rules",
+            )
+          : html`<p class="muted small" style="margin:0 4px">No rules, so nothing will notify you.</p>`
+      }
+      <details class="sheet">
+        <summary>Add a rule</summary>
+        <div class="body">
+          <form method="post" action="/settings/notifications/rules">
+            <fieldset class="plain"><legend class="small muted">Tell me when a task is…</legend>
+              ${CATEGORIES.map(
+                (c) =>
+                  html`<label class="check"><input type="checkbox" name="when_${c}" value="1"> ${CATEGORY_LABELS[c]}</label>`,
+              )}
+            </fieldset>
+            <label class="field"><span>Whose tasks</span><select name="whose">
+              <option value="mine">When it's my turn (or handed to me)</option>
+              <option value="owned">Tasks I own, whoever's turn it is</option>
+              <option value="any">Anything I can see</option>
+            </select></label>
+            <label class="field"><span>Area</span><select name="area">
+              <option value="">Any area</option>
+              ${d.areas.map((a) => html`<option value="${a}">#${a}</option>`)}
+            </select></label>
+            <label class="field"><span>Changed by</span><select name="from">
+              <option value="anyone">Anyone (or the passing of time)</option>
+              <option value="people">A person</option>
+              <option value="agents">An agent</option>
+            </select></label>
+            <label class="check"><input type="checkbox" name="quiet_ok" value="1"> Even during quiet hours</label>
+            <button class="primary wide">Add rule</button>
+          </form>
+        </div>
+      </details>
+      <form method="post" action="/settings/notifications/rules/reset" class="actions"><button class="quiet">Go back to the default rules</button></form>
+
+      <h2>Quiet hours</h2>
+      <form method="post" action="/settings/notifications/quiet" class="card pad">
+        <label class="check"><input type="checkbox" name="on" value="1" ${checked(settings.quiet !== null)}> Hold notifications overnight</label>
+        <div class="verbs" style="margin-top:0">
+          <label class="field"><span>From</span><input type="time" name="from" value="${settings.quiet?.from ?? "22:00"}"></label>
+          <label class="field"><span>Until</span><input type="time" name="to" value="${settings.quiet?.to ?? "07:00"}"></label>
+        </div>
+        <p class="small muted">What comes up in quiet hours arrives as one summary when they end, unless its rule says otherwise.</p>
+        <button class="primary wide">Save quiet hours</button>
+      </form>
+
+      <h2>Recent</h2>
+      ${
+        d.recent.length
+          ? list(
+              d.recent.map((e) => {
+                const rule = ruleById.get(e.rule_id);
+                return html`<li>
+                  <div class="row-main solo">
+                    <span class="row-title">${e.task ? html`<a href="/tasks/${e.task.id}">${e.task.title}</a>` : "A task you can no longer see"}</span>
+                    <span class="row-why">${CATEGORY_LABELS[e.category]} · ${STATUS_TEXT[e.status]} · ${whenText(e.created_at, ctx.now)}${rule ? ` · rule: ${describeRule(rule)}` : ""}</span>
+                  </div>
+                </li>`;
+              }),
+              "Recent notifications",
+            )
+          : html`<p class="muted small" style="margin:0 4px">Nothing yet.</p>`
       }
     `,
   });

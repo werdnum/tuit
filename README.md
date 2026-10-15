@@ -89,6 +89,8 @@ absences. Unit tests exist only for rough date parsing, where the edge cases are
 - an inspect view;
 - atomic checkpoint, idempotency keys, revision checks, and claims with side-effect-aware leases;
 - the change feed, and live updates in the web UI driven by it (no refreshing to see changes);
+- notifications to browsers and the iPhone app, with per-person rules (what kind of change,
+  whose tasks, which area, by a person or an agent) and quiet hours that end in one summary;
 - export;
 - MCP, OAuth connectors and the CLI;
 - a native iPhone app ([ios/](ios/README.md)) with browser sign-in, saved offline browsing and
@@ -96,9 +98,9 @@ absences. Unit tests exist only for rough date parsing, where the edge cases are
 
 **Deferred:**
 - **Calendar-based routines** ("every Tuesday"). They need a real template/instance split.
-- **Webhook or push delivery** of the feed. The feed is the integration point, and
-  family-assistant owns notifications.
-- **Browser offline capture.** There's no service worker; native iPhone offline support is shipped.
+- **Webhooks** for the feed. The feed is the integration point for agents.
+- **Browser offline capture.** The service worker only shows notifications; native iPhone
+  offline support is shipped.
 - **A browser surface for display tokens.** They work over the API only.
 - **An idempotency key on capture from the web** (a double-submit on a flaky connection can
   create two tasks).

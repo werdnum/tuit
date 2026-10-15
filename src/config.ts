@@ -1,3 +1,5 @@
+import type { ApnsConfig } from "./notify/channels.ts";
+
 export interface HouseholdUser {
   id: string;
   email: string;
@@ -45,6 +47,12 @@ export interface Config {
    * credential. Off unless all three are set. Uploads go to `uploadFolderId` when set (a folder
    * shared with the household), otherwise to the uploader's My Drive.
    */
+  /**
+   * Push to the iPhone app through Apple (APNs), with a .p8 auth key. The team and bundle id
+   * come from the first TUIT_IOS_APP_IDS entry. Off unless the key and its id are set; Web Push
+   * needs no configuration.
+   */
+  apns: ApnsConfig | null;
   googlePicker: {
     apiKey: string;
     clientId: string;
@@ -99,6 +107,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   if (!oidc && !devLogin)
     throw new Error("Configure OIDC_ISSUER/OIDC_CLIENT_ID (or TUIT_DEV_LOGIN=1 locally)");
+  const iosAppIds = list(env.TUIT_IOS_APP_IDS ?? "");
   return {
     databaseUrl,
     // Dev login trusts whoever can reach the port, so it only ever listens on loopback.
@@ -116,7 +125,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           personalClients: list(env.MCP_JWT_PERSONAL_CLIENTS ?? ""),
         }
       : null,
-    iosAppIds: list(env.TUIT_IOS_APP_IDS ?? ""),
+    iosAppIds,
+    apns: apnsConfig(env, iosAppIds),
     devLogin,
     testClock: env.TUIT_TEST_CLOCK === "1",
     sweepIntervalMs: Number(env.TUIT_SWEEP_INTERVAL_MS ?? 60_000),
@@ -129,5 +139,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             uploadFolderId: env.GOOGLE_PICKER_UPLOAD_FOLDER_ID || null,
           }
         : null,
+  };
+}
+
+function apnsConfig(env: NodeJS.ProcessEnv, iosAppIds: string[]): ApnsConfig | null {
+  if (!env.APNS_KEY_ID || !env.APNS_AUTH_KEY) return null;
+  const appId = iosAppIds[0];
+  const dot = appId?.indexOf(".") ?? -1;
+  if (!appId || dot <= 0) {
+    throw new Error("APNS_KEY_ID needs TUIT_IOS_APP_IDS (<Team ID>.<bundle id>) to know the app");
+  }
+  return {
+    teamId: appId.slice(0, dot),
+    bundleId: appId.slice(dot + 1),
+    keyId: env.APNS_KEY_ID,
+    // A key pasted into a single-line secret often has literal "\n"s.
+    key: env.APNS_AUTH_KEY.replace(/\\n/g, "\n"),
+    host: env.APNS_HOST || null,
   };
 }

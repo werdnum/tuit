@@ -113,7 +113,7 @@ li.done .tick::before { background: var(--accent); border-color: var(--accent);
 .flash.error { background: rgba(192, 53, 43, 0.12); color: var(--danger); }
 .capture { display: flex; gap: 8px; margin-top: 4px; }
 .capture input { flex: 1; }
-input[type=text], input[type=search], input[type=date], input[type=number], select, textarea {
+input[type=text], input[type=search], input[type=date], input[type=time], input[type=number], select, textarea {
   font: inherit; font-size: 17px; color: var(--text); background: var(--card);
   border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-height: var(--tap); width: 100%;
   -webkit-appearance: none; appearance: none;
@@ -140,6 +140,8 @@ button:disabled { opacity: 0.5; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .actions > * { flex: 1 1 auto; }
 .inline { display: inline; margin: 0; }
+fieldset.plain { border: 0; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
 .center { text-align: center; }
 .empty { text-align: center; padding: 40px 16px 24px; color: var(--muted); }
 .empty .big { font-size: 22px; color: var(--text); font-weight: 600; margin-bottom: 6px; }
@@ -387,6 +389,7 @@ function liveSwap(doc) {
     }
   }
   window.scrollTo(0, y);
+  pushInit();
 }
 // Skip changes this page already shows: usually this tab's own action, whose response has
 // just been swapped in. Refreshing again would only move things under the person's finger.
@@ -441,6 +444,88 @@ document.addEventListener("click", (e) => {
   const el = document.getElementById(b.dataset.copy);
   if (el && navigator.clipboard) navigator.clipboard.writeText(el.textContent.trim()).then(() => { b.textContent = "Copied"; });
 });
+
+// Web Push on the notifications page. Subscribing has to start inside the tap (Safari asks
+// for permission only then). The page lists this person's registered browsers, so a browser
+// removed from the list reads as off even though it still holds a subscription.
+function b64Bytes(s) {
+  const raw = atob((s + "=".repeat((4 - (s.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
+}
+function pushLabel() {
+  const ua = navigator.userAgent;
+  const dev = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : "Computer";
+  const br = /Edg[/]/.test(ua) ? "Edge" : /Firefox[/]/.test(ua) ? "Firefox" : /Chrome[/]/.test(ua) ? "Chrome" : /Safari[/]/.test(ua) ? "Safari" : "browser";
+  const home = window.matchMedia && matchMedia("(display-mode: standalone)").matches ? " (Home Screen)" : "";
+  return dev + " · " + br + home;
+}
+function pushSupported() {
+  return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+}
+async function pushSub() {
+  const reg = await navigator.serviceWorker.getRegistration("/");
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+async function pushInit() {
+  const box = document.querySelector("[data-push]");
+  if (!box) return;
+  const status = box.querySelector("[data-push-status]");
+  const on = box.querySelector("[data-push-on]");
+  const off = box.querySelector("[data-push-off]");
+  const show = (text, canOn, canOff) => { status.textContent = text; on.hidden = !canOn; off.hidden = !canOff; };
+  if (!pushSupported()) {
+    return show(/iPhone|iPad/.test(navigator.userAgent)
+      ? "To get notifications in the browser, add Tuit to your Home Screen (Share, then Add to Home Screen) and open it from there. The Tuit iPhone app can also notify you."
+      : "This browser can't show notifications.", false, false);
+  }
+  if (Notification.permission === "denied") return show("Notifications are blocked for Tuit in this browser's settings.", false, false);
+  const sub = await pushSub().catch(() => null);
+  const known = JSON.parse(box.dataset.endpoints || "[]");
+  if (sub && known.includes(sub.endpoint)) show("On for this device.", false, true);
+  else show("Off for this device.", true, false);
+}
+async function pushPost(path, body) {
+  const res = await fetch(path, {
+    method: "POST", credentials: "same-origin",
+    headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let msg = "The server didn't accept it.";
+    try { msg = (await res.json()).message || msg; } catch {}
+    throw new Error(msg);
+  }
+}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest && e.target.closest("[data-push-on], [data-push-off]");
+  if (!b) return;
+  const box = b.closest("[data-push]");
+  const status = box.querySelector("[data-push-status]");
+  b.disabled = true;
+  try {
+    if (b.hasAttribute("data-push-on")) {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error("Notifications weren't allowed.");
+      const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      await navigator.serviceWorker.ready;
+      const old = await reg.pushManager.getSubscription();
+      if (old) await old.unsubscribe();
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64Bytes(box.dataset.key) });
+      const json = sub.toJSON();
+      await pushPost("/settings/notifications/devices", { endpoint: json.endpoint, keys: json.keys, label: pushLabel() });
+    } else {
+      const sub = await pushSub();
+      if (sub) {
+        await pushPost("/settings/notifications/devices/unsubscribe", { endpoint: sub.endpoint });
+        await sub.unsubscribe();
+      }
+    }
+    location.reload();
+  } catch (err) {
+    status.textContent = String((err && err.message) || err);
+    b.disabled = false;
+  }
+});
+document.addEventListener("DOMContentLoaded", () => { pushInit(); });
 
 // Google Drive picker on the task page, when configured. Google's scripts load only once
 // someone opens the sheet holding the button, and the Drive token lives in this page's memory.
