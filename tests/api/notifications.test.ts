@@ -201,9 +201,10 @@ describe("web push", () => {
     push.status.set("alex-phone", 503);
     const id = await add(sam, "Call the bank");
     await sam.post(`/api/tasks/${id}/handoff`, { to: "alex" });
+    // A row reads "retry" from before the send, so wait until the send has actually failed.
     await waitFor("a failed send waiting to retry", async () => {
-      const { recent } = await alex.get("/api/notifications");
-      return recent[0]?.status === "retry" ? true : undefined;
+      const { recent, devices } = await alex.get("/api/notifications");
+      return recent[0]?.status === "retry" && devices[0]?.last_error ? true : undefined;
     });
 
     push.status.delete("alex-phone");

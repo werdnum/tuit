@@ -98,6 +98,14 @@ describe("matching", () => {
     ).not.toBeNull();
   });
 
+  test("a capture is judged by whose hands it went into, even if it has moved on since", () => {
+    const c = change(["created"], { next_actor: { kind: "user", user: "sam" } } as never);
+    c.types[0] = { type: "created", data: { next_actor: { kind: "user", user: "alex" } } };
+    const r = rules({ when: ["handoff"], whose: "any" });
+    expect(match(c, "alex", r)?.category).toBe("handoff");
+    expect(match(c, "teija", r)).toBeNull();
+  });
+
   test("my agent capturing a task into my hands is a handoff", () => {
     const c = change(
       ["created"],

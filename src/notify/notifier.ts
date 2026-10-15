@@ -23,6 +23,7 @@ import {
   DEFAULT_QUIET,
   defaultRules,
   inQuietHours,
+  isMe,
   match,
   type Quiet,
   type Rule,
@@ -522,8 +523,10 @@ export class Notifier {
         ? name(change.actor.user)
         : "Tuit";
     const data = (type: string) => change.types.find((x) => x.type === type)?.data;
-    // The task may have moved on since; say who this change handed it to.
-    const to = (data("handed_off")?.to as Actor | undefined) ?? t.next_actor;
+    // The task may have moved on since; say who this change handed it to, preferring this
+    // person when one of its events handed it to them.
+    const targets = [data("handed_off")?.to, data("created")?.next_actor].filter(Boolean);
+    const to = (targets.find((a) => isMe(a, userId)) ?? targets[0] ?? t.next_actor) as Actor;
     const turn =
       to.kind === "user" ? name(to.user) : to.kind === "agent" ? `agent:${to.agent}` : "anyone";
     const next = t.next_action ? `Next: ${t.next_action}` : "";
