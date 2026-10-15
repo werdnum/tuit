@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct TuitApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = Session()
 
     var body: some Scene {
@@ -16,6 +17,7 @@ struct TuitApp: App {
 struct RootView: View {
     @Environment(Session.self) private var session
     @Environment(\.scenePhase) private var phase
+    @State private var push = PushRegistration.shared
     @State private var tab = "now"
     @State private var nowPath: [String] = {
         #if DEBUG
@@ -43,6 +45,17 @@ struct RootView: View {
                 guard url.host() == "tasks", let id = url.pathComponents.dropFirst().first else { return }
                 tab = "now"
                 nowPath = [id]
+            }
+            // A tapped notification opens its task.
+            .onChange(of: push.openTask, initial: true) { _, id in
+                guard let id else { return }
+                push.openTask = nil
+                tab = "now"
+                nowPath = [id]
+            }
+            .task {
+                push.api = { [session] in session.api }
+                await push.refresh()
             }
             // Live updates only while on screen; returning to the app catches up at once.
             .task(id: phase) {
@@ -123,6 +136,7 @@ struct SettingsScreen: View {
     @Environment(Session.self) private var session
     @Environment(\.openURL) private var openURL
     @State private var confirming = false
+    @State private var push = PushRegistration.shared
 
     var body: some View {
         Form {
@@ -140,6 +154,23 @@ struct SettingsScreen: View {
             } footer: {
                 Text("Queues, tokens and agent connectors are managed on the web.")
             }
+            Section {
+                Toggle("Notify me on this iPhone", isOn: Binding(
+                    get: { push.enabled },
+                    set: { on in Task { if on { await push.turnOn() } else { await push.turnOff() } } }
+                ))
+                Button("Choose what to be told about") {
+                    if let url = URL(string: session.serverURL)?.appending(path: "settings/notifications") { openURL(url) }
+                }
+            } header: {
+                Text("Notifications")
+            } footer: {
+                if let problem = push.problem {
+                    Text(problem).foregroundStyle(.red)
+                } else {
+                    Text("Rules and quiet hours apply to all your devices and are set on the web.")
+                }
+            }
             OfflineChangesSection()
             Section {
                 Button("Sign out", role: .destructive) { confirming = true }
@@ -148,7 +179,13 @@ struct SettingsScreen: View {
         .navigationTitle("Settings")
         .safeAreaInset(edge: .top) { OfflineBanner() }
         .confirmationDialog(session.offlineStore?.pending.isEmpty == false ? "Sign out and discard unsynced changes?" : "Sign out of Tuit on this phone?", isPresented: $confirming, titleVisibility: .visible) {
-            Button("Sign out", role: .destructive) { Task { await session.signOut() } }
+            Button("Sign out", role: .destructive) {
+                Task {
+                    // The next person to sign in on this phone shouldn't get this one's notifications.
+                    await push.turnOff()
+                    await session.signOut()
+                }
+            }
         }
     }
 }

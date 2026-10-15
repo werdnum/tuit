@@ -19,6 +19,7 @@
 		686AD71D49DD4947146B80C4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 80AB2C32FF6740FA218C3474 /* Assets.xcassets */; };
 		6D756CA10089C0CE66600416 /* Formatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B540EA828C9E5933B42B5FB2 /* Formatting.swift */; };
 		8462E1D8318294E3EBF3D359 /* OfflineStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4249A281BA28891066A4417 /* OfflineStatus.swift */; };
+		A1F0C0DE5EED000000000001 /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F0C0DE5EED000000000002 /* Notifications.swift */; };
 		87AA386DDAC9C0E78979ED9A /* NowScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 747F5B61516EE8749F7AC0F4 /* NowScreen.swift */; };
 		A0DAE0EE057EF6DB0CFF35BC /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6FDDF7DA019D9268DE2F26F /* ModelTests.swift */; };
 		A127111F28F860D00B44120E /* TuistAssets+Tuit.swift in Sources */ = {isa = PBXBuildFile; fileRef = E133198F95B22AC7181A78DF /* TuistAssets+Tuit.swift */; };
@@ -107,6 +108,7 @@
 		B02057653338FB9691E6FB8D /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		B540EA828C9E5933B42B5FB2 /* Formatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatting.swift; sourceTree = "<group>"; };
 		D4249A281BA28891066A4417 /* OfflineStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineStatus.swift; sourceTree = "<group>"; };
+		A1F0C0DE5EED000000000002 /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
 		D439CE0730C255022AE31377 /* Tuit-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Tuit-Info.plist"; sourceTree = "<group>"; };
 		D5F31EA8ECFD850DD856CEB5 /* TaskDetailScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailScreen.swift; sourceTree = "<group>"; };
 		D6FDDF7DA019D9268DE2F26F /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
@@ -171,6 +173,7 @@
 				702B5BDCD31A0183B5D8E6EE /* Models.swift */,
 				747F5B61516EE8749F7AC0F4 /* NowScreen.swift */,
 				D4249A281BA28891066A4417 /* OfflineStatus.swift */,
+				A1F0C0DE5EED000000000002 /* Notifications.swift */,
 				9BABE66F7FC18457D503C7BA /* OfflineStore.swift */,
 				9EC1DAC11121ABFDE2D83360 /* Session.swift */,
 				DA626FD9E98F20BEE7A35111 /* Sheets.swift */,
@@ -406,6 +409,7 @@
 				C64454B8242C0D08E4143FEF /* Models.swift in Sources */,
 				87AA386DDAC9C0E78979ED9A /* NowScreen.swift in Sources */,
 				8462E1D8318294E3EBF3D359 /* OfflineStatus.swift in Sources */,
+				A1F0C0DE5EED000000000001 /* Notifications.swift in Sources */,
 				CE52738BA40DCD2A2C8B6C6F /* OfflineStore.swift in Sources */,
 				28F92A3CFF1C46EBCD508269 /* Session.swift in Sources */,
 				CF3EC7D0BC6D3E5E69BC68C3 /* Sheets.swift in Sources */,

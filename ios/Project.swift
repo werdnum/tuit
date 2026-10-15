@@ -51,6 +51,8 @@ let project = Project(
             sources: ["Tuit/Sources/**"],
             resources: ["Tuit/Resources/**"],
             entitlements: .dictionary([
+                // Push notifications. Xcode Cloud's TestFlight export switches this to production.
+                "aps-environment": .string("development"),
                 "com.apple.developer.associated-domains": .array([
                     .string("applinks:\(host)"),
                     .string("webcredentials:\(host)"),

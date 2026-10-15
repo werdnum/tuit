@@ -19,6 +19,9 @@ interpret anything itself: urgency, labels, recurrence and visibility all come f
   access to the task, and sharing doesn't change its visibility.
 - **Live updates**: while the app is open it polls `/api/changes` every 15 seconds and
   reloads when the feed moves.
+- **Notifications**: Settings → Notify me on this iPhone. What you're told about (rules, quiet
+  hours) is set on the web and applies to every device; tapping a notification opens its task.
+  Signing out stops this phone's notifications.
 - `tuit://tasks/<id>` opens a task (the scheme is only for links, never for sign-in).
 
 ## Offline use
