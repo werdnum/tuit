@@ -996,6 +996,7 @@ export interface NotificationsData {
 const STATUS_TEXT: Record<LogEntry["status"], string> = {
   sent: "sent",
   held: "held for quiet hours",
+  retry: "push service failed, retrying",
   undelivered: "not delivered",
 };
 

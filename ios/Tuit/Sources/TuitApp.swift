@@ -181,8 +181,9 @@ struct SettingsScreen: View {
         .confirmationDialog(session.offlineStore?.pending.isEmpty == false ? "Sign out and discard unsynced changes?" : "Sign out of Tuit on this phone?", isPresented: $confirming, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) {
                 Task {
-                    // The next person to sign in on this phone shouldn't get this one's notifications.
-                    await push.turnOff()
+                    // The next person to sign in on this phone mustn't get this one's
+                    // notifications, so signing out waits until the server has let go of it.
+                    guard await push.turnOff() else { return }
                     await session.signOut()
                 }
             }

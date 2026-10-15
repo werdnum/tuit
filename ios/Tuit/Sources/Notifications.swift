@@ -10,6 +10,7 @@ import UserNotifications
 final class PushRegistration {
     static let shared = PushRegistration()
     private static let enabledKey = "tuit_push_enabled"
+    private static let tokenKey = "tuit_push_token"
 
     /// The person turned notifications on for this iPhone.
     private(set) var enabled = UserDefaults.standard.bool(forKey: enabledKey)
@@ -19,7 +20,11 @@ final class PushRegistration {
     var openTask: String?
     /// How to reach the server as whoever is signed in.
     var api: () -> API? = { nil }
-    private var token: String?
+    /// Kept across launches so the phone can always withdraw it, even before iOS hands the
+    /// token over again.
+    private var token: String? = UserDefaults.standard.string(forKey: tokenKey) {
+        didSet { UserDefaults.standard.set(token, forKey: Self.tokenKey) }
+    }
 
     /// Development builds get sandbox tokens. A Release build signed for development does too;
     /// the server tries the other environment once when a token doesn't fit and remembers.
@@ -49,12 +54,28 @@ final class PushRegistration {
         UIApplication.shared.registerForRemoteNotifications()
     }
 
-    /// Stop this iPhone receiving notifications (also before signing out).
-    func turnOff() async {
-        setEnabled(false)
+    /// Stop this iPhone receiving notifications (also before signing out). Returns false, and
+    /// stays on, when the server couldn't be told: otherwise the phone would keep receiving
+    /// notifications while saying it doesn't, possibly for someone who has signed out.
+    @discardableResult
+    func turnOff() async -> Bool {
         problem = nil
-        guard let token, let api = api() else { return }
-        _ = try? await api.delete("/notifications/devices/\(token)", Empty()) as Removed
+        guard let token else {
+            setEnabled(false)
+            return true
+        }
+        guard let api = api() else { return false }
+        do {
+            _ = try await api.delete("/notifications/devices/\(token)", Empty()) as Removed
+        } catch APIError.unauthenticated {
+            // This sign-in is no longer valid, so nothing it can do will be heard; the next
+            // person to turn notifications on here takes the token over.
+        } catch {
+            problem = "Couldn't reach Tuit to stop notifications on this iPhone: \(error.localizedDescription)"
+            return false
+        }
+        setEnabled(false)
+        return true
     }
 
     /// On launch: tokens can change, so a phone that's on registers again.

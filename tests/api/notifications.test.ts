@@ -195,6 +195,31 @@ describe("web push", () => {
     expect(log.recent.filter((e: any) => e.status === "held")).toHaveLength(0);
   });
 
+  test("a push service outage is retried, not dropped", async () => {
+    await turnOn(alex, "alex-phone");
+    push.status.set("alex-phone", 503);
+    const id = await add(sam, "Call the bank");
+    await sam.post(`/api/tasks/${id}/handoff`, { to: "alex" });
+    await waitFor("a failed send waiting to retry", async () => {
+      const { recent } = await alex.get("/api/notifications");
+      return recent[0]?.status === "retry" ? true : undefined;
+    });
+
+    push.status.delete("alex-phone");
+    await server.setClock("2026-10-05T14:01:00+11:00");
+    const [msg] = await pushes("alex-phone", 1);
+    expect(msg).toMatchObject({ title: "Call the bank", body: "Earlier: handed over", taskId: id });
+    expect((await alex.get("/api/notifications")).recent[0].status).toBe("sent");
+    // Withdrawing a device is idempotent, for a phone signing out after it was removed.
+    const { devices } = await alex.get("/api/notifications");
+    expect((await alex.call("DELETE", `/api/notifications/devices/${devices[0].id}`)).status).toBe(
+      200,
+    );
+    expect((await alex.call("DELETE", `/api/notifications/devices/${devices[0].id}`)).status).toBe(
+      200,
+    );
+  });
+
   test("a subscription the push service says is gone is forgotten", async () => {
     await turnOn(alex, "old-laptop");
     await turnOn(alex, "alex-phone");

@@ -45,9 +45,10 @@ CREATE TABLE notify_log (
   task_id text NOT NULL REFERENCES tasks(id),
   category text NOT NULL,
   rule_id text NOT NULL,
-  status text NOT NULL CHECK (status IN ('sent', 'held', 'undelivered')),
+  -- held: for quiet hours; retry: no push service took it yet.
+  status text NOT NULL CHECK (status IN ('sent', 'held', 'retry', 'undelivered')),
   created_at timestamptz NOT NULL,
   sent_at timestamptz,
   UNIQUE (user_id, seq)
 );
-CREATE INDEX notify_log_held ON notify_log (user_id) WHERE status = 'held';
+CREATE INDEX notify_log_pending ON notify_log (user_id) WHERE status IN ('held', 'retry');

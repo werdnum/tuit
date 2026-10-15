@@ -1,7 +1,7 @@
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import type { App } from "../app.ts";
-import { ForbiddenError, ValidationError } from "../domain/errors.ts";
+import { ForbiddenError, NotFoundError, ValidationError } from "../domain/errors.ts";
 import { ZONE } from "../domain/time.ts";
 import { ActorInput, ClaimInput, MomentInput, NOTE_KINDS } from "../domain/types.ts";
 import type { AuthEnv } from "./auth.ts";
@@ -287,8 +287,11 @@ export function restApi(app: App): Hono<AuthEnv> {
   api.post("/notifications/devices", async (c) =>
     c.json(publicDevice(await notifier.addDevice(c.get("principal"), await body(c))), 201),
   );
+  // Idempotent, so a device withdrawing itself can't be stuck on one that's already gone.
   api.delete("/notifications/devices/:id", async (c) => {
-    await notifier.removeDevice(c.get("principal"), c.req.param("id"));
+    await notifier.removeDevice(c.get("principal"), c.req.param("id")).catch((err) => {
+      if (!(err instanceof NotFoundError)) throw err;
+    });
     return c.json({ ok: true });
   });
   api.post("/notifications/test", async (c) => c.json(await notifier.test(c.get("principal"))));

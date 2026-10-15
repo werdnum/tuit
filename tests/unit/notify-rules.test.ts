@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
+import type { FeedEvent } from "../../src/domain/feed.ts";
 import type { Task } from "../../src/domain/types.ts";
+import { withoutTrailingWrite } from "../../src/notify/notifier.ts";
 import { type Change, inQuietHours, match, RuleInput, withIds } from "../../src/notify/rules.ts";
 
 const rules = (...r: unknown[]) => withIds(r.map((x) => RuleInput.parse(x)));
@@ -94,5 +96,25 @@ describe("matching", () => {
     expect(
       match(change(["checkpoint"], {}, { user: "alex", agent: "claude" } as never), "alex", r),
     ).not.toBeNull();
+  });
+});
+
+describe("feed pages", () => {
+  const ev = (seq: number, task: string, at: string): FeedEvent => ({
+    seq,
+    type: "checkpoint",
+    at,
+    task: { id: task, title: "", state: "open", visibility: "household" },
+    queue: null,
+    actor: { user: "sam", agent: null },
+    data: {},
+  });
+  test("a full page leaves its last write's events for the next page", () => {
+    const page = [ev(1, "a", "t1"), ev(2, "b", "t2"), ev(3, "b", "t2")];
+    expect(withoutTrailingWrite(page).map((e) => e.seq)).toEqual([1]);
+  });
+  test("a page that is one write is kept whole", () => {
+    const page = [ev(1, "b", "t2"), ev(2, "b", "t2")];
+    expect(withoutTrailingWrite(page)).toHaveLength(2);
   });
 });

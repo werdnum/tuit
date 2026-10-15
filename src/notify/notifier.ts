@@ -40,7 +40,7 @@ export interface LogEntry {
   task: { id: string; title: string } | null;
   category: Category;
   rule_id: string;
-  status: "sent" | "held" | "undelivered";
+  status: "sent" | "held" | "retry" | "undelivered";
   created_at: string;
   sent_at: string | null;
 }
@@ -72,6 +72,8 @@ const PAGE = 200;
 const LOG_DAYS = 30;
 /** How many titles a quiet-hours summary names before "and N more". */
 const SUMMARY_TITLES = 4;
+/** How long a notification no device would take (a push service outage) keeps being retried. */
+const RETRY_MS = 24 * 3600_000;
 
 const human = (userId: string): Principal => ({
   userId,
@@ -313,9 +315,10 @@ export class Notifier {
     for (const { user_id } of r.rows) await this.dispatchUser(user_id);
     if (Date.now() - this.lastPrune > 3600_000) {
       this.lastPrune = Date.now();
-      await this.db.query(`DELETE FROM notify_log WHERE status <> 'held' AND created_at < $1`, [
-        new Date(this.now().getTime() - LOG_DAYS * 86_400_000),
-      ]);
+      await this.db.query(
+        `DELETE FROM notify_log WHERE status NOT IN ('held', 'retry') AND created_at < $1`,
+        [new Date(this.now().getTime() - LOG_DAYS * 86_400_000)],
+      );
     }
   }
 
@@ -331,20 +334,24 @@ export class Notifier {
     for (;;) {
       const page = await listChanges(this.db, p, cursor, PAGE);
       if (page.events.length === 0) break;
+      const full = page.events.length === PAGE;
+      const events = full ? withoutTrailingWrite(page.events) : page.events;
       // Without a device there's no one to tell; the cursor still moves, so turning
       // notifications on later doesn't replay the past.
       if (devices.length > 0) {
-        const tasks = await this.visibleTasks(userId, page.events);
-        for (const change of changesOf(page.events, tasks)) {
+        const tasks = await this.visibleTasks(userId, events);
+        for (const change of changesOf(events, tasks)) {
           await this.decide(userId, settings, devices, users, change);
         }
       }
-      cursor = page.cursor;
+      // A full page may end partway through one write's events: those wait for the next page,
+      // so the write is still reported once.
+      cursor = events === page.events ? page.cursor : String(events.at(-1)?.seq);
       await this.db.query(`UPDATE notify_settings SET cursor = $2 WHERE user_id = $1`, [
         userId,
         Number(cursor),
       ]);
-      if (page.events.length < PAGE) break;
+      if (!full) break;
     }
     if (!inQuietHours(settings.quiet, this.now())) await this.release(userId, devices);
   }
@@ -385,23 +392,27 @@ export class Notifier {
     if (id === undefined || hold) return;
     const msg = await this.render(userId, change, m.category, users);
     const ok = await this.deliver(userId, devices, msg);
-    if (ok > 0) {
-      await this.db.query(`UPDATE notify_log SET status = 'sent', sent_at = $2 WHERE id = $1`, [
-        id,
-        this.now(),
-      ]);
-    }
+    // Nothing took it but a device remains: a push service is failing, so try again later.
+    const status = ok > 0 ? "sent" : devices.length > 0 ? "retry" : "undelivered";
+    await this.db.query(
+      `UPDATE notify_log SET status = $2, sent_at = CASE WHEN $2 = 'sent' THEN $3::timestamptz END
+       WHERE id = $1`,
+      [id, status, this.now()],
+    );
   }
 
-  /** After quiet hours: one notification for what was held (re-checked for visibility). */
+  /**
+   * One notification for what quiet hours held or a push outage delayed, re-checked for
+   * visibility. Runs outside quiet hours.
+   */
   private async release(userId: string, devices: Device[]): Promise<void> {
     const r = await this.db.query(
-      `SELECT l.id, l.category, t.id AS task_id, t.title,
+      `SELECT l.id, l.category, l.status, l.created_at, t.id AS task_id, t.title,
          EXISTS (SELECT 1 FROM notify_log s WHERE s.user_id = l.user_id AND s.task_id = l.task_id
            AND s.seq > l.seq AND s.status = 'sent') AS superseded
        FROM notify_log l
        LEFT JOIN tasks t ON t.id = l.task_id AND ${visibleSql("t", 1)}
-       WHERE l.user_id = $1 AND l.status = 'held' ORDER BY l.seq`,
+       WHERE l.user_id = $1 AND l.status IN ('held', 'retry') ORDER BY l.seq`,
       [userId],
     );
     if (r.rows.length === 0) return;
@@ -411,6 +422,7 @@ export class Notifier {
     const byTask = new Map<string, { title: string; category: Category }>();
     for (const row of visible)
       byTask.set(row.task_id, { title: row.title, category: row.category });
+    const quiet = r.rows.every((row) => row.status === "held");
     let ok = 0;
     if (byTask.size > 0 && devices.length > 0) {
       const [first] = byTask.entries();
@@ -420,13 +432,15 @@ export class Notifier {
       const msg: Message = single
         ? {
             title: first[1].title,
-            body: `While notifications were quiet: ${CATEGORY_LABELS[first[1].category]}`,
+            body: `${quiet ? "While notifications were quiet" : "Earlier"}: ${CATEGORY_LABELS[first[1].category]}`,
             url: this.taskUrl(first[0]),
             taskId: first[0],
             tag: first[0],
           }
         : {
-            title: `${byTask.size} updates while notifications were quiet`,
+            title: quiet
+              ? `${byTask.size} updates while notifications were quiet`
+              : `${byTask.size} updates you haven't seen`,
             body:
               titles.slice(0, SUMMARY_TITLES).join(" · ") + (more > 0 ? ` · and ${more} more` : ""),
             url: new URL("/", this.config.publicUrl).toString(),
@@ -435,10 +449,19 @@ export class Notifier {
           };
       ok = await this.deliver(userId, devices, msg);
     }
+    // Still failing with devices to send to: keep retrying, but not forever.
+    const giveUpBefore = this.now().getTime() - RETRY_MS;
+    const settled = r.rows.filter(
+      (row) =>
+        byTask.size === 0 ||
+        ok > 0 ||
+        devices.length === 0 ||
+        row.created_at.getTime() < giveUpBefore,
+    );
     await this.db.query(
       `UPDATE notify_log SET status = $2, sent_at = CASE WHEN $2 = 'sent' THEN $3::timestamptz END
        WHERE id = ANY($1::bigint[])`,
-      [r.rows.map((row) => row.id), ok > 0 ? "sent" : "undelivered", this.now()],
+      [settled.map((row) => row.id), ok > 0 ? "sent" : "undelivered", this.now()],
     );
     const superseded = r.rows.filter((row) => row.task_id && row.superseded).map((row) => row.id);
     if (superseded.length > 0) {
@@ -603,6 +626,16 @@ export function changesOf(events: FeedEvent[], tasks: Map<string, Task>): Change
     out.push(last);
   }
   return out;
+}
+
+/** A page without the events of its last write, unless that write is the whole page. */
+export function withoutTrailingWrite(events: FeedEvent[]): FeedEvent[] {
+  const last = events.at(-1);
+  if (!last) return events;
+  const key = (e: FeedEvent) => `${e.task?.id}|${e.at}|${e.actor.user}|${e.actor.agent}`;
+  let i = events.length;
+  while (i > 0 && key(events[i - 1] as FeedEvent) === key(last)) i--;
+  return i === 0 ? events : events.slice(0, i);
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: raw pg row
