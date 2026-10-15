@@ -6,8 +6,10 @@ import { ZodError, z } from "zod";
 import { type AuthEnv, safeNext } from "../api/auth.ts";
 import type { App } from "../app.ts";
 import { ConflictError, DomainError, NotFoundError, ValidationError } from "../domain/errors.ts";
+import { visibleSql } from "../domain/tasks.ts";
 import { type Principal, splitAreaTag, type Task } from "../domain/types.ts";
 import type { Explanation } from "../domain/views.ts";
+import { CATEGORIES, defaultRules } from "../notify/rules.ts";
 import { actorText, momentEditText, whenText } from "./format.ts";
 import { type Flash, MANIFEST } from "./layout.ts";
 import { liveStream } from "./live.ts";
@@ -18,6 +20,7 @@ import {
   devLoginPage,
   errorPage,
   inspectPage,
+  notificationsPage,
   nowPage,
   queuePage,
   queuesPage,
@@ -737,8 +740,181 @@ export function webRoutes(app: App): Hono<AuthEnv> {
     }, "/settings"),
   );
 
+  // ---- Notifications
+
+  const { notifier } = app;
+  async function notificationsData(me: Principal) {
+    const areas = await app.db.query<{ area: string }>(
+      `SELECT DISTINCT area FROM tasks t WHERE area IS NOT NULL AND ${visibleSql("t", 1)} ORDER BY area`,
+      [me.userId],
+    );
+    const [settings, devices, recent, webPushKey] = await Promise.all([
+      notifier.settings(me),
+      notifier.devices(me),
+      notifier.recent(me),
+      notifier.webPushKey(),
+    ]);
+    return { settings, devices, recent, webPushKey, areas: areas.rows.map((x) => x.area) };
+  }
+  r.get(
+    "/settings/notifications",
+    view(async (c, ctx) => c.html(notificationsPage(ctx, await notificationsData(ctx.me)))),
+  );
+  // The page's script registers this browser's push subscription (JSON, not a form).
+  const pushJson =
+    (handler: (p: Principal, body: Record<string, unknown>) => Promise<unknown>) =>
+    async (c: WebContext): Promise<Response> => {
+      const me = await sessionPrincipal(c);
+      if (!me) return c.json({ error: "unauthenticated" }, 401);
+      if (!auth.sameOrigin(c)) return c.json({ error: "forbidden" }, 403);
+      let body: Record<string, unknown> = {};
+      try {
+        body = (await c.req.json()) as Record<string, unknown>;
+      } catch {}
+      try {
+        return c.json((await handler(me, body)) ?? { ok: true });
+      } catch (err) {
+        const msg = errorMessage(err);
+        if (msg === null) throw err;
+        return c.json({ error: "invalid", message: msg }, 400);
+      }
+    };
+  r.post(
+    "/settings/notifications/devices",
+    pushJson(async (p, body) => {
+      const d = await notifier.addDevice(p, { ...body, kind: "web" });
+      return { id: d.id };
+    }),
+  );
+  r.post(
+    "/settings/notifications/devices/unsubscribe",
+    pushJson(async (p, body) => {
+      await notifier.removeDevice(p, String(body.endpoint ?? "")).catch((err) => {
+        if (!(err instanceof NotFoundError)) throw err;
+      });
+      return { ok: true };
+    }),
+  );
+  const NOTIFY = "/settings/notifications";
+  r.post(
+    "/settings/notifications/devices/:id/remove",
+    action(async (c, p) => {
+      await notifier.removeDevice(p, c.req.param("id") as string);
+      flash(c, "Device removed");
+      return NOTIFY;
+    }, NOTIFY),
+  );
+  r.post(
+    "/settings/notifications/test",
+    action(async (c, p) => {
+      const { sent, failed } = await notifier.test(p);
+      flash(
+        c,
+        failed === 0
+          ? `Sent a test to ${sent === 1 ? "your device" : `${sent} devices`}`
+          : `Sent to ${sent}; ${failed} didn't take it (see Devices)`,
+        failed === 0 ? "info" : "error",
+      );
+      return NOTIFY;
+    }, NOTIFY),
+  );
+  r.post(
+    "/settings/notifications/quiet",
+    action(async (c, p, form) => {
+      await notifier.saveSettings(p, {
+        quiet: form.on ? { from: form.from ?? "", to: form.to ?? "" } : null,
+      });
+      flash(c, form.on ? `Quiet from ${form.from} until ${form.to}` : "Quiet hours off");
+      return NOTIFY;
+    }, NOTIFY),
+  );
+  r.post(
+    "/settings/notifications/rules",
+    action(async (c, p, form) => {
+      const when = CATEGORIES.filter((cat) => form[`when_${cat}`]);
+      if (when.length === 0) throw new ValidationError("Pick at least one kind of change");
+      const { rules } = await notifier.settings(p);
+      await notifier.saveSettings(p, {
+        rules: [
+          ...rules,
+          {
+            when,
+            whose: form.whose,
+            area: form.area || null,
+            from: form.from,
+            quiet_ok: !!form.quiet_ok,
+          },
+        ],
+      });
+      flash(c, "Rule added");
+      return NOTIFY;
+    }, NOTIFY),
+  );
+  r.post(
+    "/settings/notifications/rules/reset",
+    action(async (c, p) => {
+      await notifier.saveSettings(p, { rules: defaultRules() });
+      flash(c, "Back to the default rules");
+      return NOTIFY;
+    }, NOTIFY),
+  );
+  r.post(
+    "/settings/notifications/rules/:id/:op{toggle|delete}",
+    action(async (c, p) => {
+      const id = c.req.param("id");
+      const { rules } = await notifier.settings(p);
+      if (!rules.some((x) => x.id === id)) throw new NotFoundError("No such rule");
+      await notifier.saveSettings(p, {
+        rules:
+          c.req.param("op") === "delete"
+            ? rules.filter((x) => x.id !== id)
+            : rules.map((x) => (x.id === id ? { ...x, enabled: !x.enabled } : x)),
+      });
+      return NOTIFY;
+    }, NOTIFY),
+  );
+
+  // The service worker only shows pushed notifications and opens them; it doesn't intercept
+  // requests, so pages behave exactly as they do without it.
+  r.get("/sw.js", (c) => {
+    c.header("content-type", "text/javascript; charset=utf-8");
+    c.header("cache-control", "no-cache");
+    return c.body(SERVICE_WORKER);
+  });
+
   return r;
 }
+
+const SERVICE_WORKER = `
+self.addEventListener("push", (event) => {
+  let msg = {};
+  try { msg = event.data ? event.data.json() : {}; } catch {}
+  event.waitUntil(self.registration.showNotification(msg.title || "Tuit", {
+    body: msg.body || "",
+    tag: msg.tag || undefined,
+    renotify: !!msg.tag,
+    data: { url: msg.url || "/" },
+    icon: "/static/icon-192.png",
+    badge: "/static/icon-192.png",
+  }));
+});
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || "/", self.location.origin);
+  if (url.origin !== self.location.origin) return;
+  event.waitUntil((async () => {
+    const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of open) {
+      if (new URL(client.url).origin === url.origin && "focus" in client) {
+        await client.focus();
+        if ("navigate" in client) return client.navigate(url.href);
+        return;
+      }
+    }
+    return self.clients.openWindow(url.href);
+  })());
+});
+`;
 
 function parseJson(text: string): unknown {
   if (!text.trim()) return {};

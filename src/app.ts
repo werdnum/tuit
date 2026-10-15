@@ -12,6 +12,7 @@ import { DomainError } from "./domain/errors.ts";
 import { sweep } from "./domain/sweep.ts";
 import { TaskService } from "./domain/tasks.ts";
 import { mcpRoutes } from "./mcp/server.ts";
+import { Notifier } from "./notify/notifier.ts";
 import { LiveHub } from "./web/live.ts";
 import { webRoutes } from "./web/routes.ts";
 
@@ -23,6 +24,7 @@ export interface App {
   board: Board;
   auth: Auth;
   live: LiveHub;
+  notifier: Notifier;
   sweepNow: () => Promise<void>;
 }
 
@@ -33,7 +35,8 @@ export function buildApp(config: Config, db: Database): { app: App; http: Hono<A
   const board = new Board(db, clock, tasks, sweepNow);
   const auth = new Auth(db, config, clock);
   const live = new LiveHub(db);
-  const app: App = { config, db, clock, tasks, board, auth, live, sweepNow };
+  const notifier = new Notifier(db, clock, config, () => tasks.users());
+  const app: App = { config, db, clock, tasks, board, auth, live, notifier, sweepNow };
 
   const http = new Hono<AuthEnv>();
   http.onError((err, c) => {
@@ -63,6 +66,8 @@ export function buildApp(config: Config, db: Database): { app: App; http: Hono<A
     http.post("/__test/clock", async (c) => {
       const { now } = (await c.req.json()) as { now: string | null };
       clock.set(now ? new Date(now) : null);
+      // Quiet hours end with time alone; let a moved clock release what they held.
+      await notifier.kick();
       return c.json({ now: clock.now().toISOString() });
     });
   }

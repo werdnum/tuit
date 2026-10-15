@@ -254,5 +254,44 @@ export function restApi(app: App): Hono<AuthEnv> {
     return c.json({ ok: true });
   });
 
+  // Notifications are the person's own (personal tokens, the iPhone app, the web session);
+  // agents can neither read nor change them.
+  const { notifier } = app;
+  const publicDevice = (d: Awaited<ReturnType<typeof notifier.devices>>[number]) => ({
+    id: d.id,
+    kind: d.kind,
+    label: d.label,
+    created_at: d.created_at,
+    last_sent_at: d.last_sent_at,
+    last_error: d.last_error,
+    ...(d.kind === "apns" ? { token: d.address, environment: d.environment } : {}),
+  });
+  api.get("/notifications", async (c) => {
+    const p = c.get("principal");
+    const [settings, devices, recent] = await Promise.all([
+      notifier.settings(p),
+      notifier.devices(p),
+      notifier.recent(p),
+    ]);
+    return c.json({
+      ...settings,
+      devices: devices.map(publicDevice),
+      recent,
+      web_push_key: await notifier.webPushKey(),
+      apns: notifier.apns !== null,
+    });
+  });
+  api.put("/notifications/settings", async (c) =>
+    c.json(await notifier.saveSettings(c.get("principal"), await body(c))),
+  );
+  api.post("/notifications/devices", async (c) =>
+    c.json(publicDevice(await notifier.addDevice(c.get("principal"), await body(c))), 201),
+  );
+  api.delete("/notifications/devices/:id", async (c) => {
+    await notifier.removeDevice(c.get("principal"), c.req.param("id"));
+    return c.json({ ok: true });
+  });
+  api.post("/notifications/test", async (c) => c.json(await notifier.test(c.get("principal"))));
+
   return api;
 }

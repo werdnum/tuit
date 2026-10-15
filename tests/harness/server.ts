@@ -59,6 +59,9 @@ export class Api {
   patch(path: string, body: unknown): Promise<any> {
     return this.ok("PATCH", path, body);
   }
+  put(path: string, body: unknown): Promise<any> {
+    return this.ok("PUT", path, body);
+  }
 }
 
 export interface StartOptions {
