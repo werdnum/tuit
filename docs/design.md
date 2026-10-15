@@ -190,8 +190,35 @@ cannot recall events a consumer has already read.
 updated, checkpoint, handed_off, completed, skipped, state_changed, became_available,
 deadline_approaching, routine_stale, expired and claim_lapsed. `GET /api/changes?after=<cursor>`
 returns events the caller can see *under the task's current visibility*. Events do not snapshot
-titles, so a task made private later disappears from everyone else's feed history too. Webhooks and
-subscriptions are deferred.
+titles, so a task made private later disappears from everyone else's feed history too. Webhooks
+are deferred.
+
+### Notifications
+
+Tuit sends push notifications itself: Web Push to browsers (including the Home Screen web app on
+an iPhone) and APNs to the iPhone app. Tapping one opens the task. It sends them rather than
+leaving delivery to an agent because it alone sees every person's feed under their own
+visibility, and knows the devices and the app the notification should open.
+
+Each person's notifications are decided from the change feed **read as them**, so they only
+hear about what they can see, with a per-person cursor so a restart neither repeats nor drops
+anything. The events one write produces (a checkpoint that hands off and changes state) are one
+change, reported once. A person's own direct changes never notify them; an agent acting for
+them counts as someone else.
+
+What is worth a notification is per-person **rules**: a rule names kinds of change (handed
+over, ready to act on, deadline close, an agent's claim lapsed, closed, a note or progress,
+newly added), whose tasks (*my turn*, *tasks I own*, *anything I can see*), optionally one area,
+and optionally who made the change (a person or an agent; time-driven changes pass either).
+Any matching rule sends it. New people start with "handed to me, ready or deadline close when
+it's my turn" and "deadline or lapsed claim on tasks I own".
+
+**Quiet hours** hold what comes up (except rules marked to break through) and release one
+summary when they end, leaving out tasks that already broke through. Decisions are logged by
+id, never content; the log is what makes delivery once-only and what the settings page shows as
+Recent, with the rule that matched. Text is rendered when it is sent, through the visibility
+filter. The VAPID key pair is generated and kept in the database, so Web Push needs no
+operator setup; push endpoints must be on a known push service.
 
 ### Live updates in the web UI
 
@@ -272,8 +299,12 @@ asked "this matters more" pins it rather than inventing a deadline.
   which leave nothing in the feed. That's exact with one server process, which is how Tuit is
   deployed. Across replicas with skewed clocks, a personal change could wait for the next
   refresh; a database-backed marker would fix that if Tuit ever runs more than one.
-- Notifications are not sent by this service. The feed is the integration point; family-assistant
-  (or any agent) owns delivery. Feed consumers acting for a person see only what that person sees.
+- Notification rules are additive (any match sends); there are no "except" rules or per-task
+  mutes. Turning a rule off, or narrowing it to an area, covers the household's cases.
+- A notification's text crosses Apple's or the browser vendor's push service. Web Push
+  payloads are encrypted end to end; APNs payloads are not, as with any iPhone app.
+- The feed remains the integration point for agents; feed consumers acting for a person see only
+  what that person sees.
 - Attachments are links only. Tuit doesn't copy, preview or check access to the file, and removing
   a link leaves the file alone.
 - No full-text index. Search is `ILIKE` over title, brief, next action and activity bodies, which
@@ -283,5 +314,5 @@ asked "this matters more" pins it rather than inventing a deadline.
 
 Calendar-based routines are an accepted scope reduction: the prototype ships
 the two models that need no instances, and calendar routines will need a real template/instance
-split. Also deferred: webhooks/push delivery; offline PWA capture. The native iPhone app (`ios/`) is
+split. Also deferred: webhooks; offline PWA capture. The native iPhone app (`ios/`) is
 a REST client and polls the feed while open.

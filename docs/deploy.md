@@ -25,6 +25,8 @@
 | `MCP_JWT_PERSONAL_CLIENTS` | `tuit-ios` | Optional. Clients whose tokens act as the person themself, not as an agent (the iPhone app). |
 | `TUIT_IOS_APP_IDS` | `H7NBC2S52X.dev.andrewgarrett.tuit` | Optional. `<Team ID>.<bundle id>` of the iPhone app, comma-separated for several. Served in `apple-app-site-association`, so only that app receives the sign-in callback link. |
 | `MCP_JWT_JWKS_URI` | `http://keycloak.internal/realms/home/protocol/openid-connect/certs` | Optional. Where to fetch signing keys; defaults to the issuer's discovery document. |
+| `APNS_KEY_ID` | `ABC123DEFG` | Optional. With `APNS_AUTH_KEY`, sends notifications to the iPhone app (see below). The key's id in the Apple Developer account. |
+| `APNS_AUTH_KEY` | `-----BEGIN PRIVATE KEY-----\n...` | The APNs auth key (`.p8`) contents. A secret. Literal `\n`s are accepted. Team and bundle id come from the first `TUIT_IOS_APP_IDS` entry. |
 | `GOOGLE_PICKER_API_KEY` | `AIza...` | Optional. With the next two, adds "Choose or upload from Google Drive" to the task page (see below). A browser key: restrict it to your `PUBLIC_URL`. |
 | `GOOGLE_PICKER_CLIENT_ID` | `1234-abc.apps.googleusercontent.com` | A Google OAuth client of type "Web application". |
 | `GOOGLE_PICKER_APP_ID` | `123456789012` | The Google Cloud project number. |
@@ -92,6 +94,20 @@ tokens for it, so no Tuit endpoint has to face the internet for sign-in.
 - Expose `/api` publicly, with the gateway checking the issuer, `aud=tuit-api` and the household
   email allowlist, as for `/mcp`. The web UI doesn't use `/api`, so nothing else needs it from
   outside.
+
+## Notifications
+
+Browser notifications (Web Push) need no configuration: the server generates its VAPID key pair
+on first use and keeps it in the database. Each person turns them on per device under Settings →
+Notifications. On an iPhone the web app must be added to the Home Screen first. Outbound HTTPS
+to the browsers' push services (Apple, Google, Mozilla, Microsoft) must be allowed; endpoints on
+any other host are refused.
+
+The iPhone app is notified through Apple (APNs) with an auth key (`.p8`, Certificates, IDs &
+Profiles → Keys, with "Apple Push Notifications service" enabled). One key serves every app in
+the team, so a key already made for another app works. The app ID needs the Push Notifications
+capability, which Xcode's automatic signing adds. Set `APNS_KEY_ID` and `APNS_AUTH_KEY`; the
+server works out sandbox (development builds) versus production per device.
 
 ## Google Drive on the task page (optional)
 

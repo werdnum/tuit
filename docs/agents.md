@@ -108,11 +108,12 @@ with a cursor to resume from. Use `after=latest` to start from now. The event ty
 - Time-driven events (`became_available`, `deadline_approaching`, `routine_stale`, `expired`, ...)
   are emitted once, when the time passes.
 
-**Notifications are not sent by this service.** "Belongs in a queue" is not the same as "interrupt
-me", so delivery has one owner: family-assistant, reacting to the feed. Before it delivers
-anything, it should re-read the task (`get_task`), because it may already be done, expired or
-snoozed. It should deep-link to `https://tuit.example.com/tasks/<id>`. Ignoring a
-notification never loses the task; it stays in Now or its queue.
+**Tuit sends notifications itself** (browsers and the iPhone app), by each person's own rules
+and quiet hours (web: Settings → Notifications). Agents can't read or change those settings, and
+an agent shouldn't also notify about the same changes: an automation reading the feed is for
+acting on it, not for interrupting people. The REST endpoints under `/api/notifications` (rules,
+quiet hours, devices, a test send) accept only the person themself: a session, a personal token
+or the iPhone app.
 
 ## Export
 
@@ -159,4 +160,4 @@ remain unchanged: `tuit_create_task` calls Tuit’s `create_task`.
 Rotate by creating a replacement token for the same person and agent, updating the
 FA Secret, restarting FA, verifying the connection, and revoking the old token in
 Tuit Settings. Revoking one persons token does not affect the other persons token.
-This integration covers interactive tools; notifications and dispatch are separate.
+This integration covers interactive tools; Tuit sends its own notifications, and dispatch is separate.
