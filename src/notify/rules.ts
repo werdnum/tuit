@@ -105,7 +105,7 @@ export interface Change {
   task: Task;
 }
 
-function isMe(a: unknown, me: string): boolean {
+export function isMe(a: unknown, me: string): boolean {
   const actor = a as Actor | undefined;
   return actor?.kind === "user" && actor.user === me;
 }
