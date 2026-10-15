@@ -6,7 +6,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from "../domain/errors
 import { type FeedEvent, listChanges } from "../domain/feed.ts";
 import { newId, type UserInfo, visibleSql } from "../domain/tasks.ts";
 import { describeMoment } from "../domain/time.ts";
-import { type Principal, type Task, taskFromRow } from "../domain/types.ts";
+import { type Actor, type Principal, type Task, taskFromRow } from "../domain/types.ts";
 import {
   ApnsChannel,
   allowedPushEndpoint,
@@ -384,7 +384,9 @@ export class Notifier {
         change.task.id,
         m.category,
         m.rule.id,
-        hold ? "held" : "undelivered",
+        // Until delivery settles it, a row counts as a retry: a crash or a throw mid-send then
+        // leaves it for release() instead of losing it behind the cursor.
+        hold ? "held" : "retry",
         this.now(),
       ],
     );
@@ -498,14 +500,12 @@ export class Notifier {
       : change.actor.user
         ? name(change.actor.user)
         : "Tuit";
-    const turn =
-      t.next_actor.kind === "user"
-        ? name(t.next_actor.user)
-        : t.next_actor.kind === "agent"
-          ? `agent:${t.next_actor.agent}`
-          : "anyone";
-    const next = t.next_action ? `Next: ${t.next_action}` : "";
     const data = (type: string) => change.types.find((x) => x.type === type)?.data;
+    // The task may have moved on since; say who this change handed it to.
+    const to = (data("handed_off")?.to as Actor | undefined) ?? t.next_actor;
+    const turn =
+      to.kind === "user" ? name(to.user) : to.kind === "agent" ? `agent:${to.agent}` : "anyone";
+    const next = t.next_action ? `Next: ${t.next_action}` : "";
     const join = (...parts: string[]) => parts.filter(Boolean).join(" · ");
     let body: string;
     switch (category) {
@@ -566,7 +566,11 @@ export class Notifier {
       devices.map(async (d) => {
         const channel = d.kind === "web" ? web : apns;
         if (!channel) return { d, out: { ok: false as const, gone: false, error: "not set up" } };
-        return { d, out: await channel.send(d, msg) };
+        try {
+          return { d, out: await channel.send(d, msg) };
+        } catch (err) {
+          return { d, out: { ok: false as const, gone: false, error: String(err) } };
+        }
       }),
     );
     let ok = 0;

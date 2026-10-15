@@ -97,6 +97,18 @@ describe("matching", () => {
       match(change(["checkpoint"], {}, { user: "alex", agent: "claude" } as never), "alex", r),
     ).not.toBeNull();
   });
+
+  test("my agent capturing a task into my hands is a handoff", () => {
+    const c = change(
+      ["created"],
+      { next_actor: { kind: "user", user: "alex" } } as never,
+      {
+        user: "alex",
+        agent: "claude",
+      } as never,
+    );
+    expect(match(c, "alex", rules({ when: ["handoff"], whose: "mine" }))?.category).toBe("handoff");
+  });
 });
 
 describe("feed pages", () => {

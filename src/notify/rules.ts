@@ -123,7 +123,7 @@ export function categorize(change: Change, me: string): Map<Category, boolean> {
       case "created":
         add("created", myTurn);
         // Captured straight into someone's hands reads as a handoff to them.
-        if (change.task.next_actor.kind === "user" && change.actor.user !== me && myTurn) {
+        if (myTurn && !(change.actor.user === me && change.actor.agent === null)) {
           add("handoff", true);
         }
         break;

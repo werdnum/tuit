@@ -220,6 +220,20 @@ describe("web push", () => {
     );
   });
 
+  test("a device that can't be sent to doesn't stop the others", async () => {
+    await alex.post("/api/notifications/devices", {
+      kind: "web",
+      ...push.subscription("broken"),
+      keys: { p256dh: "not-a-key", auth: "x" },
+    });
+    await turnOn(alex, "alex-phone");
+    const id = await add(sam, "Mow the lawn");
+    await sam.post(`/api/tasks/${id}/handoff`, { to: "alex" });
+    const [msg] = await pushes("alex-phone", 1);
+    expect(msg?.body).toBe("Sam handed this to you");
+    expect((await alex.get("/api/notifications")).recent[0].status).toBe("sent");
+  });
+
   test("a subscription the push service says is gone is forgotten", async () => {
     await turnOn(alex, "old-laptop");
     await turnOn(alex, "alex-phone");
