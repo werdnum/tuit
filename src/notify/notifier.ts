@@ -523,7 +523,7 @@ export class Notifier {
         : "Tuit";
     const data = (type: string) => change.types.find((x) => x.type === type)?.data;
     // The task may have moved on since; say who this change handed it to.
-    const to = (data("handed_off")?.to as Actor | undefined) ?? t.next_actor;
+    const to = (data("handed_off")?.to ?? data("created")?.next_actor ?? t.next_actor) as Actor;
     const turn =
       to.kind === "user" ? name(to.user) : to.kind === "agent" ? `agent:${to.agent}` : "anyone";
     const next = t.next_action ? `Next: ${t.next_action}` : "";

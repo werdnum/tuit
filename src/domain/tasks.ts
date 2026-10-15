@@ -516,7 +516,7 @@ export class TaskService {
           happenedAt: new Date(t.last_done_at),
         });
       }
-      await addEvent(c, p, "created", { taskId: t.id }, now);
+      await addEvent(c, p, "created", { taskId: t.id }, now, { next_actor: t.next_actor });
       return t;
     });
   }

@@ -120,13 +120,16 @@ export function categorize(change: Change, me: string): Map<Category, boolean> {
       case "handed_off":
         add("handoff", isMe(data.to, me));
         break;
-      case "created":
-        add("created", myTurn);
+      case "created": {
+        // Whose hands it was captured into, not whose they're in by the time this is read.
+        const intoMine = isMe(data.next_actor ?? change.task.next_actor, me);
+        add("created", intoMine);
         // Captured straight into someone's hands reads as a handoff to them.
-        if (myTurn && !(change.actor.user === me && change.actor.agent === null)) {
+        if (intoMine && !(change.actor.user === me && change.actor.agent === null)) {
           add("handoff", true);
         }
         break;
+      }
       case "became_available":
       case "follow_up_due":
       case "routine_due":
