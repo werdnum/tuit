@@ -137,6 +137,12 @@ export class Auth {
     });
   }
 
+  /** The current browser sign-in, for things that should end with it. */
+  sessionHash(c: Context): string | null {
+    const secret = getCookie(c, SESSION_COOKIE);
+    return secret ? sha256(secret) : null;
+  }
+
   async endSession(c: Context): Promise<void> {
     const secret = getCookie(c, SESSION_COOKIE);
     if (secret) await this.db.query("DELETE FROM sessions WHERE id_hash = $1", [sha256(secret)]);

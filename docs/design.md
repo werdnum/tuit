@@ -220,6 +220,10 @@ Recent, with the rule that matched. Text is rendered when it is sent, through th
 filter. The VAPID key pair is generated and kept in the database, so Web Push needs no
 operator setup; push endpoints must be on a known push service.
 
+A device stops when its person leaves it: a browser subscribed from a signed-in page is tied to
+that sign-in and goes when it ends, and the iPhone app withdraws its token before signing out
+(by its token alone if the sign-in has lapsed, since only the phone knows it).
+
 ### Live updates in the web UI
 
 Signed-in pages keep an `EventSource` open on `GET /live` (session cookie only). Each page carries

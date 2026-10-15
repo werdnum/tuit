@@ -186,7 +186,9 @@ export class Notifier {
   async devices(p: Principal): Promise<Device[]> {
     const userId = Notifier.person(p);
     const r = await this.db.query(
-      `SELECT * FROM notify_devices WHERE user_id = $1 ORDER BY created_at`,
+      `SELECT * FROM notify_devices d WHERE user_id = $1 AND (session_hash IS NULL
+         OR EXISTS (SELECT 1 FROM sessions s WHERE s.id_hash = d.session_hash AND s.expires_at > now()))
+       ORDER BY created_at`,
       [userId],
     );
     return r.rows.map(deviceFromRow);
@@ -196,7 +198,7 @@ export class Notifier {
    * Register (or re-register) a device. A device address belongs to whoever registered it
    * last, so a phone that changes hands stops receiving its old owner's notifications.
    */
-  async addDevice(p: Principal, raw: unknown): Promise<Device> {
+  async addDevice(p: Principal, raw: unknown, session: string | null = null): Promise<Device> {
     const userId = Notifier.person(p, true);
     const input = DeviceInput.parse(raw);
     if (input.kind === "web" && !allowedPushEndpoint(input.endpoint, this.config.testClock)) {
@@ -207,6 +209,12 @@ export class Notifier {
     }
     await this.settings(p);
     const address = input.kind === "web" ? input.endpoint : input.token;
+    await this.db.query(
+      `DELETE FROM notify_devices d WHERE user_id = $1 AND session_hash IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id_hash = d.session_hash
+           AND s.expires_at > now())`,
+      [userId],
+    );
     const count = await this.db.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM notify_devices WHERE user_id = $1 AND address <> $2`,
       [userId, address],
@@ -215,10 +223,12 @@ export class Notifier {
       throw new ValidationError(`You can have up to ${MAX_DEVICES} devices; remove one first`);
     }
     const r = await this.db.query(
-      `INSERT INTO notify_devices (id, user_id, kind, address, keys, environment, label, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO notify_devices
+         (id, user_id, kind, address, keys, environment, label, created_at, session_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (kind, address) DO UPDATE SET user_id = EXCLUDED.user_id, keys = EXCLUDED.keys,
-         environment = EXCLUDED.environment, label = EXCLUDED.label, last_error = NULL
+         environment = EXCLUDED.environment, label = EXCLUDED.label, last_error = NULL,
+         session_hash = EXCLUDED.session_hash
        RETURNING *`,
       [
         newId(),
@@ -229,9 +239,20 @@ export class Notifier {
         input.kind === "apns" ? input.environment : null,
         input.label?.trim() || (input.kind === "apns" ? "iPhone app" : "Browser"),
         this.now(),
+        input.kind === "web" ? session : null,
       ],
     );
     return deviceFromRow(r.rows[0]);
+  }
+
+  /**
+   * Withdraw an iPhone by its device token, without signing in: for a phone whose sign-in has
+   * lapsed. Only the phone (and this server) knows the token, so holding it is enough.
+   */
+  async forgetApns(token: string): Promise<void> {
+    await this.db.query(`DELETE FROM notify_devices WHERE kind = 'apns' AND address = lower($1)`, [
+      token,
+    ]);
   }
 
   /** Remove a device by id, or by its address (what the device itself knows). */

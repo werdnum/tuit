@@ -68,13 +68,22 @@ final class PushRegistration {
         do {
             _ = try await api.delete("/notifications/devices/\(token)", Empty()) as Removed
         } catch APIError.unauthenticated {
-            // This sign-in is no longer valid, so nothing it can do will be heard; the next
-            // person to turn notifications on here takes the token over.
+            // This sign-in has lapsed; the device token alone is enough to withdraw the phone.
+            guard await forget(token, base: api.base) else { return false }
         } catch {
             problem = "Couldn't reach Tuit to stop notifications on this iPhone: \(error.localizedDescription)"
             return false
         }
         setEnabled(false)
+        return true
+    }
+
+    private func forget(_ token: String, base: URL) async -> Bool {
+        let status = try? await TokenGrant.post(base.appending(path: "notifications/forget"), ["token": token]).1
+        guard status == 200 else {
+            problem = "Couldn't reach Tuit to stop notifications on this iPhone."
+            return false
+        }
         return true
     }
 

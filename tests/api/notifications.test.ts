@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { waitFor } from "../harness/postgres.ts";
 import { FakeApns, FakeWebPush } from "../harness/push.ts";
 import { type Api, TestServer } from "../harness/server.ts";
+import { signIn } from "../harness/session.ts";
 
 let server: TestServer;
 let push: FakeWebPush;
@@ -234,6 +235,20 @@ describe("web push", () => {
     expect((await alex.get("/api/notifications")).recent[0].status).toBe("sent");
   });
 
+  test("a browser subscribed while signed in stops when that sign-in ends", async () => {
+    const browser = await signIn(server, "alex");
+    const sub = push.subscription("shared-laptop");
+    const r = await browser.fetch("/settings/notifications/devices", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(sub),
+    });
+    expect(r.status).toBe(200);
+    expect((await alex.get("/api/notifications")).devices).toHaveLength(1);
+    await browser.fetch("/logout", { method: "POST" });
+    expect((await alex.get("/api/notifications")).devices).toEqual([]);
+  });
+
   test("a subscription the push service says is gone is forgotten", async () => {
     await turnOn(alex, "old-laptop");
     await turnOn(alex, "alex-phone");
@@ -357,6 +372,20 @@ describe("iPhone app (APNs)", () => {
     });
     const r = await alex.call("DELETE", `/api/notifications/devices/${kept}`);
     expect(r.status).toBe(200);
+    expect((await alex.get("/api/notifications")).devices).toEqual([]);
+  });
+
+  test("a phone whose sign-in lapsed withdraws itself with its token alone", async () => {
+    const token = "0d".repeat(32);
+    await alex.post("/api/notifications/devices", { kind: "apns", token, environment: "sandbox" });
+    const forget = (t: string) =>
+      fetch(`${server.url}/notifications/forget`, {
+        method: "POST",
+        body: new URLSearchParams({ token: t }),
+      });
+    expect((await forget("0e".repeat(32))).status).toBe(200);
+    expect((await alex.get("/api/notifications")).devices).toHaveLength(1);
+    expect((await forget(token.toUpperCase())).status).toBe(200);
     expect((await alex.get("/api/notifications")).devices).toEqual([]);
   });
 });

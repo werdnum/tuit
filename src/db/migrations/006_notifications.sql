@@ -33,6 +33,8 @@ CREATE TABLE notify_devices (
   created_at timestamptz NOT NULL,
   last_sent_at timestamptz,
   last_error text,
+  -- A browser subscribed from a signed-in page lasts only as long as that sign-in.
+  session_hash text REFERENCES sessions(id_hash) ON DELETE CASCADE,
   UNIQUE (kind, address)
 );
 

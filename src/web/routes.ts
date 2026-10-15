@@ -207,6 +207,15 @@ export function webRoutes(app: App): Hono<AuthEnv> {
     return c.redirect("/login", 303);
   });
 
+  // An iPhone whose sign-in has lapsed withdraws itself by its device token (see forgetApns).
+  r.post("/notifications/forget", async (c) => {
+    const form = await formOf(c);
+    if (typeof form.token === "string" && /^[0-9a-fA-F]{32,200}$/.test(form.token)) {
+      await app.notifier.forgetApns(form.token);
+    }
+    return c.json({ ok: true });
+  });
+
   // ---- Live updates
 
   r.get("/live", async (c) => {
@@ -762,7 +771,7 @@ export function webRoutes(app: App): Hono<AuthEnv> {
   );
   // The page's script registers this browser's push subscription (JSON, not a form).
   const pushJson =
-    (handler: (p: Principal, body: Record<string, unknown>) => Promise<unknown>) =>
+    (handler: (p: Principal, body: Record<string, unknown>, c: WebContext) => Promise<unknown>) =>
     async (c: WebContext): Promise<Response> => {
       const me = await sessionPrincipal(c);
       if (!me) return c.json({ error: "unauthenticated" }, 401);
@@ -772,7 +781,7 @@ export function webRoutes(app: App): Hono<AuthEnv> {
         body = (await c.req.json()) as Record<string, unknown>;
       } catch {}
       try {
-        return c.json((await handler(me, body)) ?? { ok: true });
+        return c.json((await handler(me, body, c)) ?? { ok: true });
       } catch (err) {
         const msg = errorMessage(err);
         if (msg === null) throw err;
@@ -781,8 +790,8 @@ export function webRoutes(app: App): Hono<AuthEnv> {
     };
   r.post(
     "/settings/notifications/devices",
-    pushJson(async (p, body) => {
-      const d = await notifier.addDevice(p, { ...body, kind: "web" });
+    pushJson(async (p, body, c) => {
+      const d = await notifier.addDevice(p, { ...body, kind: "web" }, auth.sessionHash(c));
       return { id: d.id };
     }),
   );
