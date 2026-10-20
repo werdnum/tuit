@@ -109,7 +109,7 @@ How to work
 - Privacy is enforced server-side: you only ever see what ${me?.name ?? "this credential"} may see. Empty fields are omitted from results.
 
 Events
-- Watch for work instead of polling now/claim_next: ${INBOX_URI} is what is your turn (tasks handed or captured to you, becoming ready, your claims lapsing, taken back). ${INBOX_URI_PREFIX}<actor> watches someone else's turn ("me" for ${me?.name ?? "the person"}), ${TASK_URI_PREFIX}<id> one task, ${CHANGES_URI} everything you can see. Your own changes never wake you.
+- Watch for work instead of polling now/claim_next: ${INBOX_URI} is what is your turn (tasks handed or captured to you, becoming ready, your claims lapsing, taken back). ${INBOX_URI_PREFIX}<actor> watches someone else's turn ("me" for ${me?.name ?? "the person"}), ${TASK_URI_PREFIX}<id> one task, ${CHANGES_URI} any task you can see. Your own changes never wake you.
 - Clients that keep the session's event stream open can resources/subscribe to these and get notifications/resources/updated. Otherwise call wait_for_events in a loop, passing back its cursor: it returns as soon as something you watch changes. Either way, then claim_next or read the task; an event is a nudge, not permission.`;
 }
 
@@ -573,7 +573,7 @@ export async function buildMcpServer(
     CHANGES_URI,
     {
       description:
-        "Anything you can see changed. Read for the current feed cursor; get_changes lists events.",
+        "Any task you can see changed (queue edits are in get_changes). Read for the current feed cursor; get_changes lists events.",
       mimeType: "application/json",
     },
     async (uri) => json(uri, { cursor: String(await latestCursor(app.db, p)) }),

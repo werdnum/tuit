@@ -104,7 +104,7 @@ as an MCP resource:
 | `tuit://inbox` | a task is handed or captured to you, becomes ready, your claim lapses, it's taken away from you, or anything else happens to a task that's your turn |
 | `tuit://inbox/<actor>` | the same for someone else's turn (`me`, a user id, `agent:<name>`) |
 | `tuit://tasks/<id>` | anything happens to that task |
-| `tuit://changes` | anything you can see |
+| `tuit://changes` | anything happens to a task you can see (queue edits only show in `get_changes`) |
 
 Your own changes never wake you, and you only ever hear about tasks you can see. Reading a
 resource returns its current contents (your open and waiting tasks, or the task).
