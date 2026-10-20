@@ -354,26 +354,35 @@ export class McpSessions {
     id: string,
     send: (uri: string) => Promise<void>,
   ): Promise<boolean> {
-    const row = (
-      await this.app.db.query("SELECT cursor, subscriptions FROM mcp_sessions WHERE id = $1", [id])
-    ).rows[0];
-    if (!row) return false;
-    const watches: Watch[] = [];
-    for (const uri of row.subscriptions as string[]) {
-      try {
-        watches.push(await parseWatch(this.app, p, uri));
-      } catch (err) {
-        // A watched task that has since turned private stops firing, as if it were gone.
-        if (!(err instanceof NotFoundError)) throw err;
+    for (;;) {
+      const row = (
+        await this.app.db.query("SELECT cursor, subscriptions FROM mcp_sessions WHERE id = $1", [
+          id,
+        ])
+      ).rows[0];
+      if (!row) return false;
+      const subscriptions = row.subscriptions as string[];
+      const watches: Watch[] = [];
+      for (const uri of subscriptions) {
+        try {
+          watches.push(await parseWatch(this.app, p, uri));
+        } catch (err) {
+          // A watched task that has since turned private stops firing, as if it were gone.
+          if (!(err instanceof NotFoundError)) throw err;
+        }
       }
+      const r = await watchedChanges(this.app.db, p, watches, Number(row.cursor), Infinity);
+      const uris = new Set(r.changes.flatMap((ch) => ch.watched));
+      for (const uri of uris) await send(uri);
+      if (r.cursor === Number(row.cursor)) return true;
+      // Only move the cursor past what these subscriptions were checked against: if one was
+      // added meanwhile, check again from the same place so its first change isn't skipped.
+      const moved = await this.app.db.query(
+        "UPDATE mcp_sessions SET cursor = $2 WHERE id = $1 AND subscriptions = $3::text[]",
+        [id, r.cursor, subscriptions],
+      );
+      if (moved.rowCount) return true;
     }
-    const r = await watchedChanges(this.app.db, p, watches, Number(row.cursor), Infinity);
-    const uris = new Set(r.changes.flatMap((ch) => ch.watched));
-    for (const uri of uris) await send(uri);
-    if (r.cursor !== Number(row.cursor)) {
-      await this.app.db.query("UPDATE mcp_sessions SET cursor = $2 WHERE id = $1", [id, r.cursor]);
-    }
-    return true;
   }
 }
 
