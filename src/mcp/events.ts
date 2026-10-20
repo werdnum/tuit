@@ -317,7 +317,7 @@ export class McpSessions {
         while (!abort.signal.aborted && !stream.aborted && Date.now() < deadline) {
           if (moved) {
             moved = false;
-            const open = await this.deliver(p, session.id, async (uri) => {
+            const open = await this.deliver(p, session.id, abort.signal, async (uri) => {
               await stream.writeSSE({
                 event: "message",
                 data: JSON.stringify({
@@ -354,6 +354,7 @@ export class McpSessions {
   private async deliver(
     p: Principal,
     id: string,
+    superseded: AbortSignal,
     send: (uri: string) => Promise<void>,
   ): Promise<boolean> {
     for (;;) {
@@ -376,6 +377,9 @@ export class McpSessions {
       const r = await watchedChanges(this.app.db, p, watches, Number(row.cursor), Infinity);
       const uris = new Set(r.changes.flatMap((ch) => ch.watched));
       for (const uri of uris) await send(uri);
+      // A stream replaced mid-delivery may have been writing to a connection already gone;
+      // leave the cursor for its replacement, which then sends these again.
+      if (superseded.aborted) return false;
       if (r.cursor === Number(row.cursor)) return true;
       // Only move the cursor past what these subscriptions were checked against: if one was
       // added meanwhile, check again from the same place so its first change isn't skipped.

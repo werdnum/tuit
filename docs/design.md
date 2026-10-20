@@ -334,6 +334,10 @@ asked "this matters more" pins it rather than inventing a deadline.
   payloads are encrypted end to end; APNs payloads are not, as with any iPhone app.
 - The feed remains the integration point for agents; feed consumers acting for a person see only
   what that person sees.
+- MCP resource notifications are a nudge to re-read, not a log. A client may get a duplicate
+  "updated", and one written to a connection that dies without the server noticing isn't resent,
+  so a client that reconnects its stream should re-read what it watches. `wait_for_events` with
+  its cursor is the path that never skips a change.
 - Attachments are links only. Tuit doesn't copy, preview or check access to the file, and removing
   a link leaves the file alone.
 - No full-text index. Search is `ILIKE` over title, brief, next action and activity bodies, which
