@@ -567,10 +567,12 @@ export class Notifier {
                 : `${who} finished it`;
         break;
       case "progress": {
+        // The checkpoint's own note: a later write in the same instant (completing it, under a
+        // fixed clock) may have added another entry by the time this is sent.
         const note = await this.db.query<{ body: string }>(
-          `SELECT body FROM activity WHERE task_id = $1 AND recorded_at = $2
-             AND kind NOT IN ('system', 'edit') ORDER BY id DESC LIMIT 1`,
-          [t.id, change.at],
+          `SELECT body FROM activity WHERE task_id = $1 AND recorded_at = $2 AND kind = $3
+           ORDER BY id DESC LIMIT 1`,
+          [t.id, change.at, String(data("checkpoint")?.kind ?? "note")],
         );
         const text = (note.rows[0]?.body ?? "").replace(/\s+/g, " ").trim();
         body = text ? `${who} wrote: ${clip(text, 180)}` : `${who} recorded progress`;
