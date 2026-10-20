@@ -196,3 +196,21 @@ test("subscriptions outlive a restart and catch up on what happened meanwhile", 
     params: { uri: "tuit://inbox" },
   });
 });
+
+test("a display token watching everything hears time-driven changes", async () => {
+  const kitchen = await Mcp.connect(server.url, await server.mintDisplayToken("alex"));
+  sessions.push(kitchen);
+  await alex.post("/api/tasks", { title: "Put the bins out", available_from: "2026-10-06" });
+  const { cursor } = await kitchen.call("wait_for_events", {
+    watch: ["tuit://changes"],
+    wait_seconds: 0,
+  });
+  await server.setClock("2026-10-06T09:00:00+11:00");
+  await alex.get("/api/now");
+  const got = await kitchen.call("wait_for_events", {
+    watch: ["tuit://changes"],
+    after: cursor,
+    wait_seconds: 0,
+  });
+  expect(got.changes.map((c: any) => c.types)).toContainEqual(["became_available"]);
+});

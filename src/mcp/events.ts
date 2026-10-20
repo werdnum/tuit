@@ -55,6 +55,8 @@ export async function parseWatch(app: App, p: Principal, uri: string): Promise<W
 
 /** A change this principal made itself: never reported back to it. */
 function ownChange(change: Change, p: Principal): boolean {
+  // A display token has no identity of its own: changes with no actor are time's, not its.
+  if (p.userId === null && p.agent === null) return false;
   return change.actor.user === p.userId && change.actor.agent === p.agent;
 }
 
