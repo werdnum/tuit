@@ -214,3 +214,19 @@ test("a display token watching everything hears time-driven changes", async () =
   });
   expect(got.changes.map((c: any) => c.types)).toContainEqual(["became_available"]);
 });
+
+test("a session unused for 30 days is forgotten", async () => {
+  const token = await server.mintToken("alex", "claude");
+  const claude = await Mcp.connect(server.url, token);
+  const sessionId = (claude.client.transport as { sessionId?: string }).sessionId as string;
+  await claude.close();
+  await server.setClock("2026-11-05T09:00:00+11:00");
+  const res = await fetch(`${server.url}/mcp`, {
+    headers: {
+      authorization: `Bearer ${await server.mintToken("alex", "claude")}`,
+      accept: "text/event-stream",
+      "mcp-session-id": sessionId,
+    },
+  });
+  expect(res.status).toBe(404);
+});

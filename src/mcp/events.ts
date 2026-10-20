@@ -188,6 +188,8 @@ export async function waitForChanges(
     moved = true;
     wake?.();
   });
+  const onAbort = () => wake?.();
+  signal?.addEventListener("abort", onAbort);
   const deadline = Date.now() + waitMs;
   try {
     let cursor = after;
@@ -200,7 +202,6 @@ export async function waitForChanges(
       if (!moved) {
         await new Promise<void>((resolve) => {
           const timer = setTimeout(done, left);
-          signal?.addEventListener("abort", done, { once: true });
           function done() {
             clearTimeout(timer);
             wake = null;
@@ -211,12 +212,14 @@ export async function waitForChanges(
       }
     }
   } finally {
+    signal?.removeEventListener("abort", onAbort);
     unsubscribe();
   }
 }
 
 /** Sessions idle this long are forgotten; a client that comes back re-initializes. */
 const SESSION_IDLE_DAYS = 30;
+const idleCutoff = (now: Date) => new Date(now.getTime() - SESSION_IDLE_DAYS * 86_400_000);
 
 export interface McpSession {
   id: string;
@@ -240,9 +243,7 @@ export class McpSessions {
 
   async create(p: Principal): Promise<string> {
     const now = this.app.clock.now();
-    await this.app.db.query("DELETE FROM mcp_sessions WHERE seen_at < $1", [
-      new Date(now.getTime() - SESSION_IDLE_DAYS * 86_400_000),
-    ]);
+    await this.app.db.query("DELETE FROM mcp_sessions WHERE seen_at < $1", [idleCutoff(now)]);
     const id = `${newId()}${newId()}`;
     await this.app.db.query(
       `INSERT INTO mcp_sessions (id, user_id, agent, cursor, created_at, seen_at)
@@ -257,8 +258,9 @@ export class McpSessions {
     const r = await this.app.db.query(
       `UPDATE mcp_sessions SET seen_at = $4
        WHERE id = $1 AND user_id IS NOT DISTINCT FROM $2 AND agent IS NOT DISTINCT FROM $3
+         AND seen_at >= $5
        RETURNING id, cursor, subscriptions`,
-      [id, p.userId, p.agent, this.app.clock.now()],
+      [id, p.userId, p.agent, this.app.clock.now(), idleCutoff(this.app.clock.now())],
     );
     const row = r.rows[0];
     return row
@@ -304,6 +306,7 @@ export class McpSessions {
       stream.onAbort(close);
       let moved = true;
       let wake: (() => void) | null = null;
+      abort.signal.addEventListener("abort", () => wake?.(), { once: true });
       const unsubscribe = app.live.subscribe(p.userId ?? "", (kind) => {
         if (kind !== "feed") return;
         moved = true;
@@ -332,7 +335,6 @@ export class McpSessions {
               () => done(false),
               Math.min(HEARTBEAT_MS, deadline - Date.now()),
             );
-            abort.signal.addEventListener("abort", () => done(true), { once: true });
             function done(v: boolean) {
               clearTimeout(timer);
               wake = null;
