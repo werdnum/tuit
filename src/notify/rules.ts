@@ -29,7 +29,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
 };
 
 /** When one change fits several categories, it is reported as the first of them here. */
-const PRIORITY: Category[] = [
+export const PRIORITY: Category[] = [
   "handoff",
   "deadline",
   "claim",
@@ -105,13 +105,27 @@ export interface Change {
   task: Task;
 }
 
-export function isMe(a: unknown, me: string): boolean {
+/** Whether `a` is `me`: a household user id, or any actor (an agent watching its own work). */
+export function isMe(a: unknown, me: string | Actor): boolean {
   const actor = a as Actor | undefined;
-  return actor?.kind === "user" && actor.user === me;
+  if (typeof me === "string") return actor?.kind === "user" && actor.user === me;
+  if (actor?.kind !== me.kind) return false;
+  if (me.kind === "user") return actor.kind === "user" && actor.user === me.user;
+  if (me.kind === "agent") return actor.kind === "agent" && actor.agent === me.agent;
+  return true;
+}
+
+/** Whether `me` made this change themselves (an agent acting for a person is someone else). */
+function wroteIt(change: Change, me: string | Actor): boolean {
+  const { user, agent } = change.actor;
+  if (typeof me === "string" || me.kind === "user") {
+    return agent === null && user === (typeof me === "string" ? me : me.user);
+  }
+  return me.kind === "agent" && agent === me.agent;
 }
 
 /** The categories a change could be reported as, with whether it is "mine" for each. */
-export function categorize(change: Change, me: string): Map<Category, boolean> {
+export function categorize(change: Change, me: string | Actor): Map<Category, boolean> {
   const out = new Map<Category, boolean>();
   const myTurn = isMe(change.task.next_actor, me);
   const add = (cat: Category, mine: boolean) => out.set(cat, (out.get(cat) ?? false) || mine);
@@ -125,7 +139,7 @@ export function categorize(change: Change, me: string): Map<Category, boolean> {
         const intoMine = isMe(data.next_actor ?? change.task.next_actor, me);
         add("created", intoMine);
         // Captured straight into someone's hands reads as a handoff to them.
-        if (intoMine && !(change.actor.user === me && change.actor.agent === null)) {
+        if (intoMine && !wroteIt(change, me)) {
           add("handoff", true);
         }
         break;

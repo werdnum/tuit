@@ -249,6 +249,31 @@ day's list at 4am, "enough for now" running out), which no event announces, so a
 private, other people's open pages aren't told (the feed hides that event from them), so it stays
 on screen until their next update, navigation or 10-minute refresh.
 
+### Events for agents (MCP)
+
+Agents watch resources (`tuit://inbox`, `tuit://inbox/<actor>`, `tuit://tasks/<id>`,
+`tuit://changes`) rather than event types: what an agent wants is "is there something for me",
+and the same names serve both delivery paths. Both read the change feed *as the agent's
+principal*, group one write's events into one change (as notifications do), drop the agent's
+own changes, and match each change against the watches. An inbox watch matches when the task is
+the actor's turn now, or a `handed_off` (which records `from` as well as `to`), `created` or
+`claim_lapsed` names them, so a task leaving the agent's hands is reported too.
+
+- **MCP resource subscriptions** use the spec's own mechanism, so standard clients need nothing
+  Tuit-specific. Requests stay stateless (a fresh server per POST); `initialize` returns an
+  `Mcp-Session-Id` whose row in `mcp_sessions` holds the subscriptions and a feed cursor. The
+  session's `GET /mcp` stream wakes on the same `LISTEN` as live pages and sends
+  `notifications/resources/updated` carrying only the URI, so content still goes through a normal
+  read. Keeping the cursor in the database means a restart neither drops nor needs to replay
+  anything: the reconnecting stream catches up. A newer stream for a session replaces an older
+  one, and streams end after 30 minutes so a revoked token stops being served.
+- **`wait_for_events`** is the fallback for clients that only call tools (most hosted
+  connectors): a long poll of at most 50 seconds, which stays inside common proxy timeouts, with
+  the same matching and a cursor the caller passes back.
+
+Webhooks out of Tuit remain deferred: they would need per-target credentials and retry state,
+and every current consumer can hold a stream or poll.
+
 ## Attention: Now and queues
 
 A queue is typed, stored data. It has a filter (actor, states, contexts available, text, area,

@@ -63,7 +63,7 @@ absences. Unit tests exist only for rough date parsing, where the edge cases are
 | --- | --- |
 | `src/domain/` | The deterministic core: tasks, checkpoint, recurrence, attention (Now/queues/explain), sweep, feed |
 | `src/api/` | REST, auth (OIDC sessions, tokens), OAuth server for remote MCP connectors |
-| `src/mcp/` | MCP server (streamable HTTP, stateless) |
+| `src/mcp/` | MCP server (streamable HTTP), resource subscriptions and `wait_for_events` |
 | `src/web/` | Server-rendered, phone-first web UI |
 | `src/cli/`, `bin/tuit` | CLI, a pure REST client |
 | `src/db/migrations/` | SQL migrations, applied on startup |
@@ -92,7 +92,7 @@ absences. Unit tests exist only for rough date parsing, where the edge cases are
 - notifications to browsers and the iPhone app, with per-person rules (what kind of change,
   whose tasks, which area, by a person or an agent) and quiet hours that end in one summary;
 - export;
-- MCP, OAuth connectors and the CLI;
+- MCP (with events agents can subscribe to or wait on), OAuth connectors and the CLI;
 - a native iPhone app ([ios/](ios/README.md)) with browser sign-in, saved offline browsing and
   durable offline capture/task changes.
 

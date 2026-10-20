@@ -94,6 +94,36 @@ automatically. It surfaces to its owner as "check before retrying". Pass `side_e
 for work that can't affect the outside world (research, drafting). A lapsed claim of that kind
 quietly returns to the pool.
 
+## Waiting for work (events)
+
+Instead of polling `now` or `claim_next`, an agent can watch for changes. What to watch is named
+as an MCP resource:
+
+| Resource | Changes when |
+| --- | --- |
+| `tuit://inbox` | a task is handed or captured to you, becomes ready, your claim lapses, it's taken away from you, or anything else happens to a task that's your turn |
+| `tuit://inbox/<actor>` | the same for someone else's turn (`me`, a user id, `agent:<name>`) |
+| `tuit://tasks/<id>` | anything happens to that task |
+| `tuit://changes` | anything you can see |
+
+Your own changes never wake you, and you only ever hear about tasks you can see. Reading a
+resource returns its current contents (your open and waiting tasks, or the task).
+
+There are two ways to be told:
+
+- **Subscriptions (MCP clients that keep the event stream open).** `resources/subscribe` to a URI;
+  Tuit sends `notifications/resources/updated` on the session's `GET /mcp` stream. Sessions are
+  kept in the database, so a subscription survives a deploy: the client reconnects its stream and
+  hears about anything that happened while it was gone. A session belongs to the agent and person
+  that started it, and is forgotten after 30 days unused.
+- **`wait_for_events` (anything else, including connectors that only call tools).** It takes the
+  URIs to watch and a cursor, and returns as soon as something matches (or after `wait_seconds`,
+  at most 50). Each change names the task, the event types, a `category` (handoff, ready,
+  deadline, claim, closed, progress, created, as in notifications) and which watch it touched.
+  Call it in a loop, passing back the cursor so nothing is missed.
+
+An event is a nudge, not permission: claim the task (or read it) before acting.
+
 ## The change feed (automations and notifications)
 
 `GET /api/changes?after=<cursor>` (MCP: `get_changes`, CLI: `tuit changes`) returns events in order,
