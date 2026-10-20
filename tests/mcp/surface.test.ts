@@ -81,6 +81,7 @@ test("the tool surface is small and task-oriented", async () => {
       "skip_routine",
       "snooze_task",
       "update_task",
+      "wait_for_events",
     ].sort(),
   );
 });

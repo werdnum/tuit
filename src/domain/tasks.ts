@@ -567,8 +567,12 @@ export class TaskService {
       await addActivity(c, p, t.id, "edit", `Changed ${Object.keys(changed).join(", ")}`, now, {
         data: { changes: changed },
       });
-      if (handedOff)
-        await addEvent(c, p, "handed_off", { taskId: t.id }, now, { to: t.next_actor });
+      if (handedOff) {
+        await addEvent(c, p, "handed_off", { taskId: t.id }, now, {
+          from: before.next_actor,
+          to: t.next_actor,
+        });
+      }
       await addEvent(c, p, "updated", { taskId: t.id }, now, { fields: Object.keys(changed) });
       return t;
     });
@@ -590,6 +594,7 @@ export class TaskService {
       const t = await this.lockTask(c, p, id, input.expected_revision);
       const wasClosed = CLOSED_STATES.includes(t.state);
       const stateBefore = t.state;
+      const actorBefore = t.next_actor;
       if (input.brief !== undefined) t.brief = input.brief;
       if (input.next_action !== undefined) t.next_action = input.next_action;
       const handedOff = actor ? await this.applyActorChange(c, t, actor, now) : false;
@@ -663,8 +668,12 @@ export class TaskService {
         },
       });
       await addEvent(c, p, "checkpoint", { taskId: t.id }, now, { kind: input.kind ?? "note" });
-      if (handedOff)
-        await addEvent(c, p, "handed_off", { taskId: t.id }, now, { to: t.next_actor });
+      if (handedOff) {
+        await addEvent(c, p, "handed_off", { taskId: t.id }, now, {
+          from: actorBefore,
+          to: t.next_actor,
+        });
+      }
       if (t.state !== stateBefore) {
         await addEvent(c, p, "state_changed", { taskId: t.id }, now, {
           from: stateBefore,

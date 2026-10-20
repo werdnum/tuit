@@ -2,21 +2,39 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { Hono } from "hono";
 import type { AuthEnv } from "../api/auth.ts";
 import type { App } from "../app.ts";
+import { McpSessions } from "./events.ts";
 import { buildMcpServer } from "./tools.ts";
 
-const rpcError = (message: string) => ({
+const rpcError = (message: string, code = -32000) => ({
   jsonrpc: "2.0",
-  error: { code: -32000, message },
+  error: { code, message },
   id: null,
 });
 
+const SESSION_HEADER = "mcp-session-id";
+
+/** Whether a JSON-RPC body (one message or a batch) starts a session. */
+async function isInitialize(req: Request): Promise<boolean> {
+  try {
+    const body = await req.clone().json();
+    const msgs = Array.isArray(body) ? body : [body];
+    return msgs.some((m) => m && typeof m === "object" && m.method === "initialize");
+  } catch {
+    // The transport answers a malformed body with a proper JSON-RPC parse error.
+    return false;
+  }
+}
+
 /**
- * Streamable HTTP MCP endpoint, stateless: each POST gets a fresh server bound to the caller's
- * principal. Bearer tokens only; a session cookie is never accepted here, so a browser can't be
- * tricked into driving tools with a signed-in user's authority.
+ * Streamable HTTP MCP endpoint. Each POST gets a fresh server bound to the caller's principal;
+ * the session (from initialize) only carries resource subscriptions and the position of its
+ * event stream (GET), and lives in the database, so it survives restarts. Bearer tokens only;
+ * a session cookie is never accepted here, so a browser can't be tricked into driving tools
+ * with a signed-in user's authority.
  */
 export function mcpRoutes(app: App): Hono<AuthEnv> {
   const r = new Hono<AuthEnv>();
+  const sessions = new McpSessions(app);
   r.all("/", async (c) => {
     const header = c.req.header("authorization") ?? "";
     const found = /^bearer\s/i.test(header) ? await app.auth.principal(c) : null;
@@ -30,19 +48,43 @@ export function mcpRoutes(app: App): Hono<AuthEnv> {
       );
       return c.json(rpcError("Send an agent token: Authorization: Bearer <token>"), 401);
     }
-    if (c.req.method !== "POST") {
-      // Stateless: no standalone SSE stream (GET) and no session to delete (DELETE).
-      c.header("Allow", "POST");
+    const p = found.principal;
+    const method = c.req.method;
+    if (method !== "POST" && method !== "GET" && method !== "DELETE") {
+      c.header("Allow", "GET, POST, DELETE");
       return c.json(rpcError("Method not allowed"), 405);
     }
-    const server = await buildMcpServer(app, found.principal);
+
+    const sent = c.req.header(SESSION_HEADER);
+    // A session someone else started is as unknown as one that never existed.
+    const session = sent ? await sessions.get(p, sent) : null;
+    if (sent && !session) return c.json(rpcError("Session not found", -32001), 404);
+    if (method !== "POST") {
+      if (!session) return c.json(rpcError(`Send the ${SESSION_HEADER} header`), 400);
+      if (method === "DELETE") {
+        await sessions.delete(session.id);
+        return c.body(null, 204);
+      }
+      if (!(c.req.header("accept") ?? "").includes("text/event-stream")) {
+        return c.json(rpcError("Accept text/event-stream"), 406);
+      }
+      return sessions.stream(c, p, session);
+    }
+
+    const starting = !session && (await isInitialize(c.req.raw));
+    const id = starting ? await sessions.create(p) : (session?.id ?? null);
+    const server = await buildMcpServer(app, p, { sessions, id });
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
     });
     await server.connect(transport);
     try {
-      return await transport.handleRequest(c.req.raw);
+      const res = await transport.handleRequest(c.req.raw);
+      if (!starting || !id || !res.ok) return res;
+      const headers = new Headers(res.headers);
+      headers.set(SESSION_HEADER, id);
+      return new Response(res.body, { status: res.status, headers });
     } finally {
       await server.close();
     }
