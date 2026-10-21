@@ -24,6 +24,10 @@ interpret anything itself: urgency, labels, recurrence and visibility all come f
   Signing out stops this phone's notifications.
 - `tuit://tasks/<id>` opens a task (the scheme is only for links, never for sign-in).
 
+| Now | Task detail |
+| :---: | :---: |
+| <img src="../docs/screenshots/ios-now.png" width="320" alt="Tuit for iPhone Now screen"> | <img src="../docs/screenshots/ios-task.png" width="320" alt="Tuit for iPhone Task detail screen"> |
+
 ## Offline use
 
 After signing in online, Tuit saves Now, your tasks, their briefs and history on this phone.
@@ -165,7 +169,6 @@ SIMCTL_CHILD_TUIT_OPEN=<task id> xcrun simctl launch booted dev.andrewgarrett.tu
 
 ## Not yet
 
-- Push notifications. The server doesn't send any; family-assistant owns delivery.
 - Widgets.
-- Queues. They're configured on the web.
+- Queues and notification rules. They're configured on the web.
 - Full block Markdown. Briefs render inline Markdown, and list items become bullets.
