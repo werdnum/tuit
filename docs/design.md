@@ -271,8 +271,30 @@ the actor's turn now, or a `handed_off` (which records `from` as well as `to`), 
   connectors): a long poll of at most 50 seconds, which stays inside common proxy timeouts, with
   the same matching and a cursor the caller passes back.
 
-Webhooks out of Tuit remain deferred: they would need per-target credentials and retry state,
-and every current consumer can hold a stream or poll.
+- **The MCP Events extension** (SEP-3415) is for hosted clients that can do neither, such as
+  ChatGPT: it offers the same three watches as event types (`inbox.changed`, `task.changed`,
+  `feed.changed`) by webhook or poll. It only exists in protocol revision `2026-07-28`, which the
+  SDK doesn't speak yet, so `/mcp` is dual-era: a POST whose version (header or `_meta`) is
+  newer than the handshake revisions is answered statelessly by `src/mcp/modern.ts`. It answers
+  `server/discover` and `events/*` itself and hands everything else to the same per-request
+  server the legacy path builds, through an in-process initialize, so tools exist once.
+
+  Webhook subscriptions live in `webhook_subscriptions`, keyed by a hash of (user, agent, URL,
+  event, canonical arguments), so subscribing again refreshes rather than duplicates. Each holds
+  a feed cursor, and a delivery loop woken by the same `LISTEN` reads the feed *as the
+  subscriber*, POSTs one signed change at a time, and moves the cursor only when the receiver
+  acknowledges or Tuit gives up on that change. An endpoint is challenged before its first
+  subscription (cached per principal and URL for a week). POSTs go only to public HTTPS
+  addresses, checked at connect time against the address actually dialled, with no redirects.
+
+Deliberate simplifications in the Events extension support: header checks accept a missing
+`Mcp-Method`/`Mcp-Name` (but refuse one that disagrees with the body), because ChatGPT's own
+samples are looser than the draft; `CallbackEndpointError` uses ChatGPT's documented `-32015`
+rather than the draft's provisional code; no-expiry subscriptions are never granted (a week at
+most, so a credential the issuer revokes stops being served); push (`events/stream`) and the
+`gap`/`terminated` control messages aren't offered, since ChatGPT uses neither; retry state is in
+memory, so a restart retries a failing delivery from its first attempt; and like live pages it
+assumes one replica.
 
 ## Attention: Now and queues
 
@@ -347,5 +369,5 @@ asked "this matters more" pins it rather than inventing a deadline.
 
 Calendar-based routines are an accepted scope reduction: the prototype ships
 the two models that need no instances, and calendar routines will need a real template/instance
-split. Also deferred: webhooks; offline PWA capture. The native iPhone app (`ios/`) is
+split. Also deferred: general-purpose webhooks out of the change feed (MCP event webhooks exist; see above); offline PWA capture. The native iPhone app (`ios/`) is
 a REST client and polls the feed while open.

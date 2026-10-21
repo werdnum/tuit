@@ -42,6 +42,13 @@ export interface Config {
   testClock: boolean;
   sweepIntervalMs: number;
   /**
+   * Webhook delivery for the MCP Events extension. Receivers must be public HTTPS endpoints
+   * unless `allowPrivateNetworks` is set (local development, or a receiver inside the cluster),
+   * which also allows plain http. A failed delivery is retried after each delay in turn, then
+   * given up on.
+   */
+  webhooks: { allowPrivateNetworks: boolean; retryDelaysMs: number[] };
+  /**
    * Google Picker on the task page, for attaching Drive files. All three come from one Google
    * Cloud project; the browser gets its own drive.file token, so the server holds no Google
    * credential. Off unless all three are set. Uploads go to `uploadFolderId` when set (a folder
@@ -130,6 +137,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     devLogin,
     testClock: env.TUIT_TEST_CLOCK === "1",
     sweepIntervalMs: Number(env.TUIT_SWEEP_INTERVAL_MS ?? 60_000),
+    webhooks: {
+      allowPrivateNetworks: env.TUIT_WEBHOOK_ALLOW_PRIVATE_NETWORKS === "1",
+      retryDelaysMs: list(env.TUIT_WEBHOOK_RETRY_DELAYS_MS ?? "10000,60000,180000,480000").map(
+        Number,
+      ),
+    },
     googlePicker:
       env.GOOGLE_PICKER_API_KEY && env.GOOGLE_PICKER_CLIENT_ID && env.GOOGLE_PICKER_APP_ID
         ? {

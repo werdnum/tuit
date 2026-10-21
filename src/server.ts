@@ -10,15 +10,22 @@ await seedUsers(db, config);
 const { app, http } = buildApp(config, db);
 app.live.start();
 // Every change to the feed wakes the notifier, through the same LISTEN connection as live pages.
-app.live.subscribe("", () => void app.notifier.kick());
+app.live.subscribe("", (kind) => {
+  void app.notifier.kick();
+  if (kind === "feed") app.webhooks.kick();
+});
 void app.notifier.kick();
+app.webhooks.kick();
 
 const timer = setInterval(() => {
   app
     .sweepNow()
     .catch((err) => console.error("sweep failed", err))
     // Also on a timer, because quiet hours end with no event to announce it.
-    .then(() => app.notifier.kick());
+    .then(() => {
+      app.notifier.kick();
+      app.webhooks.kick();
+    });
 }, config.sweepIntervalMs);
 
 const server = serve({ fetch: http.fetch, hostname: config.host, port: config.port }, (info) => {
@@ -32,6 +39,7 @@ async function shutdown(): Promise<void> {
   server.close();
   await app.live.stop();
   app.notifier.close();
+  app.webhooks.close();
   await db.close();
   process.exit(0);
 }

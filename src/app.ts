@@ -12,6 +12,8 @@ import { DomainError } from "./domain/errors.ts";
 import { sweep } from "./domain/sweep.ts";
 import { TaskService } from "./domain/tasks.ts";
 import { mcpRoutes } from "./mcp/server.ts";
+import { internetTransport } from "./mcp/webhook-transport.ts";
+import { Webhooks } from "./mcp/webhooks.ts";
 import { Notifier } from "./notify/notifier.ts";
 import { LiveHub } from "./web/live.ts";
 import { webRoutes } from "./web/routes.ts";
@@ -25,6 +27,7 @@ export interface App {
   auth: Auth;
   live: LiveHub;
   notifier: Notifier;
+  webhooks: Webhooks;
   sweepNow: () => Promise<void>;
 }
 
@@ -36,7 +39,8 @@ export function buildApp(config: Config, db: Database): { app: App; http: Hono<A
   const auth = new Auth(db, config, clock);
   const live = new LiveHub(db);
   const notifier = new Notifier(db, clock, config, () => tasks.users());
-  const app: App = { config, db, clock, tasks, board, auth, live, notifier, sweepNow };
+  const app = { config, db, clock, tasks, board, auth, live, notifier, sweepNow } as App;
+  app.webhooks = new Webhooks(app, internetTransport(config.webhooks));
 
   const http = new Hono<AuthEnv>();
   http.onError((err, c) => {
