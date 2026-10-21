@@ -86,12 +86,17 @@ describe("web push", () => {
       rules: [{ when: ["handoff", "progress", "closed", "ready"], whose: "any" }],
     });
     const id = await add(sam, "Chase the insurer");
+    // Separate writes need distinct instants: feed grouping and checkpoint-note lookup use
+    // their timestamps. Keep each checkpoint's events at one instant, but don't let the
+    // pinned clock make the later note replace the earlier one during async delivery.
+    await server.setClock("2026-10-05T14:00:01+11:00");
     await sam.post(`/api/tasks/${id}/checkpoint`, {
       note: "Waiting on their reply",
       state: "waiting",
       waiting: { kind: "reply", for: "insurer" },
       next_actor: "sam",
     });
+    await server.setClock("2026-10-05T14:00:02+11:00");
     await sam.post(`/api/tasks/${id}/checkpoint`, {
       note: "They replied, over to Alex",
       state: "open",
