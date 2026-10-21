@@ -78,6 +78,8 @@ export function touches(w: Watch, change: Change): boolean {
 
 export interface WatchedChange {
   seq: number;
+  /** The last feed event of this write: resuming after it doesn't report the write again. */
+  through: number;
   at: string;
   /** The feed events of this one write, e.g. ["checkpoint", "handed_off"]. */
   types: string[];
@@ -89,7 +91,7 @@ export interface WatchedChange {
   watched: string[];
 }
 
-function describe(change: Change, p: Principal, watched: string[]): WatchedChange {
+function describe(change: Change, through: number, p: Principal, watched: string[]): WatchedChange {
   const self = selfActor(p);
   const cats = self ? categorize(change, self) : new Map<Category, boolean>();
   const category =
@@ -97,6 +99,7 @@ function describe(change: Change, p: Principal, watched: string[]): WatchedChang
   const t = change.task;
   return {
     seq: change.seq,
+    through,
     at: change.at,
     types: change.types.map((x) => x.type),
     ...(category ? { category } : {}),
@@ -131,6 +134,18 @@ async function visibleTasks(
 
 const PAGE = 200;
 
+/** The last event of each write (the run of events one change groups), by its first event. */
+function writeEnds(events: FeedEvent[]): Map<number, number> {
+  const key = (e: FeedEvent) => `${e.task?.id}|${e.at}|${e.actor.user}|${e.actor.agent}`;
+  const ends = new Map<number, number>();
+  let start: FeedEvent | null = null;
+  for (const e of events) {
+    if (!start || !e.task || key(start) !== key(e)) start = e;
+    ends.set(start.seq, e.seq);
+  }
+  return ends;
+}
+
 /**
  * Changes after `after` that touch any of `watches`, reading whole pages of the feed until at
  * least `limit` are found (so it may return a page's worth more). The cursor moves past
@@ -153,10 +168,12 @@ export async function watchedChanges(
     // A full page may end partway through one write's events; those wait for the next page.
     const events = full ? withoutTrailingWrite(page.events) : page.events;
     const tasks = await visibleTasks(db, p, events);
+    const ends = writeEnds(events);
     for (const change of changesOf(events, tasks)) {
       if (ownChange(change, p)) continue;
       const watched = watches.filter((w) => touches(w, change)).map((w) => w.uri);
-      if (watched.length > 0) out.push(describe(change, p, watched));
+      const through = ends.get(change.seq) ?? change.seq;
+      if (watched.length > 0) out.push(describe(change, through, p, watched));
     }
     cursor = (events.at(-1) as FeedEvent).seq;
     if (!full || out.length >= limit) break;

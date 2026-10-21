@@ -110,6 +110,7 @@ How to work
 
 Events
 - Watch for work instead of polling now/claim_next: ${INBOX_URI} is what is your turn (tasks handed or captured to you, becoming ready, your claims lapsing, taken back). ${INBOX_URI_PREFIX}<actor> watches someone else's turn ("me" for ${me?.name ?? "the person"}), ${TASK_URI_PREFIX}<id> one task, ${CHANGES_URI} any task you can see. Your own changes never wake you.
+- Clients with the MCP Events extension (events/list) can subscribe to the same things as event types instead: inbox.changed, task.changed, feed.changed, by webhook or poll.
 - Clients that keep the session's event stream open can resources/subscribe to these and get notifications/resources/updated. Otherwise call wait_for_events in a loop, passing back its cursor: it returns as soon as something you watch changes. Either way, then claim_next or read the task; an event is a nudge, not permission.`;
 }
 
@@ -188,10 +189,7 @@ const RevisionOnly = z
   .strict();
 
 /** The MCP session a request belongs to, if the client sent one. */
-export interface SessionContext {
-  sessions: McpSessions;
-  id: string | null;
-}
+export type SessionContext = { sessions: McpSessions; id: string } | null;
 
 export async function buildMcpServer(
   app: App,
@@ -520,7 +518,7 @@ export async function buildMcpServer(
       for (const uri of new Set(watch)) watches.push(await parseWatch(app, p, uri));
       const from = after !== undefined ? Number(after) : await latestCursor(app.db, p);
       const r = await waitForChanges(app, p, watches, from, wait_seconds * 1000, limit, signal);
-      return { changes: r.changes, cursor: String(r.cursor) };
+      return { changes: r.changes.map(({ through, ...c }) => c), cursor: String(r.cursor) };
     },
   );
 
@@ -580,23 +578,24 @@ export async function buildMcpServer(
   );
 
   server.server.registerCapabilities({ resources: { subscribe: true } });
-  const sessionId = () => {
-    if (!session.id) {
+  const sessionOf = () => {
+    if (!session) {
       throw new McpError(
         ErrorCode.InvalidRequest,
         "Subscriptions need a session: send the Mcp-Session-Id from initialize. Or use wait_for_events.",
       );
     }
-    return session.id;
+    return session;
   };
   server.server.setRequestHandler(SubscribeRequestSchema, async (req) => {
-    const id = sessionId();
+    const s = sessionOf();
     const w = await readable(() => parseWatch(app, p, req.params.uri));
-    await session.sessions.subscribe(id, w.uri);
+    await s.sessions.subscribe(s.id, w.uri);
     return {};
   });
   server.server.setRequestHandler(UnsubscribeRequestSchema, async (req) => {
-    await session.sessions.unsubscribe(sessionId(), req.params.uri);
+    const s = sessionOf();
+    await s.sessions.unsubscribe(s.id, req.params.uri);
     return {};
   });
 

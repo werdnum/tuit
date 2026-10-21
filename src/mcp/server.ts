@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { AuthEnv } from "../api/auth.ts";
 import type { App } from "../app.ts";
 import { McpSessions } from "./events.ts";
+import { handleModern, isModern } from "./modern.ts";
 import { buildMcpServer } from "./tools.ts";
 
 const rpcError = (message: string, code = -32000) => ({
@@ -13,16 +14,19 @@ const rpcError = (message: string, code = -32000) => ({
 
 const SESSION_HEADER = "mcp-session-id";
 
-/** Whether a JSON-RPC body (one message or a batch) starts a session. */
-async function isInitialize(req: Request): Promise<boolean> {
+/** The JSON-RPC body, or undefined if it isn't JSON (the transport answers that properly). */
+async function peekBody(req: Request): Promise<unknown> {
   try {
-    const body = await req.clone().json();
-    const msgs = Array.isArray(body) ? body : [body];
-    return msgs.some((m) => m && typeof m === "object" && m.method === "initialize");
+    return await req.clone().json();
   } catch {
-    // The transport answers a malformed body with a proper JSON-RPC parse error.
-    return false;
+    return undefined;
   }
+}
+
+/** Whether a JSON-RPC body (one message or a batch) starts a session. */
+function isInitialize(body: unknown): boolean {
+  const msgs = Array.isArray(body) ? body : [body];
+  return msgs.some((m) => m && typeof m === "object" && m.method === "initialize");
 }
 
 /**
@@ -50,6 +54,23 @@ export function mcpRoutes(app: App): Hono<AuthEnv> {
     }
     const p = found.principal;
     const method = c.req.method;
+    const body = method === "POST" ? await peekBody(c.req.raw) : undefined;
+    if (method === "POST" && isModern(c.req.header("mcp-protocol-version"), body)) {
+      const reply = await handleModern(
+        app,
+        p,
+        app.webhooks,
+        {
+          version: c.req.header("mcp-protocol-version"),
+          method: c.req.header("mcp-method"),
+          name: c.req.header("mcp-name"),
+        },
+        body as Parameters<typeof handleModern>[4],
+        c.req.raw.signal,
+      );
+      if (reply.body === null) return c.body(null, 202);
+      return c.json(reply.body, reply.status as 200);
+    }
     if (method !== "POST" && method !== "GET" && method !== "DELETE") {
       c.header("Allow", "GET, POST, DELETE");
       return c.json(rpcError("Method not allowed"), 405);
@@ -71,9 +92,9 @@ export function mcpRoutes(app: App): Hono<AuthEnv> {
       return sessions.stream(c, p, session);
     }
 
-    const starting = !session && (await isInitialize(c.req.raw));
+    const starting = !session && isInitialize(body);
     const id = starting ? await sessions.create(p) : (session?.id ?? null);
-    const server = await buildMcpServer(app, p, { sessions, id });
+    const server = await buildMcpServer(app, p, id ? { sessions, id } : null);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

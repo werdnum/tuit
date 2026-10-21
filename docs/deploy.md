@@ -33,6 +33,8 @@
 | `GOOGLE_PICKER_UPLOAD_FOLDER_ID` | `1AbC...` | Optional. Files uploaded through the picker go into this Drive folder (share it with the household) instead of the uploader's My Drive. |
 | `TUIT_TIMEZONE` | `Australia/Sydney` (default) | The household zone for calendar dates. |
 | `TUIT_SWEEP_INTERVAL_MS` | `60000` (default) | Background tick for time-driven feed events. Reads always sweep first anyway. |
+| `TUIT_WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `1` | Let MCP event webhooks go to plain http and private addresses (local development, or a receiver in the cluster). Off by default: receivers must be public HTTPS. |
+| `TUIT_WEBHOOK_RETRY_DELAYS_MS` | `10000,60000,180000,480000` (default) | Waits between attempts at a failing webhook delivery; after the last, that change is skipped. |
 | `TUIT_DEV_LOGIN` | `1` | Local only: pick-a-user login. Refused unless `PUBLIC_URL` is localhost, and forces a loopback bind. |
 | `TUIT_TEST_CLOCK` | `1` | Tests only: exposes `POST /__test/clock`. Never set this in production. |
 
