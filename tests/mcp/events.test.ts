@@ -230,3 +230,152 @@ test("a session unused for 30 days is forgotten", async () => {
   });
   expect(res.status).toBe(404);
 });
+
+test("same-principal conversations deliver inbox arrivals but suppress routine self-updates", async () => {
+  const dot = await agentSession("alex", "chatgpt");
+  const chat = await agentSession("alex", "chatgpt");
+  const ownInbox = "tuit://inbox/agent:chatgpt";
+  const watch = ["tuit://inbox", ownInbox, "tuit://changes", "tuit://inbox/sam"];
+  let { cursor } = await dot.call("wait_for_events", { watch, wait_seconds: 0 });
+  const waiting = dot.call("wait_for_events", { watch, after: cursor, wait_seconds: 20 });
+  const { task } = await chat.call("create_task", {
+    title: "Delegate from regular ChatGPT to dot",
+    next_actor: "agent:chatgpt",
+  });
+  const arrived = await waiting;
+  expect(arrived.changes).toHaveLength(1);
+  expect(arrived.changes[0]).toMatchObject({
+    types: ["created"],
+    task: { id: task.id },
+    watched: ["tuit://inbox", ownInbox],
+  });
+  cursor = arrived.cursor;
+  watch.push(`tuit://tasks/${task.id}`);
+
+  const check = async (types: string[] = []) => {
+    const got = await dot.call("wait_for_events", { watch, after: cursor, wait_seconds: 0 });
+    expect(got.changes).toHaveLength(types.length ? 1 : 0);
+    if (types.length) {
+      expect(got.changes[0].types).toEqual(types);
+      expect(got.changes[0].watched).toEqual(["tuit://inbox", ownInbox]);
+    }
+    expect(Number(got.cursor)).toBeGreaterThanOrEqual(Number(cursor));
+    cursor = got.cursor;
+  };
+  await check(); // No replay after creation.
+  await chat.call("claim_next", { task_id: task.id, side_effects: false });
+  await check();
+  await chat.call("checkpoint", {
+    task_id: task.id,
+    note: "Still working",
+    next_actor: "agent:chatgpt",
+    state: "open",
+  });
+  await check();
+  await chat.call("update_task", { task_id: task.id, brief: "A useful brief" });
+  await check();
+
+  // Explicit hand_off to the same actor is a delegation, unlike retaining it in a checkpoint.
+  const handoff = { task_id: task.id, to: "agent:chatgpt", idempotency_key: "self-delegation" };
+  const handed = await chat.call("hand_off", handoff);
+  expect(handed.task.claim).toBeTruthy(); // A self-handoff cannot bypass another worker's claim.
+  await check(["checkpoint", "handed_off"]);
+  await chat.call("hand_off", handoff);
+  await check(); // Idempotent retry cannot generate a second wake-up.
+  await chat.call("release_claim", { task_id: task.id, claim_id: handed.task.claim.id });
+  await check();
+
+  await chat.call("hand_off", { task_id: task.id, to: "sam" });
+  await check(); // Own outgoing work, including the other inbox watch, stays quiet.
+  await chat.call("update_task", { task_id: task.id, next_actor: "agent:chatgpt" });
+  await check(["handed_off", "updated"]);
+  await chat.call("checkpoint", {
+    task_id: task.id,
+    note: "Waiting for a reply",
+    next_actor: "agent:chatgpt",
+    waiting: { kind: "reply", for: "supplier" },
+  });
+  await check();
+  await chat.call("checkpoint", {
+    task_id: task.id,
+    note: "Reply arrived",
+    next_actor: "agent:chatgpt",
+    state: "open",
+  });
+  await check(["checkpoint", "state_changed"]);
+  await chat.call("complete_task", { task_id: task.id });
+  await check();
+  await chat.call("reopen_task", { task_id: task.id });
+  await check(["state_changed"]);
+});
+
+test("same-principal creation reaches an SSE inbox subscription", async () => {
+  const dot = await agentSession("alex", "chatgpt");
+  const chat = await agentSession("alex", "chatgpt");
+  await dot.client.subscribeResource({ uri: "tuit://inbox" });
+  const notified = updated(dot, "tuit://inbox");
+  const { task } = await chat.call("create_task", {
+    title: "Another conversation's request",
+    next_actor: "agent:chatgpt",
+  });
+  await notified;
+  expect((await readJson(dot, "tuit://inbox")).tasks.map((t: any) => t.id)).toEqual([task.id]);
+});
+
+test("time-driven readiness and claim lapse still wake the shared actor once", async () => {
+  const dot = await agentSession("alex", "chatgpt");
+  const chat = await agentSession("alex", "chatgpt");
+  const { task } = await chat.call("create_task", {
+    title: "Research tomorrow",
+    next_actor: "agent:chatgpt",
+    available_from: "2026-10-06",
+  });
+  const start = await dot.call("wait_for_events", { wait_seconds: 0 });
+  await server.setClock("2026-10-06T09:00:00+11:00");
+  await alex.get("/api/now"); // Reads run the time-driven sweep.
+  const ready = await dot.call("wait_for_events", { after: start.cursor, wait_seconds: 0 });
+  expect(ready.changes).toHaveLength(1);
+  expect(ready.changes[0]).toMatchObject({ types: ["became_available"], actor: {} });
+  await chat.call("claim_next", { task_id: task.id, lease_minutes: 30, side_effects: true });
+  const claimed = await dot.call("wait_for_events", { after: ready.cursor, wait_seconds: 0 });
+  expect(claimed.changes).toEqual([]);
+  expect(Number(claimed.cursor)).toBeGreaterThan(Number(ready.cursor));
+  await server.setClock("2026-10-06T09:31:00+11:00");
+  await alex.get("/api/now");
+  const lapsed = await dot.call("wait_for_events", { after: claimed.cursor, wait_seconds: 0 });
+  expect(lapsed.changes).toHaveLength(1);
+  expect(lapsed.changes[0]).toMatchObject({ types: ["claim_lapsed"], actor: {} });
+  expect((await chat.call("claim_next", { task_id: task.id })).task).toBeNull();
+  expect(
+    (await dot.call("wait_for_events", { after: lapsed.cursor, wait_seconds: 0 })).changes,
+  ).toEqual([]);
+});
+
+test("backlogged self-arrivals use their recorded destination after later reassignment", async () => {
+  const dot = await agentSession("alex", "chatgpt");
+  const writer = await server.api("alex", "chatgpt");
+  const start = await dot.call("wait_for_events", { wait_seconds: 0 });
+  const { task } = await writer.post("/api/tasks", {
+    title: "Work that moves before dot reconnects",
+    next_actor: "agent:chatgpt",
+  });
+  await server.setClock("2026-10-05T09:01:00+11:00");
+  await writer.post(`/api/tasks/${task.id}/complete`);
+  await server.setClock("2026-10-05T09:02:00+11:00");
+  await writer.post(`/api/tasks/${task.id}/reopen`);
+  await server.setClock("2026-10-05T09:03:00+11:00");
+  await writer.post(`/api/tasks/${task.id}/handoff`, { to: "sam" });
+  const got = await dot.call("wait_for_events", { after: start.cursor, wait_seconds: 0 });
+  expect(got.changes.map((c: any) => c.types)).toEqual([["created"], ["state_changed"]]);
+  expect(got.changes.every((c: any) => c.task.next_actor.user === "sam")).toBe(true);
+
+  // Conversely, reopening for Sam must not look like an arrival for us after reassignment.
+  await server.setClock("2026-10-05T09:04:00+11:00");
+  await writer.post(`/api/tasks/${task.id}/complete`);
+  await server.setClock("2026-10-05T09:05:00+11:00");
+  await writer.post(`/api/tasks/${task.id}/reopen`);
+  await server.setClock("2026-10-05T09:06:00+11:00");
+  await writer.post(`/api/tasks/${task.id}/handoff`, { to: "agent:chatgpt" });
+  const back = await dot.call("wait_for_events", { after: got.cursor, wait_seconds: 0 });
+  expect(back.changes.map((c: any) => c.types)).toEqual([["checkpoint", "handed_off"]]);
+});

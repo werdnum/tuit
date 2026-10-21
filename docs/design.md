@@ -254,8 +254,25 @@ on screen until their next update, navigation or 10-minute refresh.
 Agents watch resources (`tuit://inbox`, `tuit://inbox/<actor>`, `tuit://tasks/<id>`,
 `tuit://changes`) rather than event types: what an agent wants is "is there something for me",
 and the same names serve both delivery paths. Both read the change feed *as the agent's
-principal*, group one write's events into one change (as notifications do), drop the agent's
-own changes, and match each change against the watches. An inbox watch matches when the task is
+principal*, group one write's events into one change (as notifications do), and match each
+change against the watches. Self-change suppression is per watch: user + agent equality
+normally suppresses a change, except arrivals in that principal's own inbox. `created.next_actor`,
+`handed_off.to`, and `state_changed` to open identify those arrivals. Creation/handoff use the
+event's destination even if the task has since moved; reopening records `next_actor` too
+(older events fall back to the current task). No credential or conversation identity is inferred.
+Task/feed watches and watches of other inboxes retain self-change suppression. All transports
+use this same filter and still advance past visible, suppressed events.
+
+An explicit REST/MCP handoff emits `handed_off` even when from/to are equal. A checkpoint that
+merely retains its actor does not. This deliberate handoff does not clear a live claim, alter
+claim authorization, or bypass availability checks. Time-driven readiness/claim lapse have no
+actor and retain existing behavior. Clients must read/claim current work before acting:
+notifications can describe a historical arrival, and side-effect claims still require review.
+The same chat receives its own explicit arrivals too; without conversation identity there is
+no safe way to distinguish them. Routine notes, claims, completion and unchanged assignments
+stay quiet to avoid feedback loops.
+
+For changes made by others, an inbox watch matches when the task is
 the actor's turn now, or a `handed_off` (which records `from` as well as `to`), `created` or
 `claim_lapsed` names them, so a task leaving the agent's hands is reported too.
 

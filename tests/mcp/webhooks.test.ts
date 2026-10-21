@@ -417,3 +417,71 @@ test("a legacy client is unaffected", async () => {
   expect(res.headers.get("mcp-session-id")).toBeTruthy();
   expect((await res.json()).result.protocolVersion).toBe("2025-11-25");
 });
+
+test("same-principal inbox webhooks and polls agree without waking task or feed watchers", async () => {
+  const dot = await agent("alex", "chatgpt");
+  const chat = await agent("alex", "chatgpt");
+  const writer = await server.api("alex", "chatgpt");
+  const { task } = await writer.post("/api/tasks", { title: "Delegation target" });
+  const watches = [
+    { name: "inbox.changed", arguments: {} },
+    { name: "task.changed", arguments: { task_id: task.id } },
+    { name: "feed.changed", arguments: {} },
+    { name: "inbox.changed", arguments: { actor: "sam" } },
+  ];
+  const starts: string[] = [];
+  for (const watch of watches) {
+    const sub = await dot.ok("events/subscribe", {
+      ...watch,
+      delivery: { mode: "webhook", url: receiver.url, secret: newSecret() },
+    });
+    starts.push(sub.cursor);
+  }
+  await server.setClock("2026-10-05T09:01:00+11:00");
+  await writer.post(`/api/tasks/${task.id}/handoff`, { to: "agent:chatgpt" });
+  await receiver.waitFor(1);
+  await server.setClock("2026-10-05T09:02:00+11:00");
+  await writer.post(`/api/tasks/${task.id}/checkpoint`, {
+    note: "Still working",
+    next_actor: "agent:chatgpt",
+  });
+  await server.setClock("2026-10-05T09:03:00+11:00");
+  await writer.post(`/api/tasks/${task.id}/handoff`, {
+    to: "agent:chatgpt",
+    idempotency_key: "again",
+  });
+  await receiver.waitFor(2);
+  await writer.post(`/api/tasks/${task.id}/handoff`, {
+    to: "agent:chatgpt",
+    idempotency_key: "again",
+  });
+  await server.setClock("2026-10-05T09:04:00+11:00");
+  await writer.post(`/api/tasks/${task.id}/complete`);
+  // A final arrival is a delivery barrier after the suppressed writes.
+  await chat.ok("tools/call", {
+    name: "create_task",
+    arguments: { title: "Next delegation", next_actor: "agent:chatgpt" },
+  });
+  await receiver.waitFor(3);
+  const delivered = receiver.deliveries().map((r) => r.json);
+  expect(delivered.map((r) => r.name)).toEqual(["inbox.changed", "inbox.changed", "inbox.changed"]);
+  expect(new Set(delivered.map((r) => r.eventId)).size).toBe(3);
+
+  for (const [i, watch] of watches.entries()) {
+    const polled = await dot.ok("events/poll", { ...watch, cursor: starts[i], maxEvents: 1 });
+    if (i === 0) {
+      expect(polled.events).toHaveLength(1);
+      expect(polled.hasMore).toBe(true);
+      const rest = await dot.ok("events/poll", { ...watch, cursor: polled.cursor });
+      expect(rest.hasMore).toBe(false);
+      const all = [...polled.events, ...rest.events];
+      // Task summaries are current at read time, so compare event identity and types.
+      const event = (e: any) => ({ types: e.data.types, id: e.data.task.id, cursor: e.cursor });
+      expect(all.map(event)).toEqual(delivered.map(event));
+      expect((await dot.ok("events/poll", { ...watch, cursor: rest.cursor })).events).toEqual([]);
+    } else {
+      expect(polled.events).toEqual([]);
+      expect(Number(polled.cursor)).toBeGreaterThan(Number(starts[i]));
+    }
+  }
+});
