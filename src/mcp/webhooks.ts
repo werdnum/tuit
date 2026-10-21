@@ -53,7 +53,7 @@ const EVENT_TYPES: EventType[] = [
   {
     name: "inbox.changed",
     description:
-      "A task became your turn (handed or captured to you, became ready, your claim lapsed) or stopped being yours, or something happened to a task that is yours. Pass actor to watch someone else's turn.",
+      "A task became your turn (handed or captured to you, became ready, your claim lapsed) or stopped being yours, or something happened to a task that is yours. Pass actor to watch someone else's turn. Own creation, handoff and reopening into your own inbox are included; routine self-updates are suppressed.",
     args: z.object({ actor: actorArg.optional() }).strict(),
     watch: (a) =>
       a.actor === undefined
@@ -62,13 +62,13 @@ const EVENT_TYPES: EventType[] = [
   },
   {
     name: "task.changed",
-    description: "Anything happened to one task.",
+    description: "Anything happened to one task, excluding your own changes.",
     args: z.object({ task_id: z.string().min(1).max(64).describe("Task id") }).strict(),
     watch: (a) => `${TASK_URI_PREFIX}${encodeURIComponent(String(a.task_id))}`,
   },
   {
     name: "feed.changed",
-    description: "Anything happened to any task you can see.",
+    description: "Anything happened to any task you can see, excluding your own changes.",
     args: z.object({}).strict(),
     watch: () => CHANGES_URI,
   },

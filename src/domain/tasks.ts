@@ -582,7 +582,12 @@ export class TaskService {
    * Append progress and move the task on in one transaction: the note and the change of hands
    * (or state) either both happen or neither does.
    */
-  async checkpoint(p: Principal, id: string, raw: unknown): Promise<Task> {
+  async checkpoint(
+    p: Principal,
+    id: string,
+    raw: unknown,
+    intent: "progress" | "handoff" = "progress",
+  ): Promise<Task> {
     const input = CheckpointInput.parse(raw);
     if (p.agent && input.next_actor === undefined) {
       throw new ValidationError(
@@ -597,7 +602,10 @@ export class TaskService {
       const actorBefore = t.next_actor;
       if (input.brief !== undefined) t.brief = input.brief;
       if (input.next_action !== undefined) t.next_action = input.next_action;
-      const handedOff = actor ? await this.applyActorChange(c, t, actor, now) : false;
+      const actorChanged = actor ? await this.applyActorChange(c, t, actor, now) : false;
+      // Explicit hand_off can delegate to another conversation using the same actor.
+      // Merely retaining next_actor in a checkpoint must not produce another wake-up.
+      const handedOff = actorChanged || (intent === "handoff" && actor !== undefined);
 
       const targetState = input.state ?? (input.waiting ? "waiting" : undefined);
       if (targetState === "waiting") {
@@ -678,6 +686,7 @@ export class TaskService {
         await addEvent(c, p, "state_changed", { taskId: t.id }, now, {
           from: stateBefore,
           to: t.state,
+          next_actor: t.next_actor,
         });
       }
       return t;
@@ -870,7 +879,11 @@ export class TaskService {
       await addActivity(c, p, t.id, "state_change", "Reopened", now, {
         data: { state: { from, to: "open" } },
       });
-      await addEvent(c, p, "state_changed", { taskId: t.id }, now, { from, to: "open" });
+      await addEvent(c, p, "state_changed", { taskId: t.id }, now, {
+        from,
+        to: "open",
+        next_actor: t.next_actor,
+      });
       return t;
     });
   }

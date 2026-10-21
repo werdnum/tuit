@@ -111,16 +111,21 @@ export function restApi(app: App): Hono<AuthEnv> {
     "/tasks/:id/handoff",
     mutation((id, input, c) => {
       const h = HandoffInput.parse(input);
-      return tasks.checkpoint(c.get("principal"), id, {
-        note: h.note ?? "Handed off",
-        kind: h.kind,
-        next_actor: h.to,
-        next_action: h.next_action,
-        brief: h.brief,
-        state: "open",
-        expected_revision: h.expected_revision,
-        idempotency_key: h.idempotency_key,
-      });
+      return tasks.checkpoint(
+        c.get("principal"),
+        id,
+        {
+          note: h.note ?? "Handed off",
+          kind: h.kind,
+          next_actor: h.to,
+          next_action: h.next_action,
+          brief: h.brief,
+          state: "open",
+          expected_revision: h.expected_revision,
+          idempotency_key: h.idempotency_key,
+        },
+        "handoff",
+      );
     }),
   );
   api.post(

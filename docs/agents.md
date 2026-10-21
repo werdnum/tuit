@@ -106,8 +106,23 @@ as an MCP resource:
 | `tuit://tasks/<id>` | anything happens to that task |
 | `tuit://changes` | anything happens to a task you can see (queue edits only show in `get_changes`) |
 
-Your own changes never wake you, and you only ever hear about tasks you can see. Reading a
-resource returns its current contents (your open and waiting tasks, or the task).
+You only ever hear about tasks you can see. Changes made by your own principal (user + agent)
+are normally suppressed, but **arrivals in your own watched inbox still wake you**: creating a
+task assigned to you, assigning it to you, explicitly calling `hand_off` to you (even if it is
+already yours), or reopening a waiting/closed task assigned to you. This lets another chat
+using the same credentials delegate work. The exception applies to `tuit://inbox` and an
+explicit inbox URI resolving to your actor, not task/feed watches or someone else's inbox.
+
+A checkpoint that keeps your `next_actor`, ordinary edits/notes, claims, claim releases,
+completion, and outgoing handoffs remain quiet when you made them. To deliberately hand work
+to another conversation using your actor, use `hand_off`; use an idempotency key for retries.
+A no-op assignment to the existing actor in `update_task` is not a handoff. Time-driven
+readiness and claim lapse still wake you, regardless of which chat created or claimed the task.
+A lapsed claim that may have external side effects still requires review before retrying.
+
+These rules are identical for resource subscriptions, `wait_for_events`, and Events extension
+webhooks/polls. Reading a resource returns its current contents (your open and waiting tasks,
+or the task); an arrival event does not promise the task is still assigned, available or unclaimed.
 
 There are two ways to be told:
 

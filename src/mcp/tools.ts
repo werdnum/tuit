@@ -109,7 +109,7 @@ How to work
 - Privacy is enforced server-side: you only ever see what ${me?.name ?? "this credential"} may see. Empty fields are omitted from results.
 
 Events
-- Watch for work instead of polling now/claim_next: ${INBOX_URI} is what is your turn (tasks handed or captured to you, becoming ready, your claims lapsing, taken back). ${INBOX_URI_PREFIX}<actor> watches someone else's turn ("me" for ${me?.name ?? "the person"}), ${TASK_URI_PREFIX}<id> one task, ${CHANGES_URI} any task you can see. Your own changes never wake you.
+- Watch for work instead of polling now/claim_next: ${INBOX_URI} is what is your turn (tasks handed or captured to you, becoming ready, your claims lapsing, taken back). ${INBOX_URI_PREFIX}<actor> watches someone else's turn ("me" for ${me?.name ?? "the person"}), ${TASK_URI_PREFIX}<id> one task, ${CHANGES_URI} any task you can see. Your own inbox arrivals (creation, handoff, reopening) wake you even from another conversation using the same actor; routine self-updates do not.
 - Clients with the MCP Events extension (events/list) can subscribe to the same things as event types instead: inbox.changed, task.changed, feed.changed, by webhook or poll.
 - Clients that keep the session's event stream open can resources/subscribe to these and get notifications/resources/updated. Otherwise call wait_for_events in a loop, passing back its cursor: it returns as soon as something you watch changes. Either way, then claim_next or read the task; an event is a nudge, not permission.`;
 }
@@ -318,18 +318,23 @@ export async function buildMcpServer(
 
   tool(
     "hand_off",
-    "Give the task to someone else (a checkpoint that changes next_actor and reopens it). Update the brief so they need no other context.",
+    "Hand the task over and reopen it, including to another conversation using your own actor. Update the brief so they need no other context.",
     HandOffInput,
     WRITE,
     async ({ task_id, to, note, ...rest }) =>
       view(
         (
-          await tasks.checkpoint(p, task_id, {
-            ...rest,
-            note: note ?? "Handed off",
-            next_actor: to,
-            state: "open",
-          })
+          await tasks.checkpoint(
+            p,
+            task_id,
+            {
+              ...rest,
+              note: note ?? "Handed off",
+              next_actor: to,
+              state: "open",
+            },
+            "handoff",
+          )
         ).id,
       ),
   );
@@ -500,7 +505,7 @@ export async function buildMcpServer(
 
   tool(
     "wait_for_events",
-    `Wait for something you watch to change, returning as soon as it does (or after wait_seconds with no changes). watch takes resource URIs: ${INBOX_URI} (your turn: the default), ${INBOX_URI_PREFIX}<actor>, ${TASK_URI_PREFIX}<id>, ${CHANGES_URI}. Pass back the returned cursor next time so nothing is missed; omit it to start from now. Each change names the task, what happened (types, category) and which watches it touched. Your own changes are left out.`,
+    `Wait for something you watch to change, returning as soon as it does (or after wait_seconds with no changes). watch takes resource URIs: ${INBOX_URI} (your turn: the default), ${INBOX_URI_PREFIX}<actor>, ${TASK_URI_PREFIX}<id>, ${CHANGES_URI}. Pass back the returned cursor next time so nothing is missed; omit it to start from now. Each change names the task, what happened (types, category) and which watches it touched. Your own changes are left out except creation, handoff and reopening into your own watched inbox.`,
     z
       .object({
         watch: z.array(z.string()).min(1).max(20).default([INBOX_URI]),

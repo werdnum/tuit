@@ -53,11 +53,26 @@ export async function parseWatch(app: App, p: Principal, uri: string): Promise<W
   );
 }
 
-/** A change this principal made itself: never reported back to it. */
+/** Same principal, which may be shared by several independent conversations. */
 function ownChange(change: Change, p: Principal): boolean {
   // A display token has no identity of its own: changes with no actor are time's, not its.
   if (p.userId === null && p.agent === null) return false;
   return change.actor.user === p.userId && change.actor.agent === p.agent;
+}
+
+/** Only arrivals in one's own inbox bypass self-change suppression, never broad watches. */
+function ownInboxArrival(w: Watch, change: Change, p: Principal): boolean {
+  const self = selfActor(p);
+  if (w.kind !== "inbox" || !self || !isMe(w.actor, self)) return false;
+  return change.types.some(({ type, data }) => {
+    if (type === "created") return isMe(data.next_actor, w.actor);
+    if (type === "handed_off") return isMe(data.to, w.actor);
+    // Reopening a wait or closed task is new work; retaining an open state is not.
+    if (type === "state_changed" && data.to === "open" && data.from !== "open") {
+      return isMe(data.next_actor ?? change.task.next_actor, w.actor);
+    }
+    return false;
+  });
 }
 
 /**
@@ -170,8 +185,10 @@ export async function watchedChanges(
     const tasks = await visibleTasks(db, p, events);
     const ends = writeEnds(events);
     for (const change of changesOf(events, tasks)) {
-      if (ownChange(change, p)) continue;
-      const watched = watches.filter((w) => touches(w, change)).map((w) => w.uri);
+      const own = ownChange(change, p);
+      const watched = watches
+        .filter((w) => (own ? ownInboxArrival(w, change, p) : touches(w, change)))
+        .map((w) => w.uri);
       const through = ends.get(change.seq) ?? change.seq;
       if (watched.length > 0) out.push(describe(change, through, p, watched));
     }
