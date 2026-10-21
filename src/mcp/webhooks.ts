@@ -578,6 +578,9 @@ export class Webhooks {
 
   /** Whether the credential that subscribed still works; a revoked token's subscriptions end. */
   private async credentialValid(row: SubscriptionRow): Promise<boolean> {
+    // Someone no longer in the household is served nothing, whatever credential they held.
+    if (row.user_id && !this.app.config.users.some((u) => u.id === row.user_id)) return false;
+    // An issuer's tokens can't be checked after the fact; the subscription's TTL bounds them.
     if (!row.credential.startsWith("token:")) return true;
     const r = await this.app.db.query(
       "SELECT 1 FROM tokens WHERE id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())",
@@ -620,6 +623,8 @@ export class Webhooks {
       const from = Number(row.cursor);
       const r = await watchedChanges(db, p, [watch], from, 20);
       for (const change of r.changes) {
+        // A long backlog can outlast the subscription; it ends on time all the same.
+        if (row.expires_at <= this.app.clock.now()) return this.drop(row.id);
         const outcome = await this.post(row, t.name, change);
         if (outcome === "gone") return this.drop(row.id);
         if (outcome === "retry") return;
