@@ -2,7 +2,7 @@
 
 *For things you'll do when you get a round tuit.*
 
-A household tracker for unfinished business, built for Alex and Sam and their agents. It is
+A household tracker for unfinished business, for the people in a house and their agents. It is
 not a checklist and not a project manager. It keeps apart three questions: what exists, what
 deserves attention now, and whose turn it is. It spends its complexity on what "done", "waiting",
 "recurring" and "no longer relevant" mean.
