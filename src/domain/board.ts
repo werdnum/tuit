@@ -241,16 +241,17 @@ export class Board {
         if (doneToday) finished.set(t.id, t);
       }
     }
-    const planView: NowView["plan"] = [];
-    for (const id of planIds) {
-      const a = byId.get(id);
-      if (a) planView.push({ item: toItem(a, p, now, users), done: false });
-      else {
-        const t = finished.get(id);
-        if (t)
-          planView.push({ item: toItem(assess(t, now, undefined), p, now, users), done: true });
-      }
-    }
+    // The plan fixes which tasks are on today's list, not their order: open ones follow the
+    // current ranking, so a pin or a deadline coming close moves them, and ticked ones sink.
+    const planView: NowView["plan"] = [
+      ...planIds
+        .flatMap((id) => byId.get(id) ?? [])
+        .sort(compareBy(NOW_CONFIG.order, NOW_CONFIG, p, now))
+        .map((a) => ({ item: toItem(a, p, now, users), done: false })),
+      ...planIds
+        .flatMap((id) => finished.get(id) ?? [])
+        .map((t) => ({ item: toItem(assess(t, now, undefined), p, now, users), done: true })),
+    ];
     const inPlan = new Set(planIds);
     const rest = eligible.filter((a) => !inPlan.has(a.task.id));
     const fresh = rest.filter((a) => !seen.has(a.task.id));
@@ -395,7 +396,7 @@ export class Board {
 
   /**
    * Pin (or unpin) a task for this person. Pinning is an explicit "this one first", so it also
-   * moves the task to the top of today's list if one has been made; unpinning leaves it in place.
+   * puts the task on today's list if one has been made, where it then sorts first.
    */
   async pin(p: Principal, id: string, pinned: boolean): Promise<void> {
     const now = this.clock.now();

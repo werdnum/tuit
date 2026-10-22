@@ -40,6 +40,42 @@ describe("Now", () => {
     expect(after.more_count).toBe(2);
   });
 
+  test("a distant deadline doesn't jump ahead of handoffs and missed targets", async () => {
+    await add(alex, "plain chore");
+    await add(alex, "buy Christmas presents", { deadline: "2026-12-14" });
+    await add(alex, "reply to the tax office", { target: "2026-10-01" });
+    const handed = await add(sam, "check the invoice");
+    await sam.post(`/api/tasks/${handed}/handoff`, { to: "alex", next_action: "Check it" });
+    await add(alex, "renew the rego", { deadline: "2026-10-06" });
+
+    expect(planTitles(await alex.get("/api/now"))).toEqual([
+      "renew the rego",
+      "check the invoice",
+      "reply to the tax office",
+      "buy Christmas presents",
+      "plain chore",
+    ]);
+  });
+
+  test("today's list keeps its tasks but re-sorts them, with finished ones at the bottom", async () => {
+    const first = await add(alex, "chore 1");
+    await add(alex, "chore 2");
+    const third = await add(alex, "chore 3");
+    await alex.get("/api/now");
+
+    await alex.patch(`/api/tasks/${third}`, { deadline: "2026-10-06" });
+    await alex.post(`/api/tasks/${first}/complete`);
+    await add(alex, "chore 4", { deadline: "2026-10-05" });
+
+    const now = await alex.get("/api/now");
+    expect(now.plan.map((p: any) => [p.item.task.title, p.done])).toEqual([
+      ["chore 3", false],
+      ["chore 2", false],
+      ["chore 1", true],
+    ]);
+    expect(itemTitles(now.new_items)).toEqual(["chore 4"]);
+  });
+
   test("'show more' pulls the next items into today's list", async () => {
     for (let i = 1; i <= 7; i++) await add(alex, `chore ${i}`);
     await alex.get("/api/now");

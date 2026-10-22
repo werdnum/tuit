@@ -54,7 +54,7 @@ test("a routine done yesterday comes back as one item after two months away", as
   await expect(items).toContainText("last done 61 days ago");
 });
 
-test("finishing shortlist items leaves them ticked and Enough for now keeps urgent work visible", async ({
+test("finishing shortlist items leaves them ticked at the bottom and Enough for now keeps urgent work visible", async ({
   page,
   signIn,
   alexApi,
@@ -65,18 +65,16 @@ test("finishing shortlist items leaves them ticked and Enough for now keeps urge
   const today = rows(page, "Today");
   const planned = await today.locator(".row-title").allInnerTexts();
 
-  await today
-    .nth(0)
-    .getByRole("button", { name: /^Done:/ })
-    .click();
-  await expect(today.nth(0)).toHaveClass(/done/);
-  await today
-    .nth(1)
-    .getByRole("button", { name: /^Done:/ })
-    .click();
-  await expect(today.nth(1)).toHaveClass(/done/);
+  for (const title of planned.slice(0, 2)) {
+    const row = today.filter({ hasText: title });
+    await row.getByRole("button", { name: /^Done:/ }).click();
+    await expect(row).toHaveClass(/done/);
+  }
 
-  expect(await today.locator(".row-title").allInnerTexts()).toEqual(planned);
+  await expect(today.locator(".row-title")).toHaveText([
+    ...planned.slice(2),
+    ...planned.slice(0, 2),
+  ]);
   await expect(rows(page, "New since this morning")).toHaveCount(0);
   await page.getByRole("button", { name: "Enough for now" }).click();
   await expect(page.locator("[data-enough]")).toBeVisible();
