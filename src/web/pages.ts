@@ -43,10 +43,20 @@ function doneForm(t: Task, backTo: string): Html {
 
 function itemRow(
   item: { task: Task; why: string; urgent?: boolean },
-  opts: { done?: boolean; tick?: boolean; backTo: string; badge?: boolean; area?: boolean },
+  opts: {
+    done?: boolean;
+    tick?: boolean;
+    backTo: string;
+    badge?: boolean;
+    area?: boolean;
+    menu?: Html;
+  },
 ): Html {
   const t = item.task;
-  const cls = [opts.done ? "done" : "", item.urgent ? "urgent" : ""].join(" ").trim();
+  const menu = opts.done ? undefined : opts.menu;
+  const cls = [opts.done ? "done" : "", item.urgent ? "urgent" : "", menu ? "has-menu" : ""]
+    .join(" ")
+    .trim();
   const tick = opts.tick !== false;
   const tickHtml = opts.done
     ? html`<span class="tick" role="img" aria-label="Done"></span>`
@@ -59,8 +69,42 @@ function itemRow(
       <span class="row-title">${t.title} ${opts.badge ? stateBadge(t) : ""} ${opts.area === false ? "" : areaBadge(t)} ${privateBadge(t)}</span>
       ${item.why ? html`<span class="row-why">${item.why}</span>` : ""}
     </a>
-    <span class="chev" aria-hidden="true">›</span>
+    ${menu ?? html`<span class="chev" aria-hidden="true">›</span>`}
   </li>`;
+}
+
+/**
+ * The everyday verbs for a row on Now, so a task can be snoozed, pinned or filed without
+ * opening it. Anything that needs more than a tap (waiting, hand off, notes) stays on its page.
+ */
+function rowMenu(item: QueueItem, opts: { backTo: string; now: Date; listId: string }): Html {
+  const t = item.task;
+  const action = `/tasks/${t.id}`;
+  const b = back(opts.backTo);
+  return html`<details class="rowmenu" name="rowmenu" data-row-menu>
+    <summary aria-label="Actions: ${t.title}" title="Actions"></summary>
+    <div class="menu">
+      <div class="small muted">Snooze until</div>
+      <form method="post" action="${action}/snooze" class="presets" aria-label="Snooze">
+        ${b}
+        ${snoozePresets(opts.now).map((p) => html`<button name="until" value="${p.at}" aria-label="Snooze: ${p.label}">${p.label}</button>`)}
+      </form>
+      <div class="menu-verbs">
+        <form method="post" action="${action}/pin">${b}<input type="hidden" name="pinned" value="${item.pinned ? "0" : "1"}"><button>${item.pinned ? "Unpin" : "Pin to top"}</button></form>
+        ${
+          t.recurrence
+            ? html`<form method="post" action="${action}/skip">${b}<button>Skip this time</button></form>`
+            : ""
+        }
+        <form method="post" action="${action}/close">${b}<input type="hidden" name="expected_revision" value="${t.revision}"><input type="hidden" name="state" value="expired"><button class="danger">No longer relevant</button></form>
+      </div>
+      <form method="post" action="${action}/area" class="menu-area">
+        ${b}<input type="hidden" name="expected_revision" value="${t.revision}">
+        <input type="text" name="area" value="${t.area ?? ""}" list="${opts.listId}" aria-label="Area" placeholder="Area (e.g. home)" autocapitalize="off" autocomplete="off" maxlength="40">
+        <button>Set area</button>
+      </form>
+    </div>
+  </details>`;
 }
 
 /** "next: Alex" says nothing to Alex about his own list. */
@@ -73,12 +117,17 @@ function list(rows: Html[], label: string): Html {
   return html`<ul class="list" aria-label="${label}">${rows}</ul>`;
 }
 
-function urgentStrip(items: QueueItem[], backTo: string, label = "Time-critical"): Html {
+function urgentStrip(
+  items: QueueItem[],
+  backTo: string,
+  label = "Time-critical",
+  menu?: (i: QueueItem) => Html,
+): Html {
   if (items.length === 0) return html``;
   return html`<section class="strip" aria-label="Urgent">
     <h2>${label}</h2>
     ${list(
-      items.map((i) => itemRow(i, { backTo })),
+      items.map((i) => itemRow(i, { backTo, menu: menu?.(i) })),
       "Urgent",
     )}
   </section>`;
@@ -141,8 +190,12 @@ export function nowPage(ctx: Ctx, v: NowView): Html {
   const areaName = (a: string) => (a === "none" ? "no area" : `#${a}`);
   // Captures made while narrowed land in that area; "none" is a filter, not an area to file in.
   const fileTo = v.area && v.area !== "none" ? v.area : null;
+  const menu = (i: QueueItem) => rowMenu(i, { backTo: self, now: ctx.now, listId: "area-names" });
   const row = (i: QueueItem, done = false) =>
-    itemRow(i, { done, backTo: self, area: v.area === null });
+    itemRow(i, { done, backTo: self, area: v.area === null, menu: menu(i) });
+  const areaNames = html`<datalist id="area-names">${v.areas
+    .filter((a) => a !== "none")
+    .map((a) => html`<option value="${a}"></option>`)}</datalist>`;
 
   const capture = html`<form class="capture" method="post" action="/capture" data-capture>
     ${back(self)}
@@ -226,8 +279,9 @@ export function nowPage(ctx: Ctx, v: NowView): Html {
       ${capture}
       ${chips}
       ${v.away ? awayBanner(v.away, ctx) : ""}
-      ${urgentStrip(urgent, self)}
+      ${urgentStrip(urgent, self, undefined, menu)}
       ${shortlist}
+      ${areaNames}
       ${
         v.waiting_count
           ? html`<p class="center"><a class="btn quiet" href="/queues/waiting">${v.waiting_count} waiting on something →</a></p>`

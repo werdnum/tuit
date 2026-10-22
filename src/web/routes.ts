@@ -463,6 +463,13 @@ export function webRoutes(app: App): Hono<AuthEnv> {
   );
 
   r.post(
+    "/tasks/:id/area",
+    taskAction((p, id, form) =>
+      tasks.update(p, id, { area: form.area ?? "", expected_revision: revision(form) }),
+    ),
+  );
+
+  r.post(
     "/tasks/:id/dates",
     taskAction(async (p, id, form) => {
       const t = await tasks.get(p, id);
