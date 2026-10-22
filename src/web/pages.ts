@@ -100,7 +100,7 @@ function rowMenu(item: QueueItem, opts: { backTo: string; now: Date; listId: str
       </div>
       <form method="post" action="${action}/area" class="menu-area">
         ${b}<input type="hidden" name="expected_revision" value="${t.revision}">
-        <input type="text" name="area" value="${t.area ?? ""}" list="${opts.listId}" aria-label="Area" placeholder="Area (e.g. home)" autocapitalize="off" autocomplete="off" maxlength="40">
+        <input type="text" name="area" value="${t.area ?? ""}" list="${opts.listId}" aria-label="Area" placeholder="Area (e.g. home)" autocapitalize="off" autocomplete="off" maxlength="41">
         <button>Set area</button>
       </form>
     </div>
