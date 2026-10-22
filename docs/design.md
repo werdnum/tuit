@@ -330,7 +330,7 @@ step.
   obeys the queue's actor, text, area and visibility filters, but ignores availability, snooze,
   contexts and the limit.
 - **Ordering rules** (fixed set): `pinned`, `urgency` (urgent items, soonest first), `target`
-  (target reached, then the nearest target or non-urgent deadline), `staleness` (routine gap ratio), `preferred_context`, `oldest`.
+  (target reached, then the nearest target or deadline), `staleness` (routine gap ratio), `preferred_context`, `oldest`.
 
 **Now** is the built-in default queue for the signed-in person. It shows available open tasks whose
 next actor is them or anyone, due or stale routines, lapsed claims they own, and waits whose
