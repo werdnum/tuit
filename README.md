@@ -10,7 +10,8 @@ deserves attention now, and whose turn it is. It spends its complexity on what "
 - **Now**: a short list for today plus anything time-critical. Finishing items ticks them in place
   rather than sliding replacements in, items handed to you during the day appear under *New since
   this morning*, and "Enough for now" is a real option. After a month away there's still no
-  backlog: expired things are gone, commitments are surfaced, and the list is short.
+  backlog: expired things are gone, commitments are surfaced, and the list is short. Each row's
+  ⋯ menu snoozes, pins, skips a routine, files it under an area, or drops it without opening it.
 - **Areas and pins**: file a task under one area (`#tuit fix the feed`) and narrow Now to it; pin
   what matters most to the top. No projects, no priority numbers.
 - **Task detail**: the outcome, a short editable brief (Markdown, with collapsible sections), one
@@ -116,7 +117,8 @@ and webhook transport checks.
 - areas: one flat area per task, area chips on Now, and area filters on queues and notifications;
 - pinning (web, iOS, MCP, CLI), which also moves a task to the top of today's list;
 - Now with a sticky daily list, *New since this morning*, "enough for now", urgent items outside
-  every limit, and an "away" summary;
+  every limit, an "away" summary, and a per-row menu (snooze, pin, skip, area, no longer
+  relevant);
 - attachments as links, from the web (including Google's Drive picker when configured), iOS, MCP
   and the CLI;
 - task detail: Markdown brief and notes (with collapsible `<details>`), waiting-for (reply / until /

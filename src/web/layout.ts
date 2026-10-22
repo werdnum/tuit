@@ -92,6 +92,22 @@ ul.list > li:first-child { border-top: 0; }
 .chev { color: var(--muted); padding-right: 12px; font-size: 20px; }
 li.done .row-title { text-decoration: line-through; color: var(--muted); }
 li.urgent .row-why { color: var(--urgent); font-weight: 500; }
+ul.list > li.has-menu { position: relative; flex-wrap: wrap; }
+li.has-menu .row-main { padding-right: 48px; }
+details.rowmenu { flex: 1 0 100%; }
+details.rowmenu > summary { position: absolute; top: 0; right: 0; width: 48px; height: 56px; list-style: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; color: var(--muted); }
+details.rowmenu > summary::-webkit-details-marker { display: none; }
+details.rowmenu > summary::before { content: "⋯"; font-size: 22px; line-height: 1; }
+details.rowmenu[open] > summary { color: var(--accent); }
+.rowmenu .menu { display: grid; gap: 8px; padding: 0 12px 12px; }
+.rowmenu form { margin: 0; }
+.rowmenu button { font-size: 15px; font-weight: 500; }
+.menu-verbs { display: flex; flex-wrap: wrap; gap: 8px; }
+.menu-verbs > form { flex: 1 1 auto; }
+.menu-verbs button { width: 100%; }
+.menu-area { display: flex; gap: 8px; }
+.menu-area input { flex: 1; min-width: 0; }
 .tickform { margin: 0; }
 .tick {
   width: 56px; height: 56px; border: 0; background: none; padding: 0; cursor: pointer;
