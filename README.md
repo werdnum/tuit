@@ -33,7 +33,8 @@ deserves attention now, and whose turn it is. It spends its complexity on what "
   the same domain operations. `checkpoint` records progress and changes hands atomically; `claim_next`
   dispatches work with side-effect-aware leases; and agents can watch `tuit://inbox`,
   `tuit://tasks/<id>`, or `tuit://changes` via MCP resource subscriptions, `wait_for_events`, or
-  `2026-07-28` MCP event webhooks.
+  `2026-07-28` MCP event webhooks. Work handed to an agent can also start a Claude Code session
+  through a scheduled task's API trigger.
 - **Private means private**: it is enforced on the server, before anything leaves it, on every
   path — web, REST, MCP, search, queues, change feed, live updates, notifications, webhooks and
   export.
@@ -102,6 +103,7 @@ and webhook transport checks.
 | `src/domain/` | The deterministic core: tasks, checkpoint, recurrence, attention (Now/queues/explain), sweep, feed |
 | `src/api/` | REST, auth (OIDC sessions, tokens, external JWTs), OAuth server for remote MCP connectors |
 | `src/mcp/` | MCP server (streamable HTTP), resource subscriptions, `wait_for_events`, and the Events extension (webhooks and polling) for `2026-07-28` clients |
+| `src/dispatch/` | Starting Claude Code sessions (scheduled-task API triggers) when work arrives for an agent |
 | `src/notify/` | Web Push and APNs delivery, per-person notification rules, quiet-hours summaries, and retry loop |
 | `src/web/` | Server-rendered, phone-first web UI with live updates over server-sent events |
 | `src/cli/`, `bin/tuit` | CLI, a pure REST client |

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ApnsConfig } from "./notify/channels.ts";
 
 export interface HouseholdUser {
@@ -49,6 +50,18 @@ export interface Config {
    */
   webhooks: { allowPrivateNetworks: boolean; retryDelaysMs: number[] };
   /**
+   * Claude Code scheduled tasks (routines) to start when work is waiting for an agent. Each
+   * watches one agent acting for one person, and fires its API trigger when tasks arrive that
+   * the agent could claim. Delivered through the webhook transport, with its retry delays.
+   */
+  claudeTriggers: {
+    triggers: ClaudeTrigger[];
+    /** How long to let a burst of arrivals gather before firing once for all of them. */
+    settleMs: number;
+    /** The least time between two fires of one trigger. */
+    minIntervalMs: number;
+  };
+  /**
    * Google Picker on the task page, for attaching Drive files. All three come from one Google
    * Cloud project; the browser gets its own drive.file token, so the server holds no Google
    * credential. Off unless all three are set. Uploads go to `uploadFolderId` when set (a folder
@@ -66,6 +79,51 @@ export interface Config {
     appId: string;
     uploadFolderId: string | null;
   } | null;
+}
+
+export interface ClaudeTrigger {
+  /** The person the agent acts for: whose view of the tasks decides what is waiting. */
+  user: string;
+  agent: string;
+  /** The scheduled task's fire URL, as shown when its API trigger was added. */
+  url: string;
+  /** The trigger's bearer token. */
+  token: string;
+}
+
+const ClaudeTriggerSpec = z
+  .object({
+    for: z.string(),
+    agent: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/),
+    url: z.url({ protocol: /^https?$/ }),
+    token_env: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * TUIT_CLAUDE_TRIGGERS is a JSON list of {for, agent, url, token_env}; each token is read from
+ * the environment variable named by its token_env, so the list itself holds no secret.
+ */
+export function parseClaudeTriggers(
+  spec: string,
+  users: HouseholdUser[],
+  env: NodeJS.ProcessEnv,
+): ClaudeTrigger[] {
+  if (!spec.trim()) return [];
+  const parsed = z.array(ClaudeTriggerSpec).safeParse(JSON.parse(spec));
+  if (!parsed.success) {
+    throw new Error(
+      `Bad TUIT_CLAUDE_TRIGGERS: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+    );
+  }
+  return parsed.data.map((t) => {
+    if (!users.some((u) => u.id === t.for)) {
+      throw new Error(`TUIT_CLAUDE_TRIGGERS: "${t.for}" is not on TUIT_USERS`);
+    }
+    const token = env[t.token_env];
+    if (!token) throw new Error(`TUIT_CLAUDE_TRIGGERS: ${t.token_env} is not set`);
+    return { user: t.for, agent: t.agent, url: t.url, token };
+  });
 }
 
 /**
@@ -142,6 +200,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       retryDelaysMs: list(env.TUIT_WEBHOOK_RETRY_DELAYS_MS ?? "10000,60000,180000,480000").map(
         Number,
       ),
+    },
+    claudeTriggers: {
+      triggers: parseClaudeTriggers(env.TUIT_CLAUDE_TRIGGERS ?? "", users, env),
+      settleMs: Number(env.TUIT_CLAUDE_TRIGGER_SETTLE_MS ?? 30_000),
+      minIntervalMs: Number(env.TUIT_CLAUDE_TRIGGER_MIN_INTERVAL_MS ?? 120_000),
     },
     googlePicker:
       env.GOOGLE_PICKER_API_KEY && env.GOOGLE_PICKER_CLIENT_ID && env.GOOGLE_PICKER_APP_ID
