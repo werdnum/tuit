@@ -1,5 +1,6 @@
 import type { App } from "../app.ts";
 import type { ClaudeTrigger } from "../config.ts";
+import { notifyLive } from "../domain/feed.ts";
 import { addActivity, visibleSql } from "../domain/tasks.ts";
 import { type Task, taskFromRow } from "../domain/types.ts";
 import { assess, inAreas } from "../domain/views.ts";
@@ -37,6 +38,8 @@ export class ClaudeTriggers {
   private readonly lastFired = new Map<string, number>();
   private readonly retryAt = new Map<string, number>();
   private readonly attempts = new Map<string, number>();
+  /** The batch the attempts were spent on: a different batch starts its own retries. */
+  private readonly attemptsFor = new Map<string, string>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private kicking: Promise<void> | null = null;
   private again = false;
@@ -78,10 +81,12 @@ export class ClaudeTriggers {
     while (this.kicking) await this.kicking;
   }
 
-  close(): void {
+  /** Stop, letting a fire in flight record what it started so a restart doesn't repeat it. */
+  async close(): Promise<void> {
     this.closed = true;
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
+    await this.idle();
   }
 
   /** Tasks the agent could claim right now, oldest arrival first, as claim_next sees them. */
@@ -146,6 +151,7 @@ export class ClaudeTriggers {
     if (fresh.length === 0) {
       this.gathering.delete(t.url);
       this.attempts.delete(t.url);
+      this.attemptsFor.delete(t.url);
       this.retryAt.delete(t.url);
       if (stillFired.length !== row.fired.length) await this.saveFired(t.url, stillFired);
       return;
@@ -172,6 +178,9 @@ export class ClaudeTriggers {
       waiting.filter((x) => row.fired.includes(x.id)),
     );
     if (!outcome.ok && outcome.retry) {
+      const key = batch.map((x) => x.id).join(",");
+      if (this.attemptsFor.get(t.url) !== key) this.attempts.delete(t.url);
+      this.attemptsFor.set(t.url, key);
       const attempts = (this.attempts.get(t.url) ?? 0) + 1;
       const delay = this.retryDelaysMs[attempts - 1];
       if (delay !== undefined) {
@@ -188,6 +197,7 @@ export class ClaudeTriggers {
 
     // Fired, or given up on: either way these tasks are covered until they leave the agent.
     this.attempts.delete(t.url);
+    this.attemptsFor.delete(t.url);
     this.retryAt.delete(t.url);
     this.gathering.delete(t.url);
     this.lastFired.set(t.url, now);
@@ -215,6 +225,7 @@ export class ClaudeTriggers {
         ],
       );
       for (const task of batch) await addActivity(c, null, task.id, "system", note, at);
+      await notifyLive(c, t.user);
     });
     if (batch.length < fresh.length) this.again = true;
   }

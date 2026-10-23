@@ -46,7 +46,7 @@ async function shutdown(): Promise<void> {
   await app.live.stop();
   app.notifier.close();
   app.webhooks.close();
-  app.claudeTriggers.close();
+  await app.claudeTriggers.close();
   await db.close();
   process.exit(0);
 }
