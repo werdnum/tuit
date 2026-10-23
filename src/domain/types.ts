@@ -384,6 +384,7 @@ export const ClaimInput = z
       .optional(),
     side_effects: z.boolean().optional(),
     task_id: z.string().optional(),
+    areas: z.array(AreaInput).min(1).max(20).optional(),
     idempotency_key: z.string().max(200).optional(),
   })
   .strict();

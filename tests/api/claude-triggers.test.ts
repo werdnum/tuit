@@ -74,20 +74,12 @@ let endpoint: FireEndpoint;
 let alex: Api;
 let sam: Api;
 
-beforeEach(async () => {
-  endpoint = await FireEndpoint.start();
+async function start(triggers: Record<string, unknown>[]): Promise<void> {
   server = await TestServer.start({
     env: {
       TUIT_WEBHOOK_ALLOW_PRIVATE_NETWORKS: "1",
       TUIT_WEBHOOK_RETRY_DELAYS_MS: "50,50",
-      TUIT_CLAUDE_TRIGGERS: JSON.stringify([
-        {
-          for: "alex",
-          agent: "claude",
-          url: `${endpoint.base}${FIRE_PATH}`,
-          token_env: "CLAUDE_TRIGGER_TOKEN",
-        },
-      ]),
+      TUIT_CLAUDE_TRIGGERS: JSON.stringify(triggers),
       CLAUDE_TRIGGER_TOKEN: "sk-ant-oat01-test",
       TUIT_CLAUDE_TRIGGER_SETTLE_MS: String(SETTLE_MS),
       TUIT_CLAUDE_TRIGGER_MIN_INTERVAL_MS: "0",
@@ -96,10 +88,23 @@ beforeEach(async () => {
   await server.setClock("2026-10-05T09:00:00+11:00");
   alex = await server.api("alex", "phone");
   sam = await server.api("sam", "phone");
+}
+
+const trigger = (path: string, extra: Record<string, unknown> = {}) => ({
+  for: "alex",
+  agent: "claude",
+  url: `${endpoint.base}${path}`,
+  token_env: "CLAUDE_TRIGGER_TOKEN",
+  ...extra,
+});
+
+beforeEach(async () => {
+  endpoint = await FireEndpoint.start();
 });
 
 afterEach(async () => {
-  await server.stop();
+  await server?.stop();
+  server = undefined as unknown as TestServer;
   await endpoint.close();
 });
 
@@ -113,6 +118,7 @@ const systemNotes = async (id: string): Promise<string[]> => {
 };
 
 test("a burst of handoffs to the agent starts one session that lists them all", async () => {
+  await start([trigger(FIRE_PATH)]);
   const { task: a } = await alex.post("/api/tasks", { title: "Compare electricity plans" });
   await alex.post(`/api/tasks/${a.id}/handoff`, { to: "agent:claude" });
   const { task: b } = await alex.post("/api/tasks", {
@@ -129,7 +135,7 @@ test("a burst of handoffs to the agent starts one session that lists them all", 
   expect(fire?.text).toContain("2 tasks are newly waiting for agent:claude, acting for Alex");
   expect(fire?.text).toContain(`- Compare electricity plans (${a.id}) ${server.url}/tasks/${a.id}`);
   expect(fire?.text).toContain(`- Find a piano teacher (${b.id})`);
-  expect(fire?.text).toContain("claim_next as agent:claude");
+  expect(fire?.text).toContain("Claim each with claim_next and its task_id, as agent:claude.");
 
   expect(await systemNotes(a.id)).toEqual([
     "Started a Claude Code session for agent:claude: https://claude.ai/code/session_1",
@@ -143,6 +149,7 @@ test("a burst of handoffs to the agent starts one session that lists them all", 
 });
 
 test("only work the agent could claim fires, and a task handed back later fires again", async () => {
+  await start([trigger(FIRE_PATH)]);
   // Someone else's turn, another agent's, Sam's private task, and one not available yet.
   await alex.post("/api/tasks", { title: "Book the dentist" });
   await alex.post("/api/tasks", { title: "Tidy the feed", next_actor: "agent:chatgpt" });
@@ -185,6 +192,7 @@ test("only work the agent could claim fires, and a task handed back later fires 
 });
 
 test("a failing endpoint is retried, and a refused fire is noted on the task", async () => {
+  await start([trigger(FIRE_PATH)]);
   endpoint.failWith = [503];
   const { task: a } = await alex.post("/api/tasks", {
     title: "Compare electricity plans",
@@ -203,8 +211,56 @@ test("a failing endpoint is retried, and a refused fire is noted on the task", a
   await endpoint.waitFor(3);
   await quiet();
   expect(endpoint.fires).toHaveLength(3);
-  expect(endpoint.fires[2]?.text).toContain("1 earlier task is also waiting.");
+  expect(endpoint.fires[2]?.text).toContain(
+    `An earlier task is still waiting:\n- Compare electricity plans (${a.id})`,
+  );
   expect(await systemNotes(b.id)).toEqual([
     "Couldn't start a Claude Code session for agent:claude (HTTP 401)",
   ]);
+});
+
+test("areas route work to their own triggers, and the catch-all takes the rest", async () => {
+  await start([
+    trigger("/tuit/fire", { areas: ["#Tuit"] }),
+    trigger("/cluster/fire", { areas: ["cluster", "home"] }),
+    trigger("/rest/fire"),
+  ]);
+  const handTo = async (title: string) =>
+    (await alex.post("/api/tasks", { title, next_actor: "agent:claude" })).task.id as string;
+  const feed = await handTo("#tuit Fix the feed");
+  const disk = await handTo("#cluster Replace the disk");
+  const bins = await handTo("#home Put the bins out");
+  const misc = await handTo("Find a piano teacher");
+  const other = await handTo("#garden Prune the roses");
+
+  await endpoint.waitFor(3);
+  await quiet();
+  const by = (path: string) => endpoint.fires.filter((f) => f.path === path).map((f) => f.text);
+  expect(endpoint.fires).toHaveLength(3);
+  expect(by("/tuit/fire")).toEqual([expect.stringContaining("waiting for agent:claude in tuit,")]);
+  expect(by("/tuit/fire")[0]).toContain(feed);
+  const cluster = by("/cluster/fire")[0];
+  expect(cluster).toContain("in cluster, home,");
+  expect(cluster).toContain(disk);
+  expect(cluster).toContain(bins);
+  const rest = by("/rest/fire")[0];
+  expect(rest).toContain(misc);
+  expect(rest).toContain(other);
+  expect(rest).not.toContain(feed);
+
+  // A session for one area can drain only that area.
+  const claude = await server.api("alex", "claude");
+  const got = await claude.post("/api/claim", { areas: ["cluster", "home"], side_effects: false });
+  const next = await claude.post("/api/claim", { areas: ["cluster", "home"], side_effects: false });
+  const none = await claude.post("/api/claim", { areas: ["cluster", "home"], side_effects: false });
+  expect([got.task.id, next.task.id].sort()).toEqual([disk, bins].sort());
+  expect(none.task).toBeNull();
+  const unfiled = await claude.post("/api/claim", { areas: ["none"], side_effects: false });
+  expect(unfiled.task.id).toBe(misc);
+});
+
+test("an area named by two triggers of one agent is refused at startup", async () => {
+  await expect(
+    start([trigger("/a/fire", { areas: ["tuit"] }), trigger("/b/fire", { areas: ["TUIT"] })]),
+  ).rejects.toThrow();
 });
