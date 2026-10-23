@@ -360,15 +360,16 @@ export function compareBy(
       case "pinned":
         return a.pinned ? 0 : 1;
       case "urgency":
-        if (a.urgent) return a.urgent.at.getTime() - 1e15;
-        return t.deadline ? momentEnd(t.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+        return a.urgent ? a.urgent.at.getTime() : Number.MAX_SAFE_INTEGER;
       case "recent_handoff":
         return recentHandoff(a, viewer, now) || a.claim_lapsed || a.follow_up_due ? 0 : 1;
-      case "target":
-        if (!t.target) return Number.MAX_SAFE_INTEGER;
-        return momentStart(t.target).getTime() <= now.getTime()
-          ? momentStart(t.target).getTime() - 1e15
-          : momentStart(t.target).getTime();
+      case "target": {
+        // A reached target comes first; otherwise the nearest date, target or a deadline too far
+        // off to be urgent, so a distant deadline can't jump ahead of handoffs and missed targets.
+        const target = t.target ? momentStart(t.target).getTime() : Number.MAX_SAFE_INTEGER;
+        if (target <= now.getTime()) return target - 1e15;
+        return Math.min(target, t.deadline ? momentEnd(t.deadline).getTime() : target);
+      }
       case "staleness":
         return a.routine ? -a.routine.ratio : 0;
       case "preferred_context":

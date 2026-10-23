@@ -329,19 +329,24 @@ step.
 - **Urgent**: every queue result carries an `urgent` list evaluated outside the visible limit. It
   obeys the queue's actor, text, area and visibility filters, but ignores availability, snooze,
   contexts and the limit.
-- **Ordering rules** (fixed set): `pinned`, `urgency` (deadline proximity), `target` (target
-  reached / nearest), `staleness` (routine gap ratio), `preferred_context`, `oldest`.
+- **Ordering rules** (fixed set): `pinned`, `urgency` (urgent items, soonest first), `target`
+  (target reached, then the nearest target or deadline), `staleness` (routine gap ratio), `preferred_context`, `oldest`.
 
 **Now** is the built-in default queue for the signed-in person. It shows available open tasks whose
 next actor is them or anyone, due or stale routines, lapsed claims they own, and waits whose
 follow-up has arrived. Limit 5. Its urgent list also includes tasks the person *owns* while
 someone else holds the next action, because a commitment stays theirs.
 
-- The shortlist is **sticky per day**: completing items leaves them ticked in place rather than
-  sliding replacements in. "Show more" is explicit.
+- The shortlist is **sticky per day**: which tasks are on it is fixed when it is made, and
+  completing items leaves them ticked at the bottom rather than sliding replacements in. Its order
+  is not fixed: open items follow the current ranking, so a pin or a deadline coming close moves
+  them up. "Show more" is explicit.
 - **Enough for now** hides the shortlist until tomorrow morning (4am local). Urgent items still show.
 - An item leaves the plan when it stops being eligible (handed away, snoozed, waiting), and is
   not replaced. Items finished today stay, ticked.
+- A deadline only ranks as a deadline once it is urgent. Until then it sorts by date alongside
+  targets, after recent handoffs and missed targets, so a December deadline does not lead in
+  October.
 - **New since this morning**: eligible tasks outside the plan that were captured, handed to the
   person, or became available after the plan was made. They show beneath the shortlist, so
   capture and handoffs get visible feedback without reshuffling the plan. "Enough for now" hides
@@ -355,8 +360,9 @@ someone else holds the next action, because a commitment stays theirs.
 ### Priority
 
 There are no priority numbers. Order comes from what is explainable: urgency, a recent handoff,
-target, staleness, then age. The one manual lever is the **pin**, per person: a pinned task sorts
-first in every list, and pinning it moves it to the top of today's plan straight away. An agent
+dates (a missed target, then the nearest target or deadline), staleness, then age. The one manual
+lever is the **pin**, per person: a pinned task sorts first in every list, and pinning it puts it
+at the top of today's plan straight away. An agent
 asked "this matters more" pins it rather than inventing a deadline.
 
 ## Deliberate simplifications
