@@ -184,14 +184,16 @@ export class ClaudeTriggers {
       const attempts = (this.attempts.get(t.url) ?? 0) + 1;
       const delay = this.retryDelaysMs[attempts - 1];
       if (delay !== undefined) {
+        // From when the failed attempt ended: a timeout can outlast the first delay.
+        const retryAt = Date.now() + delay;
         this.attempts.set(t.url, attempts);
-        this.retryAt.set(t.url, now + delay);
+        this.retryAt.set(t.url, retryAt);
         await this.app.db.query(
           `INSERT INTO claude_triggers (url, last_error) VALUES ($1, $2)
            ON CONFLICT (url) DO UPDATE SET last_error = EXCLUDED.last_error`,
           [t.url, outcome.error],
         );
-        return this.wakeAt(t.url, now + delay);
+        return this.wakeAt(t.url, retryAt);
       }
     }
 

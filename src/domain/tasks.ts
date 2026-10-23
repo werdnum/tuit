@@ -958,8 +958,10 @@ export class TaskService {
           `SELECT * FROM tasks t WHERE id = $3 AND ${eligible} FOR UPDATE SKIP LOCKED`,
           [p.agent, p.userId, cand.id],
         );
-        if (locked.rows[0]) {
-          t = taskFromRow(locked.rows[0]);
+        // The area may have changed since the unlocked read.
+        const row = locked.rows[0] ? taskFromRow(locked.rows[0]) : null;
+        if (row && (!input.areas || inAreas(row, input.areas))) {
+          t = row;
           break;
         }
       }
