@@ -74,14 +74,14 @@ let endpoint: FireEndpoint;
 let alex: Api;
 let sam: Api;
 
-async function start(triggers: Record<string, unknown>[]): Promise<void> {
+async function start(triggers: Record<string, unknown>[], settleMs = SETTLE_MS): Promise<void> {
   server = await TestServer.start({
     env: {
       TUIT_WEBHOOK_ALLOW_PRIVATE_NETWORKS: "1",
       TUIT_WEBHOOK_RETRY_DELAYS_MS: "50,50",
       TUIT_CLAUDE_TRIGGERS: JSON.stringify(triggers),
       CLAUDE_TRIGGER_TOKEN: "sk-ant-oat01-test",
-      TUIT_CLAUDE_TRIGGER_SETTLE_MS: String(SETTLE_MS),
+      TUIT_CLAUDE_TRIGGER_SETTLE_MS: String(settleMs),
       TUIT_CLAUDE_TRIGGER_MIN_INTERVAL_MS: "0",
     },
   });
@@ -263,4 +263,29 @@ test("an area named by two triggers of one agent is refused at startup", async (
   await expect(
     start([trigger("/a/fire", { areas: ["tuit"] }), trigger("/b/fire", { areas: ["TUIT"] })]),
   ).rejects.toThrow();
+});
+
+test("a backlog too long to list in one fire is split across fires", async () => {
+  // Long enough for all of them to arrive before the first fire.
+  await start([trigger(FIRE_PATH)], 5_000);
+  const ids: string[] = [];
+  for (let i = 1; i <= 22; i++) {
+    const { task } = await alex.post("/api/tasks", {
+      title: `Errand ${i}`,
+      next_actor: "agent:claude",
+    });
+    ids.push(task.id);
+  }
+  const fires = await endpoint.waitFor(2, 15_000);
+  await quiet();
+  expect(endpoint.fires).toHaveLength(2);
+  const listed = (text: string) => ids.filter((id) => text.includes(`(${id})`));
+  expect(fires[0]?.text).toContain("20 tasks are newly waiting");
+  expect(fires[1]?.text).toContain("2 tasks are newly waiting");
+  const [fresh, earlier] = (fires[1]?.text ?? "").split("Earlier tasks are still waiting:");
+  // The clock is pinned, so arrival order ties and ids decide which come first.
+  const first = listed(fires[0]?.text ?? "");
+  expect(first).toHaveLength(20);
+  expect(listed(earlier ?? "").sort()).toEqual([...first].sort());
+  expect([...first, ...listed(fresh ?? "")].sort()).toEqual([...ids].sort());
 });

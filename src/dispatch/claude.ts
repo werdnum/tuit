@@ -163,9 +163,12 @@ export class ClaudeTriggers {
     );
     if (now < due) return this.wakeAt(t.url, due);
 
+    // The session claims only what it is told about, so each fire covers what it can list; the
+    // rest stays fresh and fires again once the interval allows.
+    const batch = fresh.slice(0, MAX_LISTED);
     const outcome = await this.fire(
       t,
-      fresh,
+      batch,
       waiting.filter((x) => row.fired.includes(x.id)),
     );
     if (!outcome.ok && outcome.retry) {
@@ -188,11 +191,11 @@ export class ClaudeTriggers {
     this.retryAt.delete(t.url);
     this.gathering.delete(t.url);
     this.lastFired.set(t.url, now);
-    const covered = [...stillFired, ...fresh.map((x) => x.id)];
+    const covered = [...stillFired, ...batch.map((x) => x.id)];
     const note = outcome.ok
       ? `Started a Claude Code session for agent:${t.agent}: ${outcome.sessionUrl}`
       : `Couldn't start a Claude Code session for agent:${t.agent} (${outcome.error})`;
-    if (outcome.ok) console.log(`claude trigger: ${note} (${fresh.length} new)`);
+    if (outcome.ok) console.log(`claude trigger: ${note} (${batch.length} new)`);
     else console.error(`claude trigger: ${note}`);
     const at = this.app.clock.now();
     await this.app.db.tx(async (c) => {
@@ -211,8 +214,9 @@ export class ClaudeTriggers {
           outcome.ok ? null : outcome.error,
         ],
       );
-      for (const task of fresh) await addActivity(c, null, task.id, "system", note, at);
+      for (const task of batch) await addActivity(c, null, task.id, "system", note, at);
     });
+    if (batch.length < fresh.length) this.again = true;
   }
 
   private text(t: ClaudeTrigger, fresh: Task[], earlier: Task[]): string {
