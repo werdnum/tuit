@@ -415,7 +415,7 @@ export async function buildMcpServer(
 
   tool(
     "claim_next",
-    "Atomically take the oldest open task handed to you (or task_id), with a lease. side_effects defaults to true (a lapse goes to a person to check); pass false for pure research/drafting that is safe to retry. Returns task null when there is nothing to do.",
+    'Atomically take the oldest open task handed to you (or task_id, or only from areas; "none" means no area), with a lease. side_effects defaults to true (a lapse goes to a person to check); pass false for pure research/drafting that is safe to retry. Returns task null when there is nothing to do.',
     ClaimInput,
     WRITE,
     async (input) => {

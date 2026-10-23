@@ -39,7 +39,7 @@ import {
   taskFromRow,
   UpdateTaskInput,
 } from "./types.ts";
-import { areaFilter, assess } from "./views.ts";
+import { areaFilter, assess, inAreas } from "./views.ts";
 
 export function newId(): string {
   const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -946,7 +946,10 @@ export class TaskService {
          ORDER BY actor_since, id`,
         input.task_id ? [p.agent, p.userId, input.task_id] : [p.agent, p.userId],
       );
-      const candidates = r.rows.map(taskFromRow).filter((x) => assess(x, now, undefined).available);
+      const candidates = r.rows
+        .map(taskFromRow)
+        .filter((x) => assess(x, now, undefined).available)
+        .filter((x) => !input.areas || inAreas(x, input.areas));
       // Lock one row at a time: locking every candidate would make a concurrent claimer skip
       // them all and come back empty while work remains.
       let t: Task | undefined;
@@ -955,8 +958,10 @@ export class TaskService {
           `SELECT * FROM tasks t WHERE id = $3 AND ${eligible} FOR UPDATE SKIP LOCKED`,
           [p.agent, p.userId, cand.id],
         );
-        if (locked.rows[0]) {
-          t = taskFromRow(locked.rows[0]);
+        // The area may have changed since the unlocked read.
+        const row = locked.rows[0] ? taskFromRow(locked.rows[0]) : null;
+        if (row && (!input.areas || inAreas(row, input.areas))) {
+          t = row;
           break;
         }
       }

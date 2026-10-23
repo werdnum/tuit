@@ -35,6 +35,9 @@
 | `TUIT_SWEEP_INTERVAL_MS` | `60000` (default) | Background tick for time-driven feed events. Reads always sweep first anyway. |
 | `TUIT_WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `1` | Let MCP event webhooks go to plain http and private addresses (local development, or a receiver in the cluster). Off by default: receivers must be public HTTPS. |
 | `TUIT_WEBHOOK_RETRY_DELAYS_MS` | `10000,60000,180000,480000` (default) | Waits between attempts at a failing webhook delivery; after the last, that change is skipped. |
+| `TUIT_CLAUDE_TRIGGERS` | `[{"for":"andrew","agent":"claude-ai","url":"https://api.anthropic.com/v1/claude_code/routines/trig_.../fire","token_env":"CLAUDE_TRIGGER_TOKEN"}]` | Optional. Claude Code scheduled tasks to start when tasks arrive for an agent acting for a person ([agents.md](agents.md#starting-a-claude-code-session-when-work-arrives)). `token_env` names the variable holding that trigger's token, a secret. Optional `areas` (e.g. `["tuit"]`, `none` for no area) route only those areas to the trigger; at most one entry per agent and person leaves it out and takes the rest. Fire URLs follow the webhook rules above. |
+| `TUIT_CLAUDE_TRIGGER_SETTLE_MS` | `30000` (default) | How long arrivals gather before one fire covers them all. |
+| `TUIT_CLAUDE_TRIGGER_MIN_INTERVAL_MS` | `120000` (default) | Least time between two fires of one trigger. |
 | `TUIT_DEV_LOGIN` | `1` | Local only: pick-a-user login. Refused unless `PUBLIC_URL` is localhost, and forces a loopback bind. |
 | `TUIT_TEST_CLOCK` | `1` | Tests only: exposes `POST /__test/clock`. Never set this in production. |
 

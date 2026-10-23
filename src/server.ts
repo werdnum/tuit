@@ -12,10 +12,14 @@ app.live.start();
 // Every change to the feed wakes the notifier, through the same LISTEN connection as live pages.
 app.live.subscribe("", (kind) => {
   void app.notifier.kick();
-  if (kind === "feed") app.webhooks.kick();
+  if (kind === "feed") {
+    app.webhooks.kick();
+    app.claudeTriggers.kick();
+  }
 });
 void app.notifier.kick();
 app.webhooks.kick();
+app.claudeTriggers.kick();
 
 const timer = setInterval(() => {
   app
@@ -25,6 +29,8 @@ const timer = setInterval(() => {
     .then(() => {
       app.notifier.kick();
       app.webhooks.kick();
+      // Tasks become available with time alone, too.
+      app.claudeTriggers.kick();
     });
 }, config.sweepIntervalMs);
 
@@ -40,6 +46,7 @@ async function shutdown(): Promise<void> {
   await app.live.stop();
   app.notifier.close();
   app.webhooks.close();
+  await app.claudeTriggers.close();
   await db.close();
   process.exit(0);
 }

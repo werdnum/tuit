@@ -7,6 +7,7 @@ import { restApi } from "./api/rest.ts";
 import { type Clock, SettableClock, systemClock } from "./clock.ts";
 import type { Config } from "./config.ts";
 import type { Database } from "./db/db.ts";
+import { ClaudeTriggers } from "./dispatch/claude.ts";
 import { Board } from "./domain/board.ts";
 import { DomainError } from "./domain/errors.ts";
 import { sweep } from "./domain/sweep.ts";
@@ -28,6 +29,7 @@ export interface App {
   live: LiveHub;
   notifier: Notifier;
   webhooks: Webhooks;
+  claudeTriggers: ClaudeTriggers;
   sweepNow: () => Promise<void>;
 }
 
@@ -41,6 +43,7 @@ export function buildApp(config: Config, db: Database): { app: App; http: Hono<A
   const notifier = new Notifier(db, clock, config, () => tasks.users());
   const app = { config, db, clock, tasks, board, auth, live, notifier, sweepNow } as App;
   app.webhooks = new Webhooks(app, internetTransport(config.webhooks));
+  app.claudeTriggers = new ClaudeTriggers(app, internetTransport(config.webhooks));
 
   const http = new Hono<AuthEnv>();
   http.onError((err, c) => {
