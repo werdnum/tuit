@@ -13,6 +13,9 @@ test("a task with notes expires without being done and can still be found", asyn
   await page.goto(`/tasks/${task.id}`);
   await page.getByRole("textbox", { name: "Note" }).fill("Qantas check-in opens 24h before");
   await page.getByRole("button", { name: "Add note" }).click();
+  // The note posts a form and reloads the page; opening "More" before the reload lands would
+  // leave the date fields collapsed again.
+  await expect(page.locator("[data-history]")).toContainText("Qantas check-in opens 24h before");
   await page.locator("summary", { hasText: "More" }).click();
   await page.getByLabel("Expires (irrelevant after)").fill("2026-10-07 07:15");
   await page.getByRole("button", { name: "Save dates" }).click();

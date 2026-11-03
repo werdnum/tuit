@@ -2,13 +2,51 @@ name: iOS offline tests
 
 on:
   pull_request:
+  # Pull requests only run the simulator tests when they touch the app or its fixture,
+  # so every merge to main runs them in full: a server change that breaks the app's
+  # REST calls shows up here.
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  ios:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PR}" ]; then
+            echo "ios=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --jq '.[].filename')
+          printf '%s\n' "${files}"
+          if printf '%s\n' "${files}" | grep -qE '^(ios/|tests/harness/|\.github/workflows/ios\.yml$)'; then
+            echo "ios=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ios=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  simulator:
+    name: iOS simulator tests
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
     runs-on: macos-26
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
@@ -41,4 +79,30 @@ jobs:
         with:
           name: ios-offline-results
           path: /tmp/tuit-offline-derived/Logs/Test/*.xcresult
+          if-no-files-found: ignore
           retention-days: 7
+
+  # The required status check (kube-config's ruleset reconciler names it). It reports on
+  # every pull request, so a PR that doesn't touch iOS can still merge, and fails unless
+  # the simulator tests passed or the change detection decided they weren't needed.
+  ios:
+    needs: [changes, simulator]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          CHANGES: ${{ needs.changes.result }}
+          NEEDED: ${{ needs.changes.outputs.ios }}
+          TESTS: ${{ needs.simulator.result }}
+        run: |
+          echo "change detection: ${CHANGES}, iOS tests needed: ${NEEDED:-unknown}, simulator tests: ${TESTS}"
+          if [ "${CHANGES}" != "success" ]; then
+            echo "::error::Couldn't tell whether the iOS tests were needed"
+            exit 1
+          fi
+          if [ "${TESTS}" = "success" ] || { [ "${NEEDED}" = "false" ] && [ "${TESTS}" = "skipped" ]; }; then
+            exit 0
+          fi
+          echo "::error::iOS simulator tests: ${TESTS}"
+          exit 1
