@@ -20,11 +20,16 @@ environment, or else `~/.config/tuit/config.json` (written by `tuit login`). Eit
 yours is set up, and the variables may not be visible to you even when the file is there, so
 use the CLI rather than calling the API by hand. Your token acts as `agent:<name>` for one
 person, and the server works out who you are from it: you see that person's private tasks plus
-household ones, and every change is recorded as yours. Your agent name is on any task you claim
-(`.task.claim.agent` in `tuit claim --json`).
+household ones, and every change is recorded as yours.
 
-If a command reports "Not configured", neither source has credentials. Say so in your report,
-and don't go looking for a token elsewhere.
+Check who you are before claiming anything, so a wrong token can't take some other agent's task:
+
+```bash
+tuit whoami --json | jq '{user: .user.id, agent, can_write}'
+```
+
+If it reports "Not configured", neither source has credentials. Say so in your report, and don't
+go looking for a token elsewhere.
 
 Add `--json` to any command for machine-readable output. Ids are short (`7y5rb88s`). Times
 like `sat`, `tomorrow 9am` and `2026-11-04` are read in the household's time zone
