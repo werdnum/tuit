@@ -73,7 +73,9 @@ like `sat`, `tomorrow 9am` and `2026-11-04` are read in the household's time zon
      ```
 
    - Waiting on something outside the household: `tuit wait <id> "reply from the plumber"
-     --follow-up fri`, or `--until <when>` / `--on <task-id>`.
+     --follow-up fri --next andrew`, or `--until <when>` / `--on <task-id>` instead of the
+     reply. Like `note`, `wait` needs `--next` (yourself as `agent:<name>`, or a person). A
+     reply you park with a person also needs `--follow-up`, so it can't sit unseen.
    - Actually achieved (the task's "done means" is true, not just "my part is finished"):
      `tuit done <id> --note "Merged in #2050; next backup ran on time."` A PR waiting for
      review is **not** done.
