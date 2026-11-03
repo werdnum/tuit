@@ -7,6 +7,12 @@ on:
 permissions:
   contents: read
 
+# Publish Image calls this workflow on main; keying those runs by run id keeps them out of
+# the pull request groups (and out of the caller's own concurrency group).
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest

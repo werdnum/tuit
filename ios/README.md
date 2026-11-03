@@ -72,7 +72,9 @@ across cold launches, and reconnection. The xcresult includes a real simulator s
 The fixture cleans up its server and database. Port 18089 must be free. Set
 `TUIT_IOS_DESTINATION` or `TUIT_IOS_DERIVED_DATA` to override the simulator or build directory.
 Ordinary Xcode tests run the persistence/API suite without the fixture; use the runner for full
-integration and UI coverage. GitHub's iOS workflow runs the full fixture-backed suite on PRs.
+integration and UI coverage. GitHub's iOS workflow runs the full fixture-backed suite on PRs that
+touch `ios/` or `tests/harness/`, and on every merge to main. Its `ios` check reports on every PR
+either way and is required to merge.
 
 ## Signing in
 

@@ -4,6 +4,7 @@ export default defineConfig({
   testDir: "tests/e2e",
   globalSetup: "./tests/harness/global-setup.ts",
   fullyParallel: true,
+  forbidOnly: !!process.env.CI,
   timeout: 60_000,
   expect: { timeout: 10_000 },
   reporter: [["list"]],
