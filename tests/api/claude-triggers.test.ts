@@ -41,7 +41,15 @@ class FireEndpoint {
                   claude_code_session_id: `session_${n}`,
                   claude_code_session_url: `https://claude.ai/code/session_${n}`,
                 }
-              : { type: "error", error: { type: "api_error", message: "nope" } },
+              : status === 401
+                ? {
+                    type: "error",
+                    error: {
+                      type: "authentication_error",
+                      message: "Token does not match this routine.",
+                    },
+                  }
+                : { type: "error", error: { type: "api_error", message: "nope" } },
           ),
         );
       });
@@ -215,7 +223,7 @@ test("a failing endpoint is retried, and a refused fire is noted on the task", a
     `An earlier task is still waiting:\n- Compare electricity plans (${a.id})`,
   );
   expect(await systemNotes(b.id)).toEqual([
-    "Couldn't start a Claude Code session for agent:claude (HTTP 401)",
+    "Couldn't start a Claude Code session for agent:claude (HTTP 401: authentication_error: Token does not match this routine.)",
   ]);
 });
 
