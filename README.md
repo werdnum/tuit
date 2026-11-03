@@ -108,6 +108,7 @@ and webhook transport checks.
 | `src/notify/` | Web Push and APNs delivery, per-person notification rules, quiet-hours summaries, and retry loop |
 | `src/web/` | Server-rendered, phone-first web UI with live updates over server-sent events |
 | `src/cli/`, `bin/tuit` | CLI, a pure REST client |
+| `skills/tuit/` | Agent skill for working tasks with the CLI; shipped in the image for agent images to copy |
 | `src/db/migrations/` | SQL migrations, applied on startup |
 | `ios/` | Native iPhone app (SwiftUI, a REST client with offline snapshots and outbox); see [ios/README.md](ios/README.md) |
 
