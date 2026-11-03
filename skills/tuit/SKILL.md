@@ -16,15 +16,20 @@ a **next actor** (whose turn it is: a person, `agent:<name>`, or `anyone`). Its 
 `open`, `waiting`, `done`, `expired` and `shelved`. Nothing is ever deleted.
 
 The `tuit` CLI talks to the server's REST API. It reads `TUIT_URL` and `TUIT_TOKEN` from the
-environment (or `~/.config/tuit/config.json`, written by `tuit login`). Your token acts as
-`agent:<name>` for one person, and the server works out who you are from it: you see that
-person's private tasks plus household ones, and every change is recorded as yours.
+environment, or else `~/.config/tuit/config.json` (written by `tuit login`). Either may be how
+yours is set up, and the variables may not be visible to you even when the file is there, so
+use the CLI rather than calling the API by hand. Your token acts as `agent:<name>` for one
+person, and the server works out who you are from it: you see that person's private tasks plus
+household ones, and every change is recorded as yours.
 
-Check your identity first if anything looks off:
+Check who you are before claiming anything, so a wrong token can't take some other agent's task:
 
 ```bash
-curl -s -H "Authorization: Bearer $TUIT_TOKEN" "$TUIT_URL/api/me" | jq '{user: .user.id, agent, can_write}'
+tuit whoami --json | jq '{user: .user.id, agent, can_write}'
 ```
+
+If it reports "Not configured", neither source has credentials. Say so in your report, and don't
+go looking for a token elsewhere.
 
 Add `--json` to any command for machine-readable output. Ids are short (`7y5rb88s`). Times
 like `sat`, `tomorrow 9am` and `2026-11-04` are read in the household's time zone
