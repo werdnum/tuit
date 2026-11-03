@@ -30,7 +30,11 @@ Revoking a token in Settings takes effect immediately.
     client ID. The agent name comes from that client, for example `agent:claude-ai`.
 - **CLI (humans and coding agents):** `tuit login --url https://tuit.example.com --token <token>`,
   then `tuit`, `tuit add ...`, `tuit show <id>`. Coding agents should use an agent token; use a
-  personal token for your own terminal.
+  personal token for your own terminal. Or set `TUIT_URL` and `TUIT_TOKEN` in the environment.
+  [`skills/tuit/SKILL.md`](../skills/tuit/SKILL.md) is a skill that teaches an agent the claim,
+  note, hand-off and done workflow with the CLI. The published image carries it at
+  `/app/skills/tuit`, next to the CLI (`/app/bin`, `/app/src`, `/app/package.json`), so an agent
+  image can copy both from the same Tuit image.
 - **family-assistant:** give it one agent token *per person* (`agent:family-assistant` for Alex,
   and another for Sam). It should use the token belonging to whoever it's talking to or acting
   for. That way "what's Alex planning for my birthday?" asked by Sam is answered with Sam's
