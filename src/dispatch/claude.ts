@@ -290,8 +290,25 @@ export class ClaudeTriggers {
     // finds nothing left to claim. Other 4xx (bad token, paused, deleted) won't fix themselves.
     return {
       ok: false,
-      error: `HTTP ${res.status}`,
+      error: `HTTP ${res.status}${errorDetail(res.body)}`,
       retry: res.status === 429 || res.status >= 500,
     };
   }
+}
+
+/**
+ * What a refused fire said, so the note tells a bad token (401 authentication_error) from an
+ * account without access (403 permission_error) or a proxy's page in front of the API.
+ */
+function errorDetail(body: string): string {
+  let detail: string;
+  try {
+    const { error } = JSON.parse(body) as { error?: { type?: unknown; message?: unknown } };
+    detail = [error?.type, error?.message].filter((x) => typeof x === "string").join(": ");
+  } catch {
+    detail = body;
+  }
+  detail = detail.replace(/\s+/g, " ").trim();
+  if (!detail) return "";
+  return `: ${detail.length > 200 ? `${detail.slice(0, 199)}…` : detail}`;
 }
