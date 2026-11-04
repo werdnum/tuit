@@ -150,15 +150,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     /// Shown even while Tuit is open: the person may be on another task's screen.
     nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter, willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
     }
 
+    /// Not the async variant: Swift would call UIKit's completion handler from a background
+    /// thread, and UIKit asserts it's on the main thread while snapshotting the app (a crash
+    /// on every tap).
     nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
-    ) async {
+        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+    ) {
         let taskId = response.notification.request.content.userInfo["task_id"] as? String
-        await MainActor.run { PushRegistration.shared.openTask = taskId }
+        Task { @MainActor in
+            PushRegistration.shared.openTask = taskId
+            completionHandler()
+        }
     }
 }
