@@ -94,6 +94,12 @@ export interface ClaudeTrigger {
    * of the same agent and person names.
    */
   areas: string[] | null;
+  /**
+   * Whether the fire carries text listing the tasks. A scheduled task that starts a thread in a
+   * Claude project refuses a fire with text (as 403 "this project is paused"), so such a trigger
+   * fires bare and its session finds the work with claim_next.
+   */
+  sendText: boolean;
 }
 
 const ClaudeTriggerSpec = z
@@ -111,11 +117,12 @@ const ClaudeTriggerSpec = z
       )
       .min(1)
       .optional(),
+    send_text: z.boolean().optional(),
   })
   .strict();
 
 /**
- * TUIT_CLAUDE_TRIGGERS is a JSON list of {for, agent, url, token_env, areas?}; each token is read
+ * TUIT_CLAUDE_TRIGGERS is a JSON list of {for, agent, url, token_env, areas?, send_text?}; each token is read
  * from the environment variable named by its token_env, so the list itself holds no secret. The
  * triggers of one agent and person split its work by area: each area goes to at most one of them,
  * and at most one, without areas, takes the rest.
@@ -150,7 +157,14 @@ export function parseClaudeTriggers(
       }
       routes.set(key, t.url);
     }
-    return { user: t.for, agent: t.agent, url: t.url, token, areas: t.areas ?? null };
+    return {
+      user: t.for,
+      agent: t.agent,
+      url: t.url,
+      token,
+      areas: t.areas ?? null,
+      sendText: t.send_text ?? true,
+    };
   });
 }
 

@@ -259,7 +259,7 @@ export class ClaudeTriggers {
   }
 
   private async fire(t: ClaudeTrigger, fresh: Task[], earlier: Task[]): Promise<Outcome> {
-    const body = JSON.stringify({ text: this.text(t, fresh, earlier) });
+    const body = JSON.stringify(t.sendText ? { text: this.text(t, fresh, earlier) } : {});
     let res: { status: number; body: string };
     try {
       res = await this.transport.post(
