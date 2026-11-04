@@ -195,6 +195,11 @@ or `claim_next` with `areas` set to its route, which takes only from those areas
 - Arrivals include tasks the agent hands to itself, from any conversation using that agent name.
   Fires are spaced at least `TUIT_CLAUDE_TRIGGER_MIN_INTERVAL_MS` apart; the Claude side allows
   30 an hour per scheduled task.
+- **Scheduled tasks that start a thread in a Claude project refuse a fire that carries text**, and
+  the refusal reads as `403 permission_error: this project is paused` even while the project is in
+  use. Set `"send_text": false` on such an entry: Tuit then fires with an empty body, and the
+  session has no list of task ids, so its prompt must find the work itself with `claim_next` as
+  the agent (with `areas` set to its route when the agent has more than one trigger).
 - A failed fire (no answer, 5xx, 429) is retried on the webhook retry delays, then given up. The
   endpoint has no idempotency key, so a retry after a 5xx may start a second session, which finds
   nothing left to claim. Other 4xx (a regenerated or deleted token, a paused task) are not retried.

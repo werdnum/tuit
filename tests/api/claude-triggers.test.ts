@@ -5,6 +5,7 @@ import { type Api, TestServer } from "../harness/server.ts";
 interface Fire {
   path: string;
   headers: IncomingHttpHeaders;
+  body: Record<string, unknown>;
   text: string;
 }
 
@@ -29,7 +30,13 @@ class FireEndpoint {
       });
       req.on("end", () => {
         const me = self as FireEndpoint;
-        me.fires.push({ path: req.url ?? "", headers: req.headers, text: JSON.parse(body).text });
+        const parsed = JSON.parse(body);
+        me.fires.push({
+          path: req.url ?? "",
+          headers: req.headers,
+          body: parsed,
+          text: parsed.text,
+        });
         const status = me.failWith.shift() ?? 200;
         res.writeHead(status, { "content-type": "application/json" });
         const n = me.fires.length;
@@ -154,6 +161,22 @@ test("a burst of handoffs to the agent starts one session that lists them all", 
   await alex.get("/api/now");
   await quiet();
   expect(endpoint.fires).toHaveLength(1);
+});
+
+test("a trigger that sends no text fires with an empty body", async () => {
+  // Scheduled tasks that start a thread in a Claude project refuse a fire carrying text.
+  await start([trigger(FIRE_PATH, { send_text: false })]);
+  const { task } = await alex.post("/api/tasks", {
+    title: "Compare electricity plans",
+    next_actor: "agent:claude",
+  });
+
+  const [fire] = await endpoint.waitFor(1);
+  expect(fire?.body).toEqual({});
+  expect(fire?.headers.authorization).toBe("Bearer sk-ant-oat01-test");
+  expect(await systemNotes(task.id)).toEqual([
+    "Started a Claude Code session for agent:claude: https://claude.ai/code/session_1",
+  ]);
 });
 
 test("only work the agent could claim fires, and a task handed back later fires again", async () => {
