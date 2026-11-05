@@ -467,6 +467,11 @@ export class TaskService {
     const actor = input.next_actor
       ? await this.resolveActor(input.next_actor, p)
       : ({ kind: "user", user: userId } as Actor);
+    if (input.claim && !(p.agent && actor.kind === "agent" && actor.agent === p.agent)) {
+      throw new ValidationError(
+        "claim only applies when an agent creates a task with itself as next_actor",
+      );
+    }
     const tagged =
       input.area === undefined
         ? splitAreaTag(input.title.trim())
@@ -501,7 +506,7 @@ export class TaskService {
         attachments: [],
         last_done_at: null,
         last_skip_at: null,
-        claim: null,
+        claim: input.claim ? this.newClaim(p, now, input.claim) : null,
         revision: 1,
         created_at: nowIso,
         updated_at: nowIso,
@@ -520,7 +525,15 @@ export class TaskService {
           happenedAt: new Date(t.last_done_at),
         });
       }
-      await addEvent(c, p, "created", { taskId: t.id }, now, { next_actor: t.next_actor });
+      if (t.claim) {
+        await addActivity(c, p, t.id, "system", `Claimed by agent:${p.agent} when created`, now, {
+          data: { claim: t.claim },
+        });
+      }
+      await addEvent(c, p, "created", { taskId: t.id }, now, {
+        next_actor: t.next_actor,
+        ...(t.claim ? { claimed: true } : {}),
+      });
       return t;
     });
   }
@@ -932,6 +945,22 @@ export class TaskService {
     });
   }
 
+  private newClaim(
+    p: Principal,
+    now: Date,
+    input: { lease_minutes?: number; side_effects?: boolean },
+  ): NonNullable<Task["claim"]> {
+    return {
+      id: newId(),
+      agent: p.agent as string,
+      user: p.userId,
+      expires_at: new Date(now.getTime() + (input.lease_minutes ?? 30) * 60_000).toISOString(),
+      // Unless told otherwise, assume the work may touch the outside world, so a lapsed
+      // claim is reviewed by a person instead of silently retried.
+      side_effects: input.side_effects ?? true,
+    };
+  }
+
   /**
    * Atomically take the next eligible task handed to this agent. Selection (being in a queue)
    * is not permission; this is the dispatch step, and it records who holds the work.
@@ -970,15 +999,7 @@ export class TaskService {
         }
       }
       if (!t) return null;
-      t.claim = {
-        id: newId(),
-        agent: p.agent as string,
-        user: p.userId,
-        expires_at: new Date(now.getTime() + (input.lease_minutes ?? 30) * 60_000).toISOString(),
-        // Unless told otherwise, assume the work may touch the outside world, so a lapsed
-        // claim is reviewed by a person instead of silently retried.
-        side_effects: input.side_effects ?? true,
-      };
+      t.claim = this.newClaim(p, now, input);
       this.bump(t, now);
       await writeTask(c, t);
       await addActivity(c, p, t.id, "system", `Claimed by agent:${p.agent}`, now, {

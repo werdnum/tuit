@@ -65,7 +65,8 @@ function ownInboxArrival(w: Watch, change: Change, p: Principal): boolean {
   const self = selfActor(p);
   if (w.kind !== "inbox" || !self || !isMe(w.actor, self)) return false;
   return change.types.some(({ type, data }) => {
-    if (type === "created") return isMe(data.next_actor, w.actor);
+    // A task its creator claimed in the same write is already being worked: not new work.
+    if (type === "created") return !data.claimed && isMe(data.next_actor, w.actor);
     if (type === "handed_off") return isMe(data.to, w.actor);
     // Reopening a wait or closed task is new work; retaining an open state is not.
     if (type === "state_changed" && data.to === "open" && data.from !== "open") {
