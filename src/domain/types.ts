@@ -223,6 +223,18 @@ const COLLAPSE_HOW =
 
 /** Advertised to agents through the MCP schemas, so the web view they write for stays readable. */
 export const BRIEF_DESCRIPTION = `Short current situation, rendered as Markdown (GitHub-flavoured; no images). Keep it to a few lines a person can take in at a glance on a phone: where things stand, constraints, key links. Put long detail (research, dossiers, pasted email) in a note, or collapse it at the end of the brief with ${COLLAPSE_HOW}.`;
+/**
+ * The id from your own claim. An agent changing a task that is claimed must pass the claim's id,
+ * so a second conversation running as the same agent can't move on work another one holds.
+ */
+export const ClaimIdInput = z
+  .string()
+  .max(100)
+  .optional()
+  .describe(
+    "Required when the task is claimed: the claim id your own claim_next returned. Without it (or with another claim's id) an agent's change is refused.",
+  );
+
 export const NOTE_DESCRIPTION = `Rendered as Markdown (GitHub-flavoured; no images). Lead with the finding in a line or two; collapse long supporting material with ${COLLAPSE_HOW}.`;
 
 const AREA_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/;
@@ -302,7 +314,7 @@ export const CreateTaskInput = TaskFieldsInput.extend({
     .strict()
     .optional()
     .describe(
-      "Agents only, with next_actor your own agent: create it already claimed by you (lease and side_effects as for claim_next), for work you start on now in this conversation. It doesn't wake your own inbox.",
+      "Agents only, with next_actor your own agent: create it already claimed by you (lease and side_effects as for claim_next), for work you start on now in this conversation. It doesn't wake your own inbox. Keep the returned task.claim.id and pass it as claim_id on every later change.",
     ),
   idempotency_key: z.string().max(200).optional(),
 }).strict();
@@ -310,6 +322,7 @@ export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
 
 export const UpdateTaskInput = TaskFieldsInput.extend({
   expected_revision: z.number().int().optional(),
+  claim_id: ClaimIdInput,
   idempotency_key: z.string().max(200).optional(),
 }).strict();
 export type UpdateTaskInput = z.infer<typeof UpdateTaskInput>;
@@ -337,6 +350,7 @@ export const CheckpointInput = z
     resurface_in_days: z.number().int().min(1).max(365).optional(),
     release_claim: z.boolean().optional(),
     expected_revision: z.number().int().optional(),
+    claim_id: ClaimIdInput,
     idempotency_key: z.string().max(200).optional(),
   })
   .strict();
@@ -357,6 +371,7 @@ export const AttachInput = z
       .describe("What the file is, as a person would name it (defaults to the link's address)"),
     mime_type: z.string().max(200).optional(),
     expected_revision: z.number().int().optional(),
+    claim_id: ClaimIdInput,
     idempotency_key: z.string().max(200).optional(),
   })
   .strict();
@@ -366,6 +381,7 @@ export const DetachInput = z
   .object({
     attachment_id: z.string().min(1).max(100),
     expected_revision: z.number().int().optional(),
+    claim_id: ClaimIdInput,
     idempotency_key: z.string().max(200).optional(),
   })
   .strict();
@@ -377,6 +393,7 @@ export const CompleteInput = z
     at: MomentInput.optional(),
     note: z.string().max(20_000).optional().describe(NOTE_DESCRIPTION),
     expected_revision: z.number().int().optional(),
+    claim_id: ClaimIdInput,
     idempotency_key: z.string().max(200).optional(),
   })
   .strict();
@@ -387,6 +404,7 @@ export const CloseInput = z
     state: z.enum(["expired", "shelved"]),
     reason: z.string().max(2000).optional(),
     expected_revision: z.number().int().optional(),
+    claim_id: ClaimIdInput,
     idempotency_key: z.string().max(200).optional(),
   })
   .strict();

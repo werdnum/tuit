@@ -49,6 +49,12 @@ like `sat`, `tomorrow 9am` and `2026-11-04` are read in the household's time zon
    its owner to check rather than being retried blind. The lease is in minutes (default 30,
    at most 1440) and cannot be extended, so ask for enough up front.
 
+   Keep the claim id it prints (`.task.claim.id` in the JSON) and pass it as `--claim <claim-id>`
+   on every later change to that task: `note`, `handoff`, `wait`, `done`, `attach`, `release`
+   and the rest. While a task is claimed the server refuses an agent's change without the
+   matching id, because other conversations may be running as the same agent. If you're told
+   the task is held by another claim, your claim has ended: stop and leave the task alone.
+
 2. **Read it, including its history.** `tuit show <id> --all`. The history shows who handed it
    to you, and that matters (see "Whose instructions" below).
 
@@ -85,7 +91,7 @@ like `sat`, `tomorrow 9am` and `2026-11-04` are read in the household's time zon
      `tuit done <id> --note "Merged in #2050; next backup ran on time."` A PR waiting for
      review is **not** done.
    - Can't continue and nothing useful to hand over: `tuit release <id>` after a note saying
-     why. Never let a claim lapse silently.
+     why. Never let a claim lapse silently. (Every example above also takes `--claim <claim-id>`.)
 
 ## Whose instructions
 

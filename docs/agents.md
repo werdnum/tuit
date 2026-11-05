@@ -98,6 +98,14 @@ automatically. It surfaces to its owner as "check before retrying". Pass `side_e
 for work that can't affect the outside world (research, drafting). A lapsed claim of that kind
 quietly returns to the pool.
 
+A claim, from `claim_next` or a claimed `create_task`, comes back with an id (`task.claim.id`). While a task is claimed, an agent's change to it
+(checkpoint, hand_off, complete, close, update, attachments, release) must pass that id as
+`claim_id`, and is refused (403) without it or with a different claim's id. Several conversations
+can run as one agent name, so the name alone can't tell the conversation holding the work from one
+that merely sees it. People never need the id. The id is a concurrency token, not a secret: anyone
+who can see the task can read it, and the check guards against mistakes, not against a hostile
+agent.
+
 When an agent captures a task it is about to work on itself, in the same conversation, it can
 create it already claimed: `create_task` with `next_actor` set to its own agent and
 `claim: {}` (optionally `lease_minutes` and `side_effects`, as for `claim_next`). The task is

@@ -277,20 +277,27 @@ test("same-principal conversations deliver inbox arrivals but suppress routine s
     cursor = got.cursor;
   };
   await check(); // No replay after creation.
-  await chat.call("claim_next", { task_id: task.id, side_effects: false });
+  const claimed = await chat.call("claim_next", { task_id: task.id, side_effects: false });
+  const claim_id = claimed.task.claim.id;
   await check();
   await chat.call("checkpoint", {
     task_id: task.id,
+    claim_id,
     note: "Still working",
     next_actor: "agent:chatgpt",
     state: "open",
   });
   await check();
-  await chat.call("update_task", { task_id: task.id, brief: "A useful brief" });
+  await chat.call("update_task", { task_id: task.id, claim_id, brief: "A useful brief" });
   await check();
 
   // Explicit hand_off to the same actor is a delegation, unlike retaining it in a checkpoint.
-  const handoff = { task_id: task.id, to: "agent:chatgpt", idempotency_key: "self-delegation" };
+  const handoff = {
+    task_id: task.id,
+    claim_id,
+    to: "agent:chatgpt",
+    idempotency_key: "self-delegation",
+  };
   const handed = await chat.call("hand_off", handoff);
   expect(handed.task.claim).toBeTruthy(); // A self-handoff cannot bypass another worker's claim.
   await check(["checkpoint", "handed_off"]);
