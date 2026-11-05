@@ -643,6 +643,7 @@ export function changesOf(events: FeedEvent[], tasks: Map<string, Task>): Change
     const key = `${task.id}|${e.at}|${e.actor.user}|${e.actor.agent}`;
     if (last && last.key === key) {
       last.types.push({ type: e.type, data: e.data });
+      if (e.next_actor) last.next_actor = e.next_actor;
       continue;
     }
     last = {
@@ -652,6 +653,8 @@ export function changesOf(events: FeedEvent[], tasks: Map<string, Task>): Change
       types: [{ type: e.type, data: e.data }],
       actor: e.actor,
       task,
+      // Events logged before the turn was stamped fall back to the task as it is now.
+      next_actor: e.next_actor ?? task.next_actor,
     };
     out.push(last);
   }

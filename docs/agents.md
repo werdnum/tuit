@@ -98,13 +98,21 @@ automatically. It surfaces to its owner as "check before retrying". Pass `side_e
 for work that can't affect the outside world (research, drafting). A lapsed claim of that kind
 quietly returns to the pool.
 
-A claim comes back with an id (`task.claim.id`). While a task is claimed, an agent's change to it
+A claim, from `claim_next` or a claimed `create_task`, comes back with an id (`task.claim.id`). While a task is claimed, an agent's change to it
 (checkpoint, hand_off, complete, close, update, attachments, release) must pass that id as
 `claim_id`, and is refused (403) without it or with a different claim's id. Several conversations
 can run as one agent name, so the name alone can't tell the conversation holding the work from one
 that merely sees it. People never need the id. The id is a concurrency token, not a secret: anyone
 who can see the task can read it, and the check guards against mistakes, not against a hostile
 agent.
+
+When an agent captures a task it is about to work on itself, in the same conversation, it can
+create it already claimed: `create_task` with `next_actor` set to its own agent and
+`claim: {}` (optionally `lease_minutes` and `side_effects`, as for `claim_next`). The task is
+claimed in the same write, so no other session of that agent can take it, and its creation does
+not wake the agent's own inbox. Use it for work started on the spot (an analysis or research
+run kicked off from a chat), not for delegating to another conversation: that is what an
+unclaimed task in your own inbox is for.
 
 ## Waiting for work (events)
 
@@ -121,7 +129,8 @@ as an MCP resource:
 You only ever hear about tasks you can see. Changes made by your own principal (user + agent)
 are normally suppressed, but **arrivals in your own watched inbox still wake you**: creating a
 task assigned to you, assigning it to you, explicitly calling `hand_off` to you (even if it is
-already yours), or reopening a waiting/closed task assigned to you. This lets another chat
+already yours), or reopening a waiting/closed task assigned to you. A task created already
+claimed (see Dispatch) is not an arrival. This lets another chat
 using the same credentials delegate work. The exception applies to `tuit://inbox` and an
 explicit inbox URI resolving to your actor, not task/feed watches or someone else's inbox.
 
@@ -244,6 +253,9 @@ with a cursor to resume from. Use `after=latest` to start from now. The event ty
   sees household events only, so a kitchen screen can't show a private title.
 - Time-driven events (`became_available`, `deadline_approaching`, `routine_stale`, `expired`, ...)
   are emitted once, when the time passes.
+- A task event carries `next_actor`: whose turn the task was once that write committed. Inbox
+  watches and notifications judge "was this theirs" by it, not by the task's current state, so a
+  reader that falls behind still sees each change as it happened.
 
 **Tuit sends notifications itself** (browsers and the iPhone app), by each person's own rules
 and quiet hours (web: Settings → Notifications). Agents can't read or change those settings, and

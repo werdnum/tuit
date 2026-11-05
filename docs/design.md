@@ -192,7 +192,10 @@ cannot recall events a consumer has already read.
 updated, checkpoint, handed_off, completed, skipped, state_changed, became_available,
 deadline_approaching, routine_stale, expired and claim_lapsed. `GET /api/changes?after=<cursor>`
 returns events the caller can see *under the task's current visibility*. Events do not snapshot
-titles, so a task made private later disappears from everyone else's feed history too. Webhooks
+titles, so a task made private later disappears from everyone else's feed history too. Each task
+event does record whose turn the task was as of its write, and everything that asks "did this
+reach X's inbox" (inbox watches, webhooks, notifications) reads that rather than the task's
+current `next_actor`, which a slow reader would otherwise see after later handoffs. Webhooks
 are deferred.
 
 ### Notifications

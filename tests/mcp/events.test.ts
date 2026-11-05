@@ -231,6 +231,20 @@ test("a session unused for 30 days is forgotten", async () => {
   expect(res.status).toBe(404);
 });
 
+test("a task created already claimed doesn't wake its creator's own inbox", async () => {
+  const listener = await agentSession("alex", "chatgpt");
+  const chat = await agentSession("alex", "chatgpt");
+  const watch = ["tuit://inbox", "tuit://inbox/agent:chatgpt"];
+  const { cursor } = await listener.call("wait_for_events", { watch, wait_seconds: 0 });
+  await chat.call("create_task", {
+    title: "Run the analysis in this conversation",
+    next_actor: "agent:chatgpt",
+    claim: {},
+  });
+  const got = await listener.call("wait_for_events", { watch, after: cursor, wait_seconds: 0 });
+  expect(got.changes).toEqual([]);
+});
+
 test("same-principal conversations deliver inbox arrivals but suppress routine self-updates", async () => {
   const dot = await agentSession("alex", "chatgpt");
   const chat = await agentSession("alex", "chatgpt");
@@ -385,4 +399,32 @@ test("backlogged self-arrivals use their recorded destination after later reassi
   await writer.post(`/api/tasks/${task.id}/handoff`, { to: "agent:chatgpt" });
   const back = await dot.call("wait_for_events", { after: got.cursor, wait_seconds: 0 });
   expect(back.changes.map((c: any) => c.types)).toEqual([["checkpoint", "handed_off"]]);
+});
+
+test("a backlogged inbox judges each change by whose turn it was then, not now", async () => {
+  const chatgpt = await agentSession("alex", "chatgpt");
+  const start = await chatgpt.call("wait_for_events", { wait_seconds: 0 });
+  const { task } = await alex.post("/api/tasks", { title: "Find a pool fence repairer" });
+  await alex.post(`/api/tasks/${task.id}/checkpoint`, {
+    note: "Asked the neighbours",
+    next_actor: "alex",
+  });
+  await alex.post(`/api/tasks/${task.id}/handoff`, { to: "agent:chatgpt" });
+  // Read only after the handoff committed: the task is chatgpt's now, but its creation and
+  // the note happened while it was Alex's, so only the handoff arrived in chatgpt's inbox.
+  const got = await chatgpt.call("wait_for_events", { after: start.cursor, wait_seconds: 0 });
+  expect(got.changes.map((c: any) => c.category)).toEqual(["handoff"]);
+
+  // And once it leaves, what happens to it under Sam is no longer chatgpt's business.
+  await alex.post(`/api/tasks/${task.id}/handoff`, { to: "sam" });
+  await sam.post(`/api/tasks/${task.id}/checkpoint`, {
+    note: "Rang two repairers",
+    next_actor: "sam",
+  });
+  await alex.post(`/api/tasks/${task.id}/handoff`, { to: "agent:chatgpt" });
+  const later = await chatgpt.call("wait_for_events", { after: got.cursor, wait_seconds: 0 });
+  expect(later.changes.map((c: any) => c.types)).toEqual([
+    ["checkpoint", "handed_off"],
+    ["checkpoint", "handed_off"],
+  ]);
 });

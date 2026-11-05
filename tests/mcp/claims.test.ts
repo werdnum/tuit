@@ -189,3 +189,31 @@ test("a person changes a claimed task without the claim id", async () => {
 
   expect(done.task.state).toBe("done");
 });
+
+test("an agent can create a task already claimed, so no other session takes it", async () => {
+  const [a, b] = [await claudeSession(), await claudeSession()];
+  const { task } = await a.call("create_task", {
+    title: "Research piano teachers now",
+    next_actor: "agent:claude",
+    claim: { lease_minutes: 60, side_effects: false },
+  });
+  expect(task.claim).toMatchObject({ agent: "claude", side_effects: false });
+
+  expect((await b.call("claim_next")).task).toBeNull();
+  await a.call("checkpoint", {
+    task_id: task.id,
+    claim_id: task.claim.id,
+    note: "Done the research",
+    next_actor: "me",
+  });
+});
+
+test("claiming on create needs the agent itself as next_actor", async () => {
+  const claude = await claudeSession();
+  await expect(
+    claude.call("create_task", { title: "Book the plumber", claim: {} }),
+  ).rejects.toThrow(/claim only applies/);
+  await expect(
+    alex.post("/api/tasks", { title: "Book the plumber", next_actor: "agent:claude", claim: {} }),
+  ).rejects.toThrow();
+});

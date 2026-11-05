@@ -110,14 +110,15 @@ export interface ActivityEntry {
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
+export function actorFromColumns(kind: string, user: string | null, agent: string | null): Actor {
+  if (kind === "user") return { kind: "user", user: user as string };
+  if (kind === "agent") return { kind: "agent", agent: agent as string };
+  return { kind: "anyone" };
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: raw pg row
 export function taskFromRow(r: any): Task {
-  const actor: Actor =
-    r.actor_kind === "user"
-      ? { kind: "user", user: r.actor_user }
-      : r.actor_kind === "agent"
-        ? { kind: "agent", agent: r.actor_agent }
-        : { kind: "anyone" };
+  const actor = actorFromColumns(r.actor_kind, r.actor_user, r.actor_agent);
   return {
     id: r.id,
     seq: r.seq,
@@ -296,6 +297,25 @@ export const CreateTaskInput = TaskFieldsInput.extend({
   title: z.string().min(1).max(500),
   /** For routines: when it was last actually done, so it doesn't appear due immediately. */
   last_done: MomentInput.optional(),
+  /**
+   * Create the task already claimed by the calling agent, for work it starts on at once. Only
+   * when next_actor is that agent: nobody else can claim it, and its own inbox isn't woken.
+   */
+  claim: z
+    .object({
+      lease_minutes: z
+        .number()
+        .int()
+        .min(1)
+        .max(24 * 60)
+        .optional(),
+      side_effects: z.boolean().optional(),
+    })
+    .strict()
+    .optional()
+    .describe(
+      "Agents only, with next_actor your own agent: create it already claimed by you (lease and side_effects as for claim_next), for work you start on now in this conversation. It doesn't wake your own inbox. Keep the returned task.claim.id and pass it as claim_id on every later change.",
+    ),
   idempotency_key: z.string().max(200).optional(),
 }).strict();
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
