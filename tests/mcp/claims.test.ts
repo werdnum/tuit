@@ -111,3 +111,81 @@ test("another agent cannot release a claim it doesn't hold", async () => {
 
   expect(r.status).toBe(403);
 });
+
+test("a conversation that didn't get the claim can't release the one that did", async () => {
+  const id = await handToClaude("Compare electricity plans");
+  const [holder, bystander] = [await claudeSession(), await claudeSession()];
+  const claimed = await holder.call("claim_next");
+  expect((await bystander.call("claim_next")).task).toBeNull();
+
+  await expect(
+    bystander.call("checkpoint", {
+      task_id: id,
+      note: "Nothing to claim, letting go",
+      next_actor: "agent:claude",
+      release_claim: true,
+    }),
+  ).rejects.toThrow(/claimed by agent:claude/);
+  await expect(bystander.call("release_claim", { task_id: id })).rejects.toThrow(/claim_id/);
+
+  expect((await alex.get(`/api/tasks/${id}`)).task.claim.id).toBe(claimed.task.claim.id);
+});
+
+test("the claimer moves its task on by passing its claim id", async () => {
+  const id = await handToClaude("Compare electricity plans");
+  const claude = await claudeSession();
+  const claim_id = (await claude.call("claim_next")).task.claim.id;
+  const step = { task_id: id, note: "Found three plans", next_actor: "agent:claude" };
+
+  await expect(claude.call("checkpoint", step)).rejects.toThrow(/Pass claim_id/);
+  await expect(claude.call("complete_task", { task_id: id })).rejects.toThrow(/Pass claim_id/);
+  await claude.call("checkpoint", { ...step, claim_id });
+  const done = await claude.call("complete_task", { task_id: id, claim_id });
+
+  expect(done.task.state).toBe("done");
+});
+
+test("a claim id from a lapsed claim can't touch the claim that replaced it", async () => {
+  const id = await handToClaude("Compare electricity plans");
+  const [first, second] = [await claudeSession(), await claudeSession()];
+  const old = (await first.call("claim_next", { lease_minutes: 30, side_effects: false })).task
+    .claim.id;
+  await server.setClock("2026-10-05T09:31:00+11:00");
+  const current = (await second.call("claim_next")).task.claim.id;
+
+  await expect(
+    first.call("checkpoint", {
+      task_id: id,
+      claim_id: old,
+      note: "Late result",
+      next_actor: "alex",
+    }),
+  ).rejects.toThrow(/held by a different claim/);
+  // A retried release with the old id leaves the newer claim in place.
+  await first.call("release_claim", { task_id: id, claim_id: old });
+
+  expect((await alex.get(`/api/tasks/${id}`)).task.claim.id).toBe(current);
+});
+
+test("an agent's release with its own claim id frees the task", async () => {
+  const id = await handToClaude("Compare electricity plans");
+  const claude = await claudeSession();
+  const claim_id = (await claude.call("claim_next")).task.claim.id;
+
+  const released = await claude.call("release_claim", { task_id: id, claim_id });
+
+  expect(released.task.claim).toBeFalsy();
+  expect((await claude.call("claim_next")).task?.id).toBe(id);
+});
+
+test("a person changes a claimed task without the claim id", async () => {
+  const id = await handToClaude("Compare electricity plans");
+  const claude = await claudeSession();
+  await claude.call("claim_next");
+  const person = await server.human("alex");
+
+  await person.post(`/api/tasks/${id}/checkpoint`, { note: "I'll take it from here" });
+  const done = await person.post(`/api/tasks/${id}/complete`, {});
+
+  expect(done.task.state).toBe("done");
+});

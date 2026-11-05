@@ -186,3 +186,24 @@ test("a stale --rev is a conflict that says to re-read", async () => {
   expect(r.stderr).toMatch(/Re-read it/);
   expect(r.stderr).toContain("--rev 2");
 });
+
+test("an agent passes --claim to change the task it claimed", async () => {
+  const id = await addId("Compare electricity plans", "--to", "agent:claude");
+  const agent = tuitAs(server, await server.mintToken("alex", "claude"));
+  const claimed = JSON.parse((await agent("claim", "--task", id, "--json")).stdout);
+
+  const refused = await agent("note", id, "Found three plans", "--next", "me");
+  const noted = await agent(
+    "note",
+    id,
+    "Found three plans",
+    "--next",
+    "me",
+    "--claim",
+    claimed.task.claim.id,
+  );
+
+  expect(refused.code).not.toBe(0);
+  expect(refused.stderr).toMatch(/Pass claim_id/);
+  expect(noted.code).toBe(0);
+});

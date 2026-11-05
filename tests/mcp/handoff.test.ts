@@ -40,6 +40,7 @@ test("an agent prepares a decision and hands it back to the human in one checkpo
 
   await claude.call("checkpoint", {
     task_id: task.id,
+    claim_id: claimed.task.claim.id,
     kind: "research",
     note: "Two repairers service Epping; FenceCo can come Thursday",
     brief: "FenceCo: $450, Thursday. PoolSafe: $380, in two weeks.",
@@ -58,10 +59,11 @@ test("the human's decision closes the loop in the change feed", async () => {
   const { task } = await alex.post("/api/tasks", { title: "Get the pool fence repaired" });
   await alex.post(`/api/tasks/${task.id}/handoff`, { to: "agent:claude" });
   const claude = await agentSession("alex", "claude");
-  await claude.call("claim_next", {});
+  const claimed = await claude.call("claim_next", {});
   const { cursor } = await claude.call("get_changes", { after: "latest" });
   await claude.call("checkpoint", {
     task_id: task.id,
+    claim_id: claimed.task.claim.id,
     note: "FenceCo can come Thursday",
     next_action: "Decide: book FenceCo?",
     next_actor: "alex",
@@ -85,9 +87,10 @@ test("a second agent in a new session continues from the brief alone", async () 
     next_actor: "agent:claude",
   });
   const researcher = await agentSession("alex", "claude");
-  await researcher.call("claim_next", {});
+  const claimed = await researcher.call("claim_next", {});
   await researcher.call("hand_off", {
     task_id: task.id,
+    claim_id: claimed.task.claim.id,
     to: "agent:family-assistant",
     kind: "research",
     note: "Compared three vets",
@@ -124,6 +127,7 @@ test("the second agent hands the task back to the human with its result", async 
 
   await assistant.call("checkpoint", {
     task_id: picked.task.id,
+    claim_id: picked.task.claim.id,
     kind: "attempt",
     note: "Held Friday 9am at Epping Vet",
     brief: `${picked.task.brief} Provisional booking Fri 9 Oct 9am.`,

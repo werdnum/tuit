@@ -18,6 +18,7 @@ import {
   AreaInput,
   AttachInput,
   CheckpointInput,
+  ClaimIdInput,
   ClaimInput,
   CloseInput,
   CompleteInput,
@@ -168,6 +169,7 @@ const HandOffInput = CheckpointInput.pick({
   kind: true,
   expected_revision: true,
   idempotency_key: true,
+  claim_id: true,
 })
   .extend({
     task_id: taskId,
@@ -185,6 +187,7 @@ const RevisionOnly = z
     task_id: taskId,
     expected_revision: z.number().int().optional(),
     idempotency_key: z.string().max(200).optional(),
+    claim_id: ClaimIdInput,
   })
   .strict();
 
@@ -415,7 +418,7 @@ export async function buildMcpServer(
 
   tool(
     "claim_next",
-    'Atomically take the oldest open task handed to you (or task_id, or only from areas; "none" means no area), with a lease. side_effects defaults to true (a lapse goes to a person to check); pass false for pure research/drafting that is safe to retry. Returns task null when there is nothing to do.',
+    'Atomically take the oldest open task handed to you (or task_id, or only from areas; "none" means no area), with a lease. side_effects defaults to true (a lapse goes to a person to check); pass false for pure research/drafting that is safe to retry. Keep the returned task.claim.id: every later change you make to the task (checkpoint, hand_off, complete_task, release_claim...) must pass it as claim_id. Returns task null when there is nothing to do.',
     ClaimInput,
     WRITE,
     async (input) => {
@@ -426,8 +429,8 @@ export async function buildMcpServer(
 
   tool(
     "release_claim",
-    "Release your claim on a task. Pass the claim_id you were given so a retried release can't drop another worker's newer claim.",
-    z.object({ task_id: taskId, claim_id: z.string().optional() }).strict(),
+    "Release your claim on a task. Pass the claim_id your claim_next returned: an agent's release without it is refused, and a release with an older claim's id leaves a newer claim alone.",
+    z.object({ task_id: taskId, claim_id: z.string().max(100).optional() }).strict(),
     WRITE,
     async ({ task_id, claim_id }) => view((await tasks.releaseClaim(p, task_id, claim_id)).id),
   );

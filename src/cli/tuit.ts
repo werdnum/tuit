@@ -480,7 +480,15 @@ function ruleText(r: { anchor: string; offset_days: number }): string {
   return `(${r.anchor} ${n < 0 ? "−" : "+"} ${Math.abs(n)}d)`;
 }
 
-const JSON_OPT = { json: { type: "boolean" }, help: { type: "boolean", short: "h" } } as const;
+const JSON_OPT = {
+  json: { type: "boolean" },
+  help: { type: "boolean", short: "h" },
+  claim: { type: "string" },
+} as const;
+
+/** An agent changing a task it claimed must name the claim; `--claim` is how it does. */
+const withClaim = (ctx: Ctx, body: Record<string, unknown>): Record<string, unknown> =>
+  dropUndefined({ ...body, claim_id: str(ctx.values, "claim") });
 
 async function taskMutation(
   ctx: Ctx,
@@ -494,7 +502,7 @@ async function taskMutation(
   const v = await client.mutate<{ task: Task; status: TaskStatus }>(
     method,
     path(id),
-    dropUndefined(body),
+    withClaim(ctx, body),
   );
   confirm(ctx, verb, v);
 }
@@ -698,7 +706,7 @@ const commands: Record<string, Command> = {
       const r = await client.mutate<{ task: Task; status: TaskStatus }>(
         "POST",
         `/api/tasks/${id}/checkpoint`,
-        dropUndefined({
+        withClaim(ctx, {
           note: str(v, "note") ?? note,
           state: "waiting",
           waiting: dropUndefined(waiting),
@@ -991,15 +999,18 @@ const commands: Record<string, Command> = {
       if (ctx.json) return printJson(r);
       if (!r.task || !r.status) return out(c.dim("Nothing to claim."));
       confirm(ctx, "Claimed:", { task: r.task, status: r.status });
-      if (r.task.claim) out(c.dim(`  lease until ${fmtInstant(r.task.claim.expires_at, false)}`));
+      if (r.task.claim) {
+        out(`  claim: ${r.task.claim.id} (pass --claim ${r.task.claim.id} on every change)`);
+        out(c.dim(`  lease until ${fmtInstant(r.task.claim.expires_at, false)}`));
+      }
       if (r.task.next_action) out(`  next: ${r.task.next_action}`);
       if (r.task.brief) out(`  brief: ${r.task.brief.replaceAll("\n", "\n         ")}`);
     },
   },
   release: {
-    usage: "tuit release <id>",
+    usage: "tuit release <id> --claim ID",
     summary: "Release a claim",
-    run: (ctx) => plainTaskPost(ctx, "Released:", "release", {}),
+    run: (ctx) => plainTaskPost(ctx, "Released:", "release", withClaim(ctx, {})),
   },
   changes: {
     usage: "tuit changes [--after CURSOR|latest] [--limit N]",
@@ -1084,12 +1095,13 @@ function usage(): string {
     ([name, cmd]) => `  ${name.padEnd(width)}  ${cmd.summary}`,
   );
   return [
-    "Usage: tuit <command> [args] [--json]",
+    "Usage: tuit <command> [args] [--json] [--claim ID]",
     "",
     ...lines,
     "",
     "Ids may be shortened to any unique prefix. Times accept rough text: sat, tomorrow 9am,",
     "2026-10-03, +3d, yesterday. Actors: me, anyone, a person (sam), agent:<name>.",
+    "--claim ID: an agent changing a task it claimed must pass the id its claim returned.",
     "Config: TUIT_URL and TUIT_TOKEN, else ~/.config/tuit/config.json (tuit login).",
     "Exit codes: 0 ok, 1 error, 2 usage, 3 not found, 4 conflict (re-read and retry).",
     "More: tuit help <command>",

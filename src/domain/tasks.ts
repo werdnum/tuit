@@ -374,6 +374,19 @@ export class TaskService {
     p: Principal,
     id: string,
     expectedRevision: number | undefined,
+    claimId: string | undefined,
+  ): Promise<Task> {
+    const t = await this.lockTaskUnchecked(c, p, id, expectedRevision);
+    this.checkClaimHeld(p, t, claimId);
+    return t;
+  }
+
+  /** For releaseClaim alone, which handles a missing or stale claim id itself. */
+  private async lockTaskUnchecked(
+    c: Queryable,
+    p: Principal,
+    id: string,
+    expectedRevision: number | undefined,
   ): Promise<Task> {
     const r = await c.query(
       `SELECT * FROM tasks t WHERE id = $1 AND ${visibleSql("t", 2)} FOR UPDATE`,
@@ -388,6 +401,20 @@ export class TaskService {
       );
     }
     return t;
+  }
+
+  /**
+   * An agent may change a claimed task only by presenting that claim's id. Several conversations
+   * can run as one agent, so the agent name alone can't tell the holder from a bystander. People
+   * are never asked for it: they can always step in.
+   */
+  private checkClaimHeld(p: Principal, t: Task, claimId: string | undefined): void {
+    if (!p.agent || !t.claim || t.claim.id === claimId) return;
+    throw new ForbiddenError(
+      claimId
+        ? `Task ${t.id} is held by a different claim than ${claimId}. Your claim has ended; leave the task to whoever holds it now.`
+        : `Task ${t.id} is claimed by agent:${t.claim.agent}. Pass claim_id from your own claim_next result. If you didn't claim it in this conversation, another worker holds it: leave it alone.`,
+    );
   }
 
   private bump(t: Task, now: Date): void {
@@ -525,7 +552,7 @@ export class TaskService {
     const input = UpdateTaskInput.parse(raw);
     const actor = input.next_actor ? await this.resolveActor(input.next_actor, p) : undefined;
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
       const before = structuredClone(t);
       if (input.visibility !== undefined && input.visibility !== t.visibility) {
         if (t.owner !== p.userId) throw new ForbiddenError("Only the owner can change visibility");
@@ -596,7 +623,7 @@ export class TaskService {
     }
     const actor = input.next_actor ? await this.resolveActor(input.next_actor, p) : undefined;
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
       const wasClosed = CLOSED_STATES.includes(t.state);
       const stateBefore = t.state;
       const actorBefore = t.next_actor;
@@ -696,7 +723,7 @@ export class TaskService {
   async complete(p: Principal, id: string, raw: unknown): Promise<Task> {
     const input = CompleteInput.parse(raw ?? {});
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
       const at = input.at ? (toMoment(input.at, now) as Moment) : null;
       const happened = at ? completionInstant(at) : now;
       if (at && isDate(at) && at.date === local(now).toISODate()) {
@@ -741,9 +768,10 @@ export class TaskService {
       note?: string;
       idempotency_key?: string;
       expected_revision?: number;
+      claim_id?: string;
     };
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
       if (!t.recurrence) throw new ValidationError("Only routines can be skipped");
       t.last_skip_at = now.toISOString();
       this.bump(t, now);
@@ -768,12 +796,12 @@ export class TaskService {
     p: Principal,
     id: string,
     items: AttachInput[],
-    opts: { expected_revision?: number; idempotency_key?: string } = {},
+    opts: { expected_revision?: number; idempotency_key?: string; claim_id?: string } = {},
   ): Promise<Task> {
     const parsed = items.map((raw) => AttachInput.parse(raw));
     const urls = parsed.map((i) => attachmentUrl(i.url).toString());
     return this.mutate(p, opts.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, opts.expected_revision);
+      const t = await this.lockTask(c, p, id, opts.expected_revision, opts.claim_id);
       const added: Attachment[] = [];
       parsed.forEach((input, i) => {
         const url = urls[i] as string;
@@ -810,7 +838,7 @@ export class TaskService {
   async detach(p: Principal, id: string, raw: unknown): Promise<Task> {
     const input = DetachInput.parse(raw);
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
       const a = t.attachments.find((x) => x.id === input.attachment_id);
       if (!a) throw new NotFoundError(`Task ${id} has no attachment ${input.attachment_id}`);
       t.attachments = t.attachments.filter((x) => x.id !== a.id);
@@ -827,7 +855,7 @@ export class TaskService {
   async close(p: Principal, id: string, raw: unknown): Promise<Task> {
     const input = CloseInput.parse(raw);
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
       if (t.state === input.state) return t;
       const from = t.state;
       t.state = input.state;
@@ -865,9 +893,13 @@ export class TaskService {
   }
 
   async reopen(p: Principal, id: string, raw: unknown): Promise<Task> {
-    const input = (raw ?? {}) as { idempotency_key?: string; expected_revision?: number };
+    const input = (raw ?? {}) as {
+      idempotency_key?: string;
+      expected_revision?: number;
+      claim_id?: string;
+    };
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
       if (t.state === "open") return t;
       const from = t.state;
       t.state = "open";
@@ -991,8 +1023,10 @@ export class TaskService {
    */
   async releaseClaim(p: Principal, id: string, claimId?: string): Promise<Task> {
     return this.mutate(p, undefined, async (c, now) => {
-      const t = await this.lockTask(c, p, id, undefined);
+      const t = await this.lockTaskUnchecked(c, p, id, undefined);
+      // A retried release that finds another claim has taken over leaves that claim alone.
       if (!t.claim || (claimId && t.claim.id !== claimId)) return t;
+      this.checkClaimHeld(p, t, claimId);
       const isClaimer = p.agent === t.claim.agent && p.userId === t.claim.user;
       if (p.agent && !isClaimer) {
         throw new ForbiddenError(

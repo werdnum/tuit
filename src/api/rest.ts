@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { App } from "../app.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../domain/errors.ts";
 import { ZONE } from "../domain/time.ts";
-import { ActorInput, ClaimInput, MomentInput, NOTE_KINDS } from "../domain/types.ts";
+import { ActorInput, ClaimIdInput, ClaimInput, MomentInput, NOTE_KINDS } from "../domain/types.ts";
 import type { AuthEnv } from "./auth.ts";
 
 const HandoffInput = z
@@ -15,6 +15,7 @@ const HandoffInput = z
     kind: z.enum(NOTE_KINDS).optional(),
     expected_revision: z.number().int().optional(),
     idempotency_key: z.string().max(200).optional(),
+    claim_id: ClaimIdInput,
   })
   .strict();
 
@@ -123,6 +124,7 @@ export function restApi(app: App): Hono<AuthEnv> {
           state: "open",
           expected_revision: h.expected_revision,
           idempotency_key: h.idempotency_key,
+          claim_id: h.claim_id,
         },
         "handoff",
       );

@@ -165,7 +165,9 @@ feed shows the human-meaningful kinds; system entries remain visible in the insp
   is the calling agent, with a lease. When claiming, the agent declares whether the work has
   external side effects (sending email, booking). A lapsed claim without side effects silently
   returns to the pool. A lapsed claim **with** side effects is never auto-retried: it surfaces to
-  the owner as "claim lapsed, check before retrying", and a human releases it.
+  the owner as "claim lapsed, check before retrying", and a human releases it. While a task is
+  claimed, an agent must present the claim's id to change it, so two conversations running as the
+  same agent can't both act on one piece of work; people can always step in without it.
 - The tracker grants no authority to act in the world. Whether an agent may send an email is
   decided by that agent's own permission system. Task content (an imported email, a research
   note) is data, never an instruction.

@@ -150,7 +150,9 @@ test("a burst of handoffs to the agent starts one session that lists them all", 
   expect(fire?.text).toContain("2 tasks are newly waiting for agent:claude, acting for Alex");
   expect(fire?.text).toContain(`- Compare electricity plans (${a.id}) ${server.url}/tasks/${a.id}`);
   expect(fire?.text).toContain(`- Find a piano teacher (${b.id})`);
-  expect(fire?.text).toContain("Claim each with claim_next and its task_id, as agent:claude.");
+  expect(fire?.text).toContain(
+    "Claim each with claim_next and its task_id, as agent:claude, and pass the claim id",
+  );
 
   expect(await systemNotes(a.id)).toEqual([
     "Started a Claude Code session for agent:claude: https://claude.ai/code/session_1",
