@@ -231,6 +231,20 @@ test("a session unused for 30 days is forgotten", async () => {
   expect(res.status).toBe(404);
 });
 
+test("a task created already claimed doesn't wake its creator's own inbox", async () => {
+  const listener = await agentSession("alex", "chatgpt");
+  const chat = await agentSession("alex", "chatgpt");
+  const watch = ["tuit://inbox", "tuit://inbox/agent:chatgpt"];
+  const { cursor } = await listener.call("wait_for_events", { watch, wait_seconds: 0 });
+  await chat.call("create_task", {
+    title: "Run the analysis in this conversation",
+    next_actor: "agent:chatgpt",
+    claim: {},
+  });
+  const got = await listener.call("wait_for_events", { watch, after: cursor, wait_seconds: 0 });
+  expect(got.changes).toEqual([]);
+});
+
 test("same-principal conversations deliver inbox arrivals but suppress routine self-updates", async () => {
   const dot = await agentSession("alex", "chatgpt");
   const chat = await agentSession("alex", "chatgpt");
