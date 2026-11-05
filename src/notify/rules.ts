@@ -103,6 +103,11 @@ export interface Change {
   types: { type: string; data: Record<string, unknown> }[];
   actor: { user: string | null; agent: string | null };
   task: Task;
+  /**
+   * Whose turn the task was once this write committed. Judge "is it theirs" by this, not by
+   * `task.next_actor`, which is the task as it is now and may have moved on since.
+   */
+  next_actor: Actor;
 }
 
 /** Whether `a` is `me`: a household user id, or any actor (an agent watching its own work). */
@@ -127,7 +132,7 @@ function wroteIt(change: Change, me: string | Actor): boolean {
 /** The categories a change could be reported as, with whether it is "mine" for each. */
 export function categorize(change: Change, me: string | Actor): Map<Category, boolean> {
   const out = new Map<Category, boolean>();
-  const myTurn = isMe(change.task.next_actor, me);
+  const myTurn = isMe(change.next_actor, me);
   const add = (cat: Category, mine: boolean) => out.set(cat, (out.get(cat) ?? false) || mine);
   for (const { type, data } of change.types) {
     switch (type) {
@@ -136,7 +141,7 @@ export function categorize(change: Change, me: string | Actor): Map<Category, bo
         break;
       case "created": {
         // Whose hands it was captured into, not whose they're in by the time this is read.
-        const intoMine = isMe(data.next_actor ?? change.task.next_actor, me);
+        const intoMine = isMe(data.next_actor ?? change.next_actor, me);
         add("created", intoMine);
         // Captured straight into someone's hands reads as a handoff to them.
         if (intoMine && !wroteIt(change, me)) {

@@ -236,6 +236,9 @@ with a cursor to resume from. Use `after=latest` to start from now. The event ty
   sees household events only, so a kitchen screen can't show a private title.
 - Time-driven events (`became_available`, `deadline_approaching`, `routine_stale`, `expired`, ...)
   are emitted once, when the time passes.
+- A task event carries `next_actor`: whose turn the task was once that write committed. Inbox
+  watches and notifications judge "was this theirs" by it, not by the task's current state, so a
+  reader that falls behind still sees each change as it happened.
 
 **Tuit sends notifications itself** (browsers and the iPhone app), by each person's own rules
 and quiet hours (web: Settings → Notifications). Agents can't read or change those settings, and

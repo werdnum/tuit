@@ -211,9 +211,13 @@ export async function addEvent(
   // Serialise event writers until commit so seq order equals commit order; otherwise a feed
   // reader could see seq N+1 before a slower transaction commits N, and skip N forever.
   await c.query("SELECT pg_advisory_xact_lock(4242003)");
+  // Stamp whose turn the task is as of this write (callers write the task before logging its
+  // events), so readers can judge inbox membership as it was then, not as it is when they read.
   await c.query(
-    `INSERT INTO events (type, task_id, queue_id, at, data, actor_user, actor_agent)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    `INSERT INTO events (type, task_id, queue_id, at, data, actor_user, actor_agent,
+                         next_actor_kind, next_actor_user, next_actor_agent)
+     SELECT $1, $2, $3, $4, $5, $6, $7, t.actor_kind, t.actor_user, t.actor_agent
+     FROM (SELECT 1) one LEFT JOIN tasks t ON t.id = $2::text`,
     [
       type,
       ids.taskId ?? null,

@@ -69,7 +69,7 @@ function ownInboxArrival(w: Watch, change: Change, p: Principal): boolean {
     if (type === "handed_off") return isMe(data.to, w.actor);
     // Reopening a wait or closed task is new work; retaining an open state is not.
     if (type === "state_changed" && data.to === "open" && data.from !== "open") {
-      return isMe(data.next_actor ?? change.task.next_actor, w.actor);
+      return isMe(data.next_actor ?? change.next_actor, w.actor);
     }
     return false;
   });
@@ -82,7 +82,7 @@ function ownInboxArrival(w: Watch, change: Change, p: Principal): boolean {
 export function touches(w: Watch, change: Change): boolean {
   if (w.kind === "all") return true;
   if (w.kind === "task") return change.task.id === w.id;
-  if (isMe(change.task.next_actor, w.actor)) return true;
+  if (isMe(change.next_actor, w.actor)) return true;
   return change.types.some(
     ({ type, data }) =>
       (type === "handed_off" && (isMe(data.to, w.actor) || isMe(data.from, w.actor))) ||

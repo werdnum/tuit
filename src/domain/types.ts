@@ -110,14 +110,15 @@ export interface ActivityEntry {
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
+export function actorFromColumns(kind: string, user: string | null, agent: string | null): Actor {
+  if (kind === "user") return { kind: "user", user: user as string };
+  if (kind === "agent") return { kind: "agent", agent: agent as string };
+  return { kind: "anyone" };
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: raw pg row
 export function taskFromRow(r: any): Task {
-  const actor: Actor =
-    r.actor_kind === "user"
-      ? { kind: "user", user: r.actor_user }
-      : r.actor_kind === "agent"
-        ? { kind: "agent", agent: r.actor_agent }
-        : { kind: "anyone" };
+  const actor = actorFromColumns(r.actor_kind, r.actor_user, r.actor_agent);
   return {
     id: r.id,
     seq: r.seq,
