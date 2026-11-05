@@ -7,6 +7,7 @@ import { type Change, inQuietHours, match, RuleInput, withIds } from "../../src/
 const rules = (...r: unknown[]) => withIds(r.map((x) => RuleInput.parse(x)));
 
 function change(types: string[], over: Partial<Task> = {}, actor = { user: "sam", agent: null }) {
+  const nextActor = over.next_actor ?? { kind: "user", user: "sam" };
   return {
     seq: 1,
     at: "2026-10-05T03:00:00.000Z",
@@ -24,6 +25,7 @@ function change(types: string[], over: Partial<Task> = {}, actor = { user: "sam"
       next_actor: { kind: "user", user: "sam" },
       ...over,
     } as Task,
+    next_actor: nextActor,
   } as Change;
 }
 

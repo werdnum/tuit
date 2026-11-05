@@ -1,7 +1,7 @@
 import type { Database } from "../db/db.ts";
 import { ValidationError } from "./errors.ts";
 import { visibleSql } from "./tasks.ts";
-import type { Principal } from "./types.ts";
+import { type Actor, actorFromColumns, type Principal } from "./types.ts";
 
 const VISIBLE_EVENT = `((e.task_id IS NOT NULL AND ${visibleSql("t", 1)})
   OR (e.queue_id IS NOT NULL AND (q.visibility = 'household' OR q.owner_id = $1::text)))`;
@@ -14,6 +14,8 @@ export interface FeedEvent {
   queue: { id: string; name: string } | null;
   actor: { user: string | null; agent: string | null };
   data: Record<string, unknown>;
+  /** Whose turn the task was as of this event's write; absent on events logged before it was kept. */
+  next_actor?: Actor;
 }
 
 export interface FeedPage {
@@ -65,6 +67,15 @@ export async function listChanges(
     queue: row.queue_id ? { id: row.queue_id, name: row.queue_name } : null,
     actor: { user: row.actor_user, agent: row.actor_agent },
     data: row.data,
+    ...(row.next_actor_kind
+      ? {
+          next_actor: actorFromColumns(
+            row.next_actor_kind,
+            row.next_actor_user,
+            row.next_actor_agent,
+          ),
+        }
+      : {}),
   }));
   // The cursor only ever moves past events this caller can see, so it can't reveal that
   // hidden activity happened.
