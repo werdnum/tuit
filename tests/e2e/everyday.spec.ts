@@ -70,6 +70,38 @@ test("handing a task to Sam moves it from Alex's Now to Sam's", async ({
   await expect(nowRow(sam, "Choose paint for the hallway")).toBeVisible();
 });
 
+test("handing off offers the agents that have tokens, and still takes another by name", async ({
+  page,
+  signIn,
+  server,
+  alexApi,
+}) => {
+  await server.api("sam", "family-assistant");
+  const { task } = await alexApi.post("/api/tasks", { title: "Book the car service" });
+  await signIn(page, "alex");
+  await page.goto(`/tasks/${task.id}`);
+
+  await page.locator("summary", { hasText: "Hand off" }).click();
+  const form = page.locator("form[action$=handoff]");
+  const to = form.getByRole("combobox", { name: "To" });
+  await expect(to.locator("option")).toContainText([
+    "Agent: family-assistant",
+    "Agent: setup",
+    "Another agent…",
+  ]);
+  await expect(form.getByRole("textbox", { name: "Agent name" })).toBeHidden();
+  await to.selectOption({ label: "Agent: family-assistant" });
+  await form.getByLabel("Next action").fill("Find a Saturday slot");
+  await form.getByRole("button", { name: "Hand off", exact: true }).click();
+  await expect(page.locator("[data-next]")).toContainText("family-assistant");
+
+  await page.locator("summary", { hasText: "Hand off" }).click();
+  await to.selectOption({ label: "Another agent…" });
+  await form.getByRole("textbox", { name: "Agent name" }).fill("garage-bot");
+  await form.getByRole("button", { name: "Hand off", exact: true }).click();
+  await expect(page.locator("[data-next]")).toContainText("garage-bot");
+});
+
 test("a brief saved on two devices at once shows the conflict without losing the edit", async ({
   page,
   signIn,

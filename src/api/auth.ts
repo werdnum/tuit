@@ -291,6 +291,18 @@ export class Auth {
     return r.rows.map(tokenInfo);
   }
 
+  /**
+   * Names of agents someone in the household holds an unrevoked token for: who a task can
+   * usefully be handed to. Expiry is ignored because a connector's short-lived OAuth access
+   * token lapses between refreshes while the connector itself is still set up.
+   */
+  async agentNames(): Promise<string[]> {
+    const r = await this.db.query<{ agent: string }>(
+      "SELECT DISTINCT agent FROM tokens WHERE kind = 'agent' AND revoked_at IS NULL ORDER BY agent",
+    );
+    return r.rows.map((row) => row.agent);
+  }
+
   async revokeToken(userId: string, id: string): Promise<void> {
     const r = await this.db.query(
       "UPDATE tokens SET revoked_at = now() WHERE id = $1 AND issued_by = $2 AND revoked_at IS NULL",

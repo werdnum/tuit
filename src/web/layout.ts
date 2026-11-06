@@ -139,6 +139,9 @@ select { background-image: linear-gradient(45deg, transparent 50%, var(--muted) 
 textarea { min-height: 96px; resize: vertical; line-height: 1.4; }
 input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 label.field { display: block; margin: 10px 0; }
+/* The free-text agent name only matters once "Another agent…" is picked. */
+form:has(select[name="to"]) label.other-agent { display: none; }
+form:has(select[name="to"] option[value="agent"]:checked) label.other-agent { display: block; }
 label.field > span { display: block; font-size: 14px; color: var(--muted); margin: 0 4px 4px; }
 .check { display: flex; align-items: center; gap: 10px; min-height: var(--tap); }
 .check input { width: 22px; height: 22px; accent-color: var(--accent); }

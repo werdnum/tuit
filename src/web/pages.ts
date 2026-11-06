@@ -319,6 +319,8 @@ export function detailPage(
     showAll: boolean;
     conflict?: Conflict;
     picker: Config["googlePicker"];
+    /** Agents with a token, offered by name when handing off. */
+    agents: string[];
   },
 ): Html {
   const { task: t, status: s } = d;
@@ -391,7 +393,8 @@ export function detailPage(
       label: u.id === me.userId ? `Me (${u.name})` : u.name,
     })),
     { value: "anyone", label: "Anyone" },
-    { value: "agent", label: "An agent…" },
+    ...d.agents.map((a) => ({ value: `agent:${a}`, label: `Agent: ${a}` })),
+    { value: "agent", label: d.agents.length ? "Another agent…" : "An agent…" },
   ];
 
   const verbs = closed
@@ -437,7 +440,7 @@ export function detailPage(
               <label class="field"><span>To</span><select name="to">${handoffOptions.map(
                 (o) => html`<option value="${o.value}">${o.label}</option>`,
               )}</select></label>
-              <label class="field"><span>Agent name (if an agent)</span><input type="text" name="agent" placeholder="e.g. family-assistant" autocapitalize="off"></label>
+              <label class="field other-agent"><span>Agent name</span><input type="text" name="agent" placeholder="e.g. family-assistant" autocapitalize="off" autocomplete="off"></label>
               <label class="field"><span>Next action</span><input type="text" name="next_action" value="${t.next_action}" placeholder="What should they do next?"></label>
               <label class="field"><span>Note</span><textarea name="note" placeholder="Context for them (optional)"></textarea></label>
               <button class="wide">Hand off</button>
