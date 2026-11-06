@@ -294,6 +294,7 @@ export function webRoutes(app: App): Hono<AuthEnv> {
       activity,
       showAll: c.req.query("all") === "1",
       picker: app.config.googlePicker,
+      agents: await auth.agentNames(),
       conflict: opts.conflictMine !== undefined ? { mine: opts.conflictMine } : undefined,
     });
     return c.html(html, opts.conflictMine !== undefined ? 409 : 200);
