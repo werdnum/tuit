@@ -201,6 +201,42 @@ describe("web push", () => {
     expect(log.recent.filter((e: any) => e.status === "held")).toHaveLength(0);
   });
 
+  test("a burst of notifications sends the first, then one summary of the rest", async () => {
+    await server.stop();
+    server = await TestServer.start({ env: { TUIT_NOTIFY_BURST_MS: "1500" } });
+    await server.setClock(AFTERNOON);
+    alex = await server.human("alex");
+    sam = await server.human("sam");
+    await turnOn(alex, "alex-phone");
+
+    const titles = ["Sign the school form", "Pay the water bill", "Book the vet", "Renew rego"];
+    for (const title of titles) await add(sam, title, { next_actor: "alex" });
+
+    const [first] = await pushes("alex-phone", 1);
+    expect(first).toMatchObject({ title: "Sign the school form" });
+    const gathered = await alex.get("/api/notifications");
+    expect(gathered.recent.filter((e: any) => e.status === "batched")).toHaveLength(3);
+    expect(push.received.filter((r) => r.device === "alex-phone")).toHaveLength(1);
+
+    const all = await pushes("alex-phone", 2);
+    expect(all[1]).toMatchObject({
+      title: "3 more updates",
+      body: "Pay the water bill · Book the vet · Renew rego",
+    });
+    const log = await alex.get("/api/notifications");
+    expect(log.recent.map((e: any) => e.status)).toEqual(["sent", "sent", "sent", "sent"]);
+
+    // One more change in the next burst reads like any other notification.
+    const id = await add(sam, "Mow the lawn");
+    await sam.post(`/api/tasks/${id}/handoff`, { to: "alex", next_action: "Borrow a mower" });
+    const later = await pushes("alex-phone", 3);
+    expect(later[2]).toMatchObject({
+      title: "Mow the lawn",
+      body: "Sam handed this to you · Next: Borrow a mower",
+      taskId: id,
+    });
+  });
+
   test("a push service outage is retried, not dropped", async () => {
     await turnOn(alex, "alex-phone");
     push.status.set("alex-phone", 503);
