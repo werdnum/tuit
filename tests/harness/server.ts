@@ -116,6 +116,8 @@ export class TestServer {
       TUIT_USERS: USERS,
       TUIT_TEST_CLOCK: "1",
       TUIT_SWEEP_INTERVAL_MS: "3600000",
+      // Tests that aren't about bursts expect every notification on its own.
+      TUIT_NOTIFY_BURST_MS: "0",
     };
     Object.assign(this.env, opts.env ?? {});
     if (opts.devLogin) {

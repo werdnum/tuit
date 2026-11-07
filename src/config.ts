@@ -43,6 +43,11 @@ export interface Config {
   testClock: boolean;
   sweepIntervalMs: number;
   /**
+   * After a notification is sent, how long further ones to the same person are gathered into
+   * one summary instead of each buzzing the phone. 0 sends every one at once.
+   */
+  notifyBurstMs: number;
+  /**
    * Webhook delivery for the MCP Events extension. Receivers must be public HTTPS endpoints
    * unless `allowPrivateNetworks` is set (local development, or a receiver inside the cluster),
    * which also allows plain http. A failed delivery is retried after each delay in turn, then
@@ -237,6 +242,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     devLogin,
     testClock: env.TUIT_TEST_CLOCK === "1",
     sweepIntervalMs: Number(env.TUIT_SWEEP_INTERVAL_MS ?? 60_000),
+    notifyBurstMs: Number(env.TUIT_NOTIFY_BURST_MS ?? 60_000),
     webhooks: {
       allowPrivateNetworks: env.TUIT_WEBHOOK_ALLOW_PRIVATE_NETWORKS === "1",
       retryDelaysMs: list(env.TUIT_WEBHOOK_RETRY_DELAYS_MS ?? "10000,60000,180000,480000").map(

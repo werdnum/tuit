@@ -41,7 +41,7 @@ export interface LogEntry {
   task: { id: string; title: string } | null;
   category: Category;
   rule_id: string;
-  status: "sent" | "held" | "retry" | "undelivered";
+  status: "sent" | "held" | "retry" | "batched" | "undelivered";
   created_at: string;
   sent_at: string | null;
 }
@@ -101,6 +101,10 @@ export class Notifier {
   private running: Promise<void> | null = null;
   private again = false;
   private lastPrune = 0;
+  /** When each person was last sent something (wall time), for gathering bursts. */
+  private readonly lastSent = new Map<string, number>();
+  private burstTimer: NodeJS.Timeout | null = null;
+  private burstDue = 0;
 
   constructor(db: Database, clock: Clock, config: Config, users: () => Promise<UserInfo[]>) {
     this.db = db;
@@ -325,11 +329,46 @@ export class Notifier {
   }
 
   close(): void {
+    if (this.burstTimer) clearTimeout(this.burstTimer);
+    this.burstTimer = null;
     this.apns?.close();
   }
 
   private now(): Date {
     return this.clock.now();
+  }
+
+  /**
+   * Whether this person was sent something moments ago, so anything more should wait and go
+   * out as one summary. Measured in wall time: it paces the phone, not the task clock.
+   */
+  private inBurst(userId: string): boolean {
+    const last = this.lastSent.get(userId);
+    return (
+      this.config.notifyBurstMs > 0 &&
+      last !== undefined &&
+      Date.now() - last < this.config.notifyBurstMs
+    );
+  }
+
+  private sent(userId: string): void {
+    this.lastSent.set(userId, Date.now());
+  }
+
+  /** Run again once this person's burst has settled, to send what it gathered. */
+  private afterBurst(userId: string): void {
+    const due = (this.lastSent.get(userId) ?? Date.now()) + this.config.notifyBurstMs;
+    if (this.burstTimer && this.burstDue <= due) return;
+    if (this.burstTimer) clearTimeout(this.burstTimer);
+    this.burstDue = due;
+    this.burstTimer = setTimeout(
+      () => {
+        this.burstTimer = null;
+        void this.kick();
+      },
+      Math.max(0, due - Date.now()) + 50,
+    );
+    this.burstTimer.unref();
   }
 
   private async dispatchAll(): Promise<void> {
@@ -338,7 +377,7 @@ export class Notifier {
     if (Date.now() - this.lastPrune > 3600_000) {
       this.lastPrune = Date.now();
       await this.db.query(
-        `DELETE FROM notify_log WHERE status NOT IN ('held', 'retry') AND created_at < $1`,
+        `DELETE FROM notify_log WHERE status NOT IN ('held', 'retry', 'batched') AND created_at < $1`,
         [new Date(this.now().getTime() - LOG_DAYS * 86_400_000)],
       );
     }
@@ -375,7 +414,7 @@ export class Notifier {
       ]);
       if (!full) break;
     }
-    if (!inQuietHours(settings.quiet, this.now())) await this.release(userId, devices);
+    if (!inQuietHours(settings.quiet, this.now())) await this.release(userId, devices, users);
   }
 
   private async visibleTasks(userId: string, events: FeedEvent[]): Promise<Map<string, Task>> {
@@ -397,6 +436,8 @@ export class Notifier {
     const m = match(change, userId, settings.rules);
     if (!m) return;
     const hold = !m.rule.quiet_ok && inQuietHours(settings.quiet, this.now());
+    // Hot on the heels of another notification: gathered, and sent once the burst settles.
+    const batch = !hold && this.inBurst(userId);
     const logged = await this.db.query<{ id: number }>(
       `INSERT INTO notify_log (user_id, seq, task_id, category, rule_id, status, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (user_id, seq) DO NOTHING RETURNING id`,
@@ -408,14 +449,19 @@ export class Notifier {
         m.rule.id,
         // Until delivery settles it, a row counts as a retry: a crash or a throw mid-send then
         // leaves it for release() instead of losing it behind the cursor.
-        hold ? "held" : "retry",
+        hold ? "held" : batch ? "batched" : "retry",
         this.now(),
       ],
     );
     const id = logged.rows[0]?.id;
     if (id === undefined || hold) return;
+    if (batch) {
+      this.afterBurst(userId);
+      return;
+    }
     const msg = await this.render(userId, change, m.category, users);
     const ok = await this.deliver(userId, devices, msg);
+    if (ok > 0) this.sent(userId);
     // Nothing took it but a device remains: a push service is failing, so try again later.
     const status = ok > 0 ? "sent" : devices.length > 0 ? "retry" : "undelivered";
     await this.db.query(
@@ -426,20 +472,25 @@ export class Notifier {
   }
 
   /**
-   * One notification for what quiet hours held or a push outage delayed, re-checked for
-   * visibility. Runs outside quiet hours.
+   * One notification for what quiet hours held, a push outage delayed or a burst gathered,
+   * re-checked for visibility. Runs outside quiet hours, once any burst has settled.
    */
-  private async release(userId: string, devices: Device[]): Promise<void> {
+  private async release(userId: string, devices: Device[], users: UserInfo[]): Promise<void> {
     const r = await this.db.query(
-      `SELECT l.id, l.category, l.status, l.created_at, t.id AS task_id, t.title,
+      `SELECT l.id, l.seq, l.category, l.status, l.created_at, t.id AS task_id, t.title,
          EXISTS (SELECT 1 FROM notify_log s WHERE s.user_id = l.user_id AND s.task_id = l.task_id
            AND s.seq > l.seq AND s.status = 'sent') AS superseded
        FROM notify_log l
        LEFT JOIN tasks t ON t.id = l.task_id AND ${visibleSql("t", 1)}
-       WHERE l.user_id = $1 AND l.status IN ('held', 'retry') ORDER BY l.seq`,
+       WHERE l.user_id = $1 AND l.status IN ('held', 'retry', 'batched') ORDER BY l.seq`,
       [userId],
     );
     if (r.rows.length === 0) return;
+    // Still mid-burst: everything waits for the one summary at its end.
+    if (this.inBurst(userId)) {
+      this.afterBurst(userId);
+      return;
+    }
     // A task that broke through quiet hours later has already been seen.
     const visible = r.rows.filter((row) => row.task_id && !row.superseded);
     // One line per task, however many times it came up.
@@ -447,31 +498,42 @@ export class Notifier {
     for (const row of visible)
       byTask.set(row.task_id, { title: row.title, category: row.category });
     const quiet = r.rows.every((row) => row.status === "held");
+    const burst = visible.every((row) => row.status === "batched");
     let ok = 0;
     if (byTask.size > 0 && devices.length > 0) {
       const [first] = byTask.entries();
       const single = byTask.size === 1 && first;
       const titles = [...byTask.values()].map((v) => v.title);
       const more = titles.length - SUMMARY_TITLES;
-      const msg: Message = single
-        ? {
-            title: first[1].title,
-            body: `${quiet ? "While notifications were quiet" : "Earlier"}: ${CATEGORY_LABELS[first[1].category]}`,
-            url: this.taskUrl(first[0]),
-            taskId: first[0],
-            tag: first[0],
-          }
-        : {
-            title: quiet
-              ? `${byTask.size} updates while notifications were quiet`
-              : `${byTask.size} updates you haven't seen`,
-            body:
-              titles.slice(0, SUMMARY_TITLES).join(" · ") + (more > 0 ? ` · and ${more} more` : ""),
-            url: new URL("/", this.config.publicUrl).toString(),
-            taskId: null,
-            tag: "quiet-summary",
-          };
+      // A burst that came to one more change reads like any other notification.
+      const last = visible.at(-1);
+      const alone = single && burst && last ? await this.changeAt(userId, Number(last.seq)) : null;
+      const msg: Message =
+        alone && last
+          ? await this.render(userId, alone, last.category, users)
+          : single
+            ? {
+                title: first[1].title,
+                body: `${quiet ? "While notifications were quiet" : "Earlier"}: ${CATEGORY_LABELS[first[1].category]}`,
+                url: this.taskUrl(first[0]),
+                taskId: first[0],
+                tag: first[0],
+              }
+            : {
+                title: quiet
+                  ? `${byTask.size} updates while notifications were quiet`
+                  : burst
+                    ? `${byTask.size} more updates`
+                    : `${byTask.size} updates you haven't seen`,
+                body:
+                  titles.slice(0, SUMMARY_TITLES).join(" · ") +
+                  (more > 0 ? ` · and ${more} more` : ""),
+                url: new URL("/", this.config.publicUrl).toString(),
+                taskId: null,
+                tag: "quiet-summary",
+              };
       ok = await this.deliver(userId, devices, msg);
+      if (ok > 0) this.sent(userId);
     }
     // Still failing with devices to send to: keep retrying, but not forever.
     const giveUpBefore = this.now().getTime() - RETRY_MS;
@@ -502,6 +564,13 @@ export class Notifier {
         [hidden],
       );
     }
+  }
+
+  /** The change that starts at feed position `seq`, as this person sees it now. */
+  private async changeAt(userId: string, seq: number): Promise<Change | null> {
+    const page = await listChanges(this.db, human(userId), String(seq - 1), 50);
+    const tasks = await this.visibleTasks(userId, page.events);
+    return changesOf(page.events, tasks).find((c) => c.seq === seq) ?? null;
   }
 
   private taskUrl(id: string): string {
