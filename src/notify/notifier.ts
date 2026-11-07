@@ -414,7 +414,7 @@ export class Notifier {
       ]);
       if (!full) break;
     }
-    if (!inQuietHours(settings.quiet, this.now())) await this.release(userId, devices, users);
+    await this.release(userId, devices, users, inQuietHours(settings.quiet, this.now()));
   }
 
   private async visibleTasks(userId: string, events: FeedEvent[]): Promise<Map<string, Task>> {
@@ -473,17 +473,23 @@ export class Notifier {
 
   /**
    * One notification for what quiet hours held, a push outage delayed or a burst gathered,
-   * re-checked for visibility. Runs outside quiet hours, once any burst has settled.
+   * re-checked for visibility. Runs once any burst has settled. In quiet hours only a burst is
+   * released: only what breaks through quiet hours is batched then, so it mustn't wait for them.
    */
-  private async release(userId: string, devices: Device[], users: UserInfo[]): Promise<void> {
+  private async release(
+    userId: string,
+    devices: Device[],
+    users: UserInfo[],
+    quietNow: boolean,
+  ): Promise<void> {
     const r = await this.db.query(
       `SELECT l.id, l.seq, l.category, l.status, l.created_at, t.id AS task_id, t.title,
          EXISTS (SELECT 1 FROM notify_log s WHERE s.user_id = l.user_id AND s.task_id = l.task_id
            AND s.seq > l.seq AND s.status = 'sent') AS superseded
        FROM notify_log l
        LEFT JOIN tasks t ON t.id = l.task_id AND ${visibleSql("t", 1)}
-       WHERE l.user_id = $1 AND l.status IN ('held', 'retry', 'batched') ORDER BY l.seq`,
-      [userId],
+       WHERE l.user_id = $1 AND l.status = ANY($2::text[]) ORDER BY l.seq`,
+      [userId, quietNow ? ["batched"] : ["held", "retry", "batched"]],
     );
     if (r.rows.length === 0) return;
     // Still mid-burst: everything waits for the one summary at its end.

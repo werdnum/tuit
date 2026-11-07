@@ -29,6 +29,15 @@ async function turnOn(api: Api, device: string): Promise<any> {
   return api.post("/api/notifications/devices", { kind: "web", ...push.subscription(device) });
 }
 
+/** Restart with bursts gathered over a short window, as a deployment does over a minute. */
+async function withBursts(): Promise<void> {
+  await server.stop();
+  server = await TestServer.start({ env: { TUIT_NOTIFY_BURST_MS: "1500" } });
+  await server.setClock(AFTERNOON);
+  alex = await server.human("alex");
+  sam = await server.human("sam");
+}
+
 async function add(api: Api, title: string, extra: Record<string, unknown> = {}): Promise<string> {
   return (await api.post("/api/tasks", { title, ...extra })).task.id;
 }
@@ -202,11 +211,7 @@ describe("web push", () => {
   });
 
   test("a burst of notifications sends the first, then one summary of the rest", async () => {
-    await server.stop();
-    server = await TestServer.start({ env: { TUIT_NOTIFY_BURST_MS: "1500" } });
-    await server.setClock(AFTERNOON);
-    alex = await server.human("alex");
-    sam = await server.human("sam");
+    await withBursts();
     await turnOn(alex, "alex-phone");
 
     const titles = ["Sign the school form", "Pay the water bill", "Book the vet", "Renew rego"];
@@ -235,6 +240,34 @@ describe("web push", () => {
       body: "Sam handed this to you · Next: Borrow a mower",
       taskId: id,
     });
+  });
+
+  test("a burst that breaks through quiet hours isn't held until they end", async () => {
+    await withBursts();
+    await turnOn(alex, "alex-phone");
+    await alex.put("/api/notifications/settings", {
+      quiet: { from: "22:00", to: "07:00" },
+      rules: [
+        { when: ["handoff"], whose: "mine" },
+        { when: ["deadline"], whose: "mine", quiet_ok: true },
+      ],
+    });
+    await server.setClock("2026-10-05T23:00:00+11:00");
+    const deadline = { at: "2026-10-06T09:00:00+11:00" };
+    await add(sam, "Lodge the tax return", { next_actor: "alex", deadline });
+    await add(sam, "Pay the car insurance", { next_actor: "alex", deadline });
+    const a = await add(sam, "Sign the school form");
+    await sam.post(`/api/tasks/${a}/handoff`, { to: "alex" });
+
+    const got = await pushes("alex-phone", 2);
+    expect(got.map((g) => g.title)).toEqual(["Lodge the tax return", "Pay the car insurance"]);
+    expect(got[1]?.body).toMatch(/^Deadline tomorrow 9am/);
+    // Nothing is left gathered; the handoffs (capturing into Alex's hands is one) wait for morning.
+    const log = await alex.get("/api/notifications");
+    expect(log.recent.filter((e: any) => e.status === "batched")).toHaveLength(0);
+    const held = log.recent.filter((e: any) => e.status === "held").map((e: any) => e.task.title);
+    expect(held).toContain("Sign the school form");
+    expect(held).toHaveLength(3);
   });
 
   test("a push service outage is retried, not dropped", async () => {
