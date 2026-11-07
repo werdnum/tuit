@@ -31,6 +31,7 @@ test("agent credentials report the effective identity and capability without cac
     user: { id: "alex" },
     agent: "family-assistant",
     can_write: true,
+    agents: expect.arrayContaining(["family-assistant"]),
   });
   expect(JSON.stringify(identity)).not.toContain(token);
 });

@@ -53,6 +53,8 @@ export function restApi(app: App): Hono<AuthEnv> {
       agent: p.agent,
       can_write: p.canWrite,
       household: users.map((u) => ({ id: u.id, name: u.name })),
+      // Agents someone holds a token for, offered by name when handing off.
+      agents: await auth.agentNames(),
       // Calendar dates ("deadline: 2026-10-03") are days in this zone, for clients to show.
       timezone: ZONE,
     });
