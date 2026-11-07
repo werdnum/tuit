@@ -82,3 +82,10 @@ let taskJSON = #"""
     #expect(TaskSharing.url(server: "tuit://tasks", taskID: "mygvj5ep") == nil)
     #expect(TaskSharing.url(server: "", taskID: "mygvj5ep") == nil)
 }
+
+@Test func meListsAgentsAndToleratesOlderServers() throws {
+    let current = #"{"user":{"id":"alex","name":"Alex"},"agent":null,"can_write":true,"household":[{"id":"alex","name":"Alex"}],"agents":["family-assistant","setup"],"timezone":"Australia/Sydney"}"#
+    #expect(try API.decoder.decode(Me.self, from: Data(current.utf8)).agents == ["family-assistant", "setup"])
+    let older = #"{"user":{"id":"alex","name":"Alex"},"agent":null,"can_write":true,"household":[{"id":"alex","name":"Alex"}]}"#
+    #expect(try API.decoder.decode(Me.self, from: Data(older.utf8)).agents == nil)
+}

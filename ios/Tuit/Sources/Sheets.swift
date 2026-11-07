@@ -108,6 +108,7 @@ struct HandOffSheet: View {
     }
 
     private var target: String { to == "agent" ? "agent:\(agent.trimmed)" : to }
+    private var knownAgents: [String] { session.me?.agents ?? [] }
 
     var body: some View {
         SheetForm(title: "Hand off", action: "Hand off", canSubmit: to != "agent" || !agent.trimmed.isEmpty, submit: { api in
@@ -124,7 +125,10 @@ struct HandOffSheet: View {
                         Text(u.id == session.me?.user?.id ? "\(u.name) (me)" : u.name).tag(u.id)
                     }
                     Text("Anyone").tag("anyone")
-                    Text("An agent…").tag("agent")
+                    ForEach(knownAgents, id: \.self) { a in
+                        Text("Agent: \(a)").tag("agent:\(a)")
+                    }
+                    Text(knownAgents.isEmpty ? "An agent…" : "Another agent…").tag("agent")
                 }
                 if to == "agent" {
                     TextField("Agent name, e.g. family-assistant", text: $agent)

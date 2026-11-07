@@ -221,6 +221,8 @@ struct Me: Codable {
     var agent: String?
     var canWrite: Bool
     var household: [User]
+    /// Agents someone holds a token for, offered when handing off. Missing from servers older than the app.
+    var agents: [String]?
     /// Calendar dates are days in this zone. Missing from servers older than the app.
     var timezone: String?
 }
