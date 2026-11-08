@@ -1054,6 +1054,7 @@ const STATUS_TEXT: Record<LogEntry["status"], string> = {
   sent: "sent",
   held: "held for quiet hours",
   retry: "push service failed, retrying",
+  batched: "gathered into a summary",
   undelivered: "not delivered",
 };
 

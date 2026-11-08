@@ -219,7 +219,10 @@ Any matching rule sends it. New people start with "handed to me, ready or deadli
 it's my turn" and "deadline or lapsed claim on tasks I own".
 
 **Quiet hours** hold what comes up (except rules marked to break through) and release one
-summary when they end, leaving out tasks that already broke through. Decisions are logged by
+summary when they end, leaving out tasks that already broke through. **Bursts** coalesce the
+same way: the first notification goes out at once, and anything else for that person within
+`TUIT_NOTIFY_BURST_MS` (a minute) is gathered and sent as one summary when the window ends (or
+as an ordinary notification, if it came to just one change). Decisions are logged by
 id, never content; the log is what makes delivery once-only and what the settings page shows as
 Recent, with the rule that matched. Text is rendered when it is sent, through the visibility
 filter. The VAPID key pair is generated and kept in the database, so Web Push needs no
