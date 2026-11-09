@@ -50,6 +50,16 @@ export function newId(): string {
 }
 
 /** SQL predicate: may this principal see task alias `t`? `$n` must bind principal.userId. */
+/**
+ * A task's open or waiting parts, as a select-list column. Wherever availability is assessed
+ * from rows (Now, queues, claiming, dispatch), select this too, or a parent whose parts are
+ * still open would look available.
+ */
+export function openPartsSql(alias: string): string {
+  return `(SELECT count(*) FROM tasks k
+    WHERE k.parent_id = ${alias}.id AND k.state IN ('open', 'waiting'))::int AS open_parts`;
+}
+
 export function visibleSql(alias: string, param: number): string {
   return `(${alias}.visibility = 'household' OR ${alias}.owner_id = $${param}::text)`;
 }
@@ -466,6 +476,14 @@ export class TaskService {
       [parent.id],
     );
     if (!r.rows.length) return;
+    const claimed = r.rows.map(taskFromRow).find((k) => k.claim);
+    if (claimed && how !== "detach" && p.agent) {
+      throw new ForbiddenError(
+        `Its part "${claimed.title}" is claimed by agent:${claimed.claim?.agent}. Leave it to that worker, or pass open_parts "detach".`,
+      );
+    }
+    // A household part of a private parent mustn't carry the parent's title into its history.
+    const parentName = parent.visibility === "private" ? "the task it was part of" : parent.title;
     if (!how) {
       const n = r.rows.length;
       throw new ValidationError(
@@ -479,7 +497,12 @@ export class TaskService {
         part.parent_id = null;
       } else {
         part.state = how === "done" ? "done" : "expired";
-        part.close_reason = how === "done" ? "" : `${parent.title} was closed`;
+        part.close_reason =
+          how === "done"
+            ? ""
+            : parent.visibility === "private"
+              ? "The task it was part of was closed"
+              : `${parent.title} was closed`;
         part.closed_at = now.toISOString();
         part.waiting = null;
         part.claim = null;
@@ -487,12 +510,12 @@ export class TaskService {
       this.bump(part, now);
       await writeTask(c, part);
       if (how === "detach") {
-        await addActivity(c, p, part.id, "edit", `No longer part of ${parent.title}`, now, {
+        await addActivity(c, p, part.id, "edit", `No longer part of ${parentName}`, now, {
           data: { changes: { parent_id: { from: parent.id, to: null } } },
         });
         await addEvent(c, p, "updated", { taskId: part.id }, now, { fields: ["parent_id"] });
       } else if (how === "done") {
-        await addActivity(c, p, part.id, "completion", `Done along with ${parent.title}`, now);
+        await addActivity(c, p, part.id, "completion", `Done along with ${parentName}`, now);
         await addEvent(c, p, "completed", { taskId: part.id }, now, {
           at: now.toISOString(),
           recurring: false,
@@ -1168,7 +1191,7 @@ export class TaskService {
       const eligible = `state = 'open' AND actor_kind = 'agent' AND actor_agent = $1
         AND claim_id IS NULL AND ${visibleSql("t", 2)}`;
       const r = await c.query(
-        `SELECT * FROM tasks t WHERE ${eligible} ${input.task_id ? "AND id = $3" : ""}
+        `SELECT t.*, ${openPartsSql("t")} FROM tasks t WHERE ${eligible} ${input.task_id ? "AND id = $3" : ""}
          ORDER BY actor_since, id`,
         input.task_id ? [p.agent, p.userId, input.task_id] : [p.agent, p.userId],
       );

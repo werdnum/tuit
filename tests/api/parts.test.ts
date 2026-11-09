@@ -130,4 +130,38 @@ describe("parts", () => {
     expect(JSON.stringify(samNow)).not.toContain("birthday");
     expect((await alex.get(`/api/tasks/${shared}`)).part_of.title).toBe("Sam's birthday sorted");
   });
+
+  test("closing a private parent leaves no trace of it in a household part's history", async () => {
+    const gift = await add(alex, "Sam's birthday sorted", { visibility: "private" });
+    const a = await add(alex, "book a restaurant", { parent_id: gift, visibility: "household" });
+    const b = await add(alex, "get a babysitter", { parent_id: gift, visibility: "household" });
+    await alex.post(`/api/tasks/${a}/complete`);
+    await alex.post(`/api/tasks/${gift}/close`, { state: "expired", open_parts: "expire" });
+
+    const seen = await sam.get(`/api/tasks/${b}`);
+    expect(seen.task.close_reason).toBe("The task it was part of was closed");
+    expect(JSON.stringify(seen)).not.toContain("birthday");
+  });
+
+  test("an agent can't close another worker's claimed part by closing its parent", async () => {
+    const agent = await server.api("alex", "claude");
+    const trip = await add(alex, "Europe trip booked", { next_actor: "agent:claude" });
+    await add(alex, "book the Eurostar", { parent_id: trip, next_actor: "agent:other" });
+    const other = await server.api("alex", "other");
+    expect((await other.post("/api/claim", {})).task.title).toBe("book the Eurostar");
+
+    const refused = await agent.call("POST", `/api/tasks/${trip}/complete`, { open_parts: "done" });
+    expect(refused.status).toBe(403);
+    expect(refused.json.message).toMatch(/claimed by agent:other/);
+  });
+
+  test("claim_next doesn't hand out a parent whose parts are still open", async () => {
+    const agent = await server.api("alex", "claude");
+    const trip = await add(alex, "Europe trip booked", { next_actor: "agent:claude" });
+    const part = await add(alex, "plan Jan 2–6", { parent_id: trip, next_actor: "alex" });
+
+    expect((await agent.post("/api/claim", {})).task).toBeNull();
+    await alex.post(`/api/tasks/${part}/complete`);
+    expect((await agent.post("/api/claim", {})).task.id).toBe(trip);
+  });
 });

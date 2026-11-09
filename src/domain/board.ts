@@ -2,7 +2,14 @@ import type { Clock } from "../clock.ts";
 import type { Database } from "../db/db.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors.ts";
 import { type FeedPage, listChanges, notifyLive } from "./feed.ts";
-import { addEvent, newId, type TaskService, type UserInfo, visibleSql } from "./tasks.ts";
+import {
+  addEvent,
+  newId,
+  openPartsSql,
+  type TaskService,
+  type UserInfo,
+  visibleSql,
+} from "./tasks.ts";
 import { local, localDate } from "./time.ts";
 import { type Principal, type Task, taskFromRow } from "./types.ts";
 import {
@@ -108,8 +115,7 @@ export class Board {
   async assessments(p: Principal, now: Date): Promise<Assessment[]> {
     const r = await this.db.query(
       `SELECT t.*, a.snoozed_until AS att_snoozed_until, a.pinned AS att_pinned,
-         (SELECT count(*) FROM tasks k
-          WHERE k.parent_id = t.id AND k.state IN ('open', 'waiting'))::int AS open_parts,
+         ${openPartsSql("t")},
          (SELECT pt.title FROM tasks pt
           WHERE pt.id = t.parent_id AND ${visibleSql("pt", 1)}) AS parent_title
        FROM tasks t LEFT JOIN attention a ON a.task_id = t.id AND a.user_id = $1::text
