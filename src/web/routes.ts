@@ -13,6 +13,7 @@ import { CATEGORIES, defaultRules } from "../notify/rules.ts";
 import { actorText, momentEditText, whenText } from "./format.ts";
 import { type Flash, MANIFEST } from "./layout.ts";
 import { liveStream } from "./live.ts";
+import { taskIdCandidates } from "./markdown.ts";
 import {
   type Ctx,
   DEFAULT_QUEUE_CONFIG,
@@ -289,9 +290,21 @@ export function webRoutes(app: App): Hono<AuthEnv> {
   ): Promise<Response> {
     const v = await board.view(ctx.me, id);
     const activity = await tasks.activity(ctx.me, id);
+    const refs = await tasks.titles(
+      ctx.me,
+      [
+        ...taskIdCandidates(v.task.brief, ...activity.map((a) => a.body)),
+        ...(v.task.waiting?.task_id ? [v.task.waiting.task_id] : []),
+      ].filter((ref) => ref !== id),
+    );
     const html = detailPage(ctx, {
       ...v,
       activity,
+      refs,
+      blocks: await tasks.waitingOn(ctx.me, id),
+      waitable: (await tasks.list(ctx.me, ["open", "waiting"])).filter(
+        (t) => t.id !== id && !(v.task.visibility === "household" && t.visibility === "private"),
+      ),
       showAll: c.req.query("all") === "1",
       picker: app.config.googlePicker,
       agents: await auth.agentNames(),
@@ -348,6 +361,15 @@ export function webRoutes(app: App): Hono<AuthEnv> {
     "/tasks/:id/waiting",
     taskAction((p, id, form) => {
       const what = (form.for ?? "").trim();
+      if (form.on === "task") {
+        const blocker = (form.task_id ?? "").trim();
+        if (!blocker) throw new ValidationError("Choose the task this is waiting on");
+        return tasks.checkpoint(p, id, {
+          note: "Waiting on another task",
+          waiting: { kind: "task", task_id: blocker },
+          expected_revision: revision(form),
+        });
+      }
       return tasks.checkpoint(p, id, {
         note: what ? `Waiting for ${what}` : "Waiting",
         waiting: { kind: "reply", for: what, follow_up: form.follow_up?.trim() || undefined },

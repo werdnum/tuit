@@ -52,7 +52,8 @@ Revoking a token in Settings takes effect immediately.
   guaranteed to read. A handoff that relies on your own session memory has failed. It is read on a
   phone, so a few lines of current state, not a dossier.
 - **Briefs and notes are Markdown.** GitHub-flavoured (lists, checklists, tables, links; no
-  images), sanitized before display. Put long supporting material in a note, or collapse it:
+  images), sanitized before display. A task's id written in a brief or note (`agntc9s5`) links
+  to that task for anyone who may see it. Put long supporting material in a note, or collapse it:
 
   ```markdown
   <details>

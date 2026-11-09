@@ -216,6 +216,29 @@ describe("waiting", () => {
     expect(detail.activity.at(-1).body).toBe("The task this was waiting on is done");
   });
 
+  test("waiting on another task names it, and the blocker lists what waits on it, privately", async () => {
+    const blocker = await add(alex, "get the builder's report");
+    const id = await add(alex, "decide on the renovation");
+    const secret = await add(alex, "plan the surprise party", { visibility: "private" });
+    await alex.post(`/api/tasks/${id}/checkpoint`, {
+      note: "need the report first",
+      waiting: { kind: "task", task_id: blocker },
+    });
+    await alex.post(`/api/tasks/${secret}/checkpoint`, {
+      note: "after the report",
+      waiting: { kind: "task", task_id: blocker },
+    });
+
+    expect((await alex.get(`/api/tasks/${id}`)).task.waiting.for).toBe("get the builder's report");
+    const forAlex = await alex.get(`/api/tasks/${blocker}`);
+    expect(forAlex.waiting_on_this.map((t: any) => t.title)).toEqual([
+      "decide on the renovation",
+      "plan the surprise party",
+    ]);
+    const forSam = await sam.get(`/api/tasks/${blocker}`);
+    expect(forSam.waiting_on_this.map((t: any) => t.title)).toEqual(["decide on the renovation"]);
+  });
+
   test("waiting on a task that gets shelved reopens with a warning, not as if it were done", async () => {
     const blocker = await add(alex, "get the builder's report");
     const id = await add(alex, "decide on the renovation");

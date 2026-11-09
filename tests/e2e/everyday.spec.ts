@@ -179,3 +179,29 @@ test("a long brief reads as Markdown with its detail collapsed", async ({
   await expect(brief.getByText("W-2 from employer")).toBeVisible();
   await expect(brief.getByRole("checkbox")).toHaveCount(2);
 });
+
+test("a task can wait on another one, and each links to the other", async ({
+  page,
+  signIn,
+  alexApi,
+}) => {
+  const blocker = (await alexApi.post("/api/tasks", { title: "Plan Jan 2–6" })).task;
+  const { task } = await alexApi.post("/api/tasks", {
+    title: "Book the Eurostar",
+    brief: `Depends on the plan (${blocker.id}).`,
+  });
+  await signIn(page, "alex");
+  await page.goto(`/tasks/${task.id}`);
+
+  await expect(
+    page.locator("[data-brief]").getByRole("link", { name: blocker.id }),
+  ).toHaveAttribute("href", `/tasks/${blocker.id}`);
+  await page.locator("summary", { hasText: "Waiting for…" }).click();
+  await page.getByRole("combobox", { name: "Or another task" }).selectOption(blocker.id);
+  await page.getByRole("button", { name: "Wait on that task" }).click();
+
+  await expect(page.locator("[data-waiting]")).toContainText("Waiting on Plan Jan 2–6");
+  await page.locator("[data-blocker]").click();
+  await expect(page).toHaveURL(new RegExp(`/tasks/${blocker.id}$`));
+  await expect(page.locator("[data-blocks]")).toContainText("Waiting on this: Book the Eurostar");
+});
