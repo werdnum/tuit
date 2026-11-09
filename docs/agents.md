@@ -82,6 +82,10 @@ Revoking a token in Settings takes effect immediately.
 - **Areas group tasks** (`home`, `tuit`, `cluster`). Reuse an area already in use (`now` lists
   them) rather than inventing a near-duplicate. `find_tasks` and `now` take `area`; `"none"`
   means tasks without one.
+- **Big outcomes can have parts.** `create_task` with `parent_id` adds a step to an outcome. The
+  parent stays out of Now until its parts are closed, then comes back to be confirmed done.
+  `get_task` lists `parts` and `part_of`. Closing a parent with open parts needs `open_parts`
+  (`done`, `expire` or `detach`). One level only; don't use parts where an area would do.
 - **Priority is a pin, not a number.** When the person says something matters more, call
   `pin_task`. Don't set a fake deadline or target to make it sort first.
 - **Dates and instants are different.** "sat" is a calendar date; "sat 9am" is an exact instant in

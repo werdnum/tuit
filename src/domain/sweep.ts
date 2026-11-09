@@ -51,6 +51,30 @@ export async function sweep(db: Database, now: Date): Promise<void> {
       );
       for (const d of deps.rows) states.set(d.id, d.state);
     }
+    // last_close is the latest closing event on any part. Keying the "all parts closed" marker
+    // on it (not on closed_at, which a backdated completion can leave unchanged) brings the
+    // parent back after every closing of its last part.
+    const parts = new Map<string, { active: number; last_close: string | null }>();
+    const partRows = await c.query<{
+      parent_id: string;
+      active: number;
+      last_close: string | null;
+    }>(
+      `SELECT k.parent_id, count(*) FILTER (WHERE k.state IN ('open', 'waiting'))::int AS active,
+              max(e.last)::text AS last_close
+       FROM tasks k
+       LEFT JOIN LATERAL (
+         SELECT max(seq) AS last FROM events
+         WHERE task_id = k.id AND type IN ('completed', 'expired', 'state_changed')
+       ) e ON true
+       WHERE k.parent_id = ANY($1) GROUP BY k.parent_id`,
+      [tasks.map((t) => t.id)],
+    );
+    for (const r of partRows.rows) parts.set(r.parent_id, r);
+    for (const t of tasks) {
+      const active = parts.get(t.id)?.active;
+      if (active) t.open_parts = active;
+    }
 
     for (const t of tasks) {
       if (t.expires && momentEnd(t.expires) <= now) {
@@ -93,6 +117,29 @@ export async function sweep(db: Database, now: Date): Promise<void> {
             now,
             `The task this was waiting on was ${depState}, not done — check whether this still makes sense`,
           );
+        }
+      }
+
+      const p = parts.get(t.id);
+      if (t.state === "open" && p && p.active === 0 && p.last_close) {
+        // The parent was held out of Now while it had open parts; it comes back, once per
+        // closing of its last part, for someone to decide whether it's done.
+        if (await firstTime(c, t.id, "parts_closed", p.last_close)) {
+          await addActivity(
+            c,
+            null,
+            t.id,
+            "system",
+            "All its parts are closed: is it done, or is there more to do?",
+            now,
+          );
+          // Another hold (a later available_from) still applies; the date-driven path below
+          // announces it when that arrives.
+          if (assess(t, now, undefined).available) {
+            await addEvent(c, null, "became_available", { taskId: t.id }, now, {
+              reason: "all its parts are closed",
+            });
+          }
         }
       }
 

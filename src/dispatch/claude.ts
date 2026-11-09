@@ -1,7 +1,7 @@
 import type { App } from "../app.ts";
 import type { ClaudeTrigger } from "../config.ts";
 import { notifyLive } from "../domain/feed.ts";
-import { addActivity, visibleSql } from "../domain/tasks.ts";
+import { addActivity, openPartsSql, visibleSql } from "../domain/tasks.ts";
 import { type Task, taskFromRow } from "../domain/types.ts";
 import { assess, inAreas } from "../domain/views.ts";
 import { DeliveryError, type WebhookTransport } from "../mcp/webhook-transport.ts";
@@ -92,7 +92,8 @@ export class ClaudeTriggers {
   /** Tasks the agent could claim right now, oldest arrival first, as claim_next sees them. */
   private async claimable(t: ClaudeTrigger): Promise<Task[]> {
     const r = await this.app.db.query(
-      `SELECT * FROM tasks t WHERE state = 'open' AND actor_kind = 'agent' AND actor_agent = $1
+      `SELECT t.*, ${openPartsSql("t")} FROM tasks t
+       WHERE state = 'open' AND actor_kind = 'agent' AND actor_agent = $1
          AND claim_id IS NULL AND ${visibleSql("t", 2)}
        ORDER BY actor_since, id`,
       [t.agent, t.user],
