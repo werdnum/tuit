@@ -369,10 +369,19 @@ function printNow(v: NowView): void {
     }
     if (v.also.length) {
       out();
-      out(c.bold(`${v.plan.length || v.new_items.length ? "Also in" : "In"} ${areaLabel}`));
+      const later = v.plan.length || v.new_items.length;
+      out(
+        c.bold(
+          v.area
+            ? `${later ? "Also in" : "In"} ${areaLabel}`
+            : later
+              ? "Everything else"
+              : "Everything",
+        ),
+      );
       for (const i of v.also) out(itemLine(i, "  [ ] "));
     }
-    if (v.more_count > 0) out(c.dim(`  +${v.more_count} more (tuit now --more)`));
+    if (v.more_count > 0) out(c.dim(`  +${v.more_count} more (tuit now --all)`));
     if (!v.area && v.areas.length) {
       out(c.dim(`  Areas: ${v.areas.map((a) => `#${a}`).join(" ")} (tuit now --area NAME)`));
     }
@@ -522,16 +531,17 @@ async function plainTaskPost(ctx: Ctx, verb: string, sub: string, body: unknown)
 
 const commands: Record<string, Command> = {
   now: {
-    usage: "tuit [now] [--more] [--area NAME]",
-    summary: "What deserves attention now: urgent items, today's shortlist, what's new",
-    options: { more: { type: "boolean" }, area: { type: "string" } },
+    usage: "tuit [now] [--all] [--area NAME]",
+    summary: "What deserves attention now: urgent items, today's shortlist, what's new, the rest",
+    options: { all: { type: "boolean" }, area: { type: "string" } },
     async run(ctx) {
       const client = ctx.client();
       const area = str(ctx.values, "area");
-      if (ctx.values.more) await client.request<NowView>("POST", "/api/now/more", {}, true);
-      const v = await client.get<NowView>(
-        area ? `/api/now?area=${encodeURIComponent(area)}` : "/api/now",
-      );
+      const query = new URLSearchParams({
+        ...(area ? { area } : {}),
+        ...(ctx.values.all ? { limit: "1000" } : {}),
+      }).toString();
+      const v = await client.get<NowView>(query ? `/api/now?${query}` : "/api/now");
       ctx.json ? printJson(v) : printNow(v);
     },
   },

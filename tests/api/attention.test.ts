@@ -37,7 +37,8 @@ describe("Now", () => {
     expect(shown).toHaveLength(5);
     expect(planTitles(after, true)).toEqual(shown.slice(0, 3));
     expect(planTitles(after)).toEqual(shown.slice(3));
-    expect(after.more_count).toBe(2);
+    expect(itemTitles(after.also)).toHaveLength(2);
+    expect(after.more_count).toBe(0);
   });
 
   test("a distant deadline doesn't jump ahead of handoffs and missed targets", async () => {
@@ -76,14 +77,32 @@ describe("Now", () => {
     expect(itemTitles(now.new_items)).toEqual(["chore 4"]);
   });
 
-  test("'show more' pulls the next items into today's list", async () => {
+  test("everything beyond today's list shows under it, in order, 50 at a time", async () => {
+    for (let i = 1; i <= 60; i++) await add(alex, `chore ${String(i).padStart(2, "0")}`);
+
+    const first = await alex.get("/api/now");
+    expect(planTitles(first)).toHaveLength(5);
+    expect(first.also).toHaveLength(50);
+    expect(first.more_count).toBe(5);
+
+    const all = await alex.get("/api/now?limit=100");
+    expect(planTitles(all)).toEqual(planTitles(first));
+    expect(itemTitles(all.also).slice(0, 50)).toEqual(itemTitles(first.also));
+    expect(all.also).toHaveLength(55);
+    expect(all.more_count).toBe(0);
+    const everything = [...planTitles(all), ...itemTitles(all.also)];
+    expect(new Set(everything).size).toBe(60);
+  });
+
+  test("tasks beyond today's list don't show as new, and 'enough for now' rests them too", async () => {
     for (let i = 1; i <= 7; i++) await add(alex, `chore ${i}`);
-    await alex.get("/api/now");
+    const now = await alex.get("/api/now");
+    expect(now.new_items).toEqual([]);
+    expect(now.also).toHaveLength(2);
 
-    const more = await alex.post("/api/now/more");
-
-    expect(planTitles(more)).toHaveLength(7);
-    expect(more.more_count).toBe(0);
+    const resting = await alex.post("/api/now/enough", { on: true });
+    expect(resting.also).toEqual([]);
+    expect(resting.resting_count).toBe(7);
   });
 
   test("something captured after the list was made shows as new, not reshuffled in", async () => {

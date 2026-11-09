@@ -237,7 +237,7 @@ that sign-in and goes when it ends, and the iPhone app withdraws its token befor
 Signed-in pages keep an `EventSource` open on `GET /live` (session cookie only). Each page carries
 the feed cursor it was rendered at, so nothing between render and connect is missed. Writers
 `pg_notify` on commit with no content: `*` when the feed moved, or a person's id for changes only
-to their own Now (snooze, pin, show more, enough for now). One `LISTEN` connection per process fans
+to their own Now (snooze, pin, enough for now). One `LISTEN` connection per process fans
 out to the open streams; each stream re-reads the feed *as its own principal* and sends `change`
 only if its visible cursor moved (or, for a personal wake, to that person alone). The page then
 re-fetches itself through the normal renderer and swaps it in, unless it already shows the change
@@ -342,13 +342,13 @@ step.
 
 **Now** is the built-in default queue for the signed-in person. It shows available open tasks whose
 next actor is them or anyone, due or stale routines, lapsed claims they own, and waits whose
-follow-up has arrived. Limit 5. Its urgent list also includes tasks the person *owns* while
+follow-up has arrived: all of them, not a cut-down few. Its urgent list also includes tasks the person *owns* while
 someone else holds the next action, because a commitment stays theirs.
 
 - The shortlist is **sticky per day**: which tasks are on it is fixed when it is made, and
   completing items leaves them ticked at the bottom rather than sliding replacements in. Its order
   is not fixed: open items follow the current ranking, so a pin or a deadline coming close moves
-  them up. "Show more" is explicit.
+  them up. It is made from the top 5.
 - **Enough for now** hides the shortlist until tomorrow morning (4am local). Urgent items still show.
 - An item leaves the plan when it stops being eligible (handed away, snoozed, waiting), and is
   not replaced. Items finished today stay, ticked.
@@ -359,10 +359,13 @@ someone else holds the next action, because a commitment stays theirs.
   person, or became available after the plan was made. They show beneath the shortlist, so
   capture and handoffs get visible feedback without reshuffling the plan. "Enough for now" hides
   them too; only urgent items show through it.
+- **Everything else**: every other eligible task follows, in ranking order, so nothing hides
+  behind a "show more" tap. It is paged 50 at a time (`limit` on the API, a link on the page);
+  "Enough for now" hides it like the rest.
 - There is no rollover ceremony. A new day computes a fresh shortlist, and expired items are
   already gone.
 - **Narrowing to an area** filters what Now shows (the plan, new items and urgent ones in that
-  area) and lists the area's other eligible tasks beneath. It never changes the day's plan, which
+  area), and "everything else" becomes the area's other eligible tasks. It never changes the day's plan, which
   is always made from everything, so switching between areas can't reshuffle the list.
 
 ### Priority

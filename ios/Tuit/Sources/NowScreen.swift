@@ -1,13 +1,17 @@
 import SwiftUI
 
-/// Today's short list, anything urgent, and what's new since the list was made. Finishing an
-/// item leaves it ticked in place; nothing slides in to replace it.
+/// Today's short list, anything urgent, what's new since the list was made, and then everything
+/// else, 50 at a time. Finishing an item leaves it ticked in place; nothing slides in to replace it.
 struct NowScreen: View {
     @Environment(Session.self) private var session
     @State private var now: NowView?
     @State private var area: String?
     @State private var error: String?
     @State private var busy = false
+    /// How many of "everything else" to ask for; grows a page at a time.
+    @State private var limit = NowScreen.pageSize
+
+    static let pageSize = 50
 
     var body: some View {
         List {
@@ -35,6 +39,7 @@ struct NowScreen: View {
                 area = previous
                 return
             }
+            limit = Self.pageSize
             Task { await load() }
         }
         .navigationDestination(for: String.self) { id in TaskDetailScreen(taskId: id) }
@@ -82,10 +87,6 @@ struct NowScreen: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(now.plan) { row in self.row(row.item, done: row.done) }
-                if now.moreCount > 0 {
-                    Button("Show \(now.moreCount) more") { Task { await more() } }
-                        .disabled(session.offlineStore?.offline == true)
-                }
             } header: {
                 Text("Today")
             } footer: {
@@ -99,11 +100,24 @@ struct NowScreen: View {
                 }
             }
             if !now.also.isEmpty {
-                Section("Also in #\(now.area ?? "")") {
+                Section(alsoHeading(now)) {
                     ForEach(now.also) { item in row(item) }
+                    if now.moreCount > 0 {
+                        Button("Show \(min(now.moreCount, Self.pageSize)) more (\(now.moreCount) left)") {
+                            Task { await more() }
+                        }
+                        .disabled(session.offlineStore?.offline == true)
+                    }
                 }
             }
         }
+    }
+
+    private func alsoHeading(_ now: NowView) -> String {
+        let later = !now.plan.isEmpty || !now.newItems.isEmpty
+        guard let area = now.area else { return later ? "Everything else" : "Everything" }
+        let name = area == "none" ? "no area" : "#\(area)"
+        return later ? "Also in \(name)" : "In \(name)"
     }
 
     private func row(_ item: QueueItem, done: Bool = false) -> some View {
@@ -146,9 +160,6 @@ struct NowScreen: View {
                         Label("Back to my list", systemImage: "list.bullet")
                     }
                 }
-                if (now?.moreCount ?? 0) > 0 {
-                    Button { Task { await more() } } label: { Label("Show more", systemImage: "plus") }
-                }
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
@@ -167,7 +178,10 @@ struct NowScreen: View {
         busy = true
         defer { busy = false }
         do {
-            now = try await api.get("/now", query: area.map { ["area": $0] } ?? [:])
+            var query = area.map { ["area": $0] } ?? [:]
+            // Offline, only the first page is saved; asking for more would miss it.
+            if limit != Self.pageSize, session.offlineStore?.offline != true { query["limit"] = String(limit) }
+            now = try await api.get("/now", query: query)
         } catch {
             self.error = session.handle(error)
         }
@@ -194,10 +208,7 @@ struct NowScreen: View {
     }
 
     private func more() async {
-        guard let api = session.api else { return }
-        do {
-            let _: NowView = try await api.post("/now/more", Empty())
-        } catch { self.error = session.handle(error) }
+        limit += Self.pageSize
         await load()
     }
 }

@@ -1,6 +1,7 @@
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import type { App } from "../app.ts";
+import { nowLimit } from "../domain/board.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../domain/errors.ts";
 import { ZONE } from "../domain/time.ts";
 import { ActorInput, ClaimIdInput, ClaimInput, MomentInput, NOTE_KINDS } from "../domain/types.ts";
@@ -61,12 +62,13 @@ export function restApi(app: App): Hono<AuthEnv> {
   });
 
   api.get("/now", async (c) =>
-    c.json(await board.now(c.get("principal"), { area: c.req.query("area") || null })),
+    c.json(
+      await board.now(c.get("principal"), {
+        area: c.req.query("area") || null,
+        limit: nowLimit(c.req.query("limit")),
+      }),
+    ),
   );
-  api.post("/now/more", async (c) => {
-    await board.showMore(c.get("principal"));
-    return c.json(await board.now(c.get("principal")));
-  });
   api.post("/now/enough", async (c) => {
     const { on } = z.object({ on: z.boolean().default(true) }).parse(await body(c));
     await board.enoughForNow(c.get("principal"), on);
