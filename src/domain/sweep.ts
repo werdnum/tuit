@@ -59,6 +59,10 @@ export async function sweep(db: Database, now: Date): Promise<void> {
       [tasks.map((t) => t.id)],
     );
     for (const r of partRows.rows) parts.set(r.parent_id, r);
+    for (const t of tasks) {
+      const active = parts.get(t.id)?.active;
+      if (active) t.open_parts = active;
+    }
 
     for (const t of tasks) {
       if (t.expires && momentEnd(t.expires) <= now) {
@@ -117,9 +121,13 @@ export async function sweep(db: Database, now: Date): Promise<void> {
             "All its parts are closed: is it done, or is there more to do?",
             now,
           );
-          await addEvent(c, null, "became_available", { taskId: t.id }, now, {
-            reason: "all its parts are closed",
-          });
+          // Another hold (a later available_from) still applies; the date-driven path below
+          // announces it when that arrives.
+          if (assess(t, now, undefined).available) {
+            await addEvent(c, null, "became_available", { taskId: t.id }, now, {
+              reason: "all its parts are closed",
+            });
+          }
         }
       }
 

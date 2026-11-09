@@ -164,4 +164,18 @@ describe("parts", () => {
     await alex.post(`/api/tasks/${part}/complete`);
     expect((await agent.post("/api/claim", {})).task.id).toBe(trip);
   });
+
+  test("a parent not available yet stays quiet when its parts close, and is announced on its date", async () => {
+    const trip = await add(alex, "Europe trip booked", { available_from: "2026-10-10" });
+    const part = await add(alex, "plan Jan 2–6", { parent_id: trip });
+    const { cursor } = await alex.get("/api/changes?after=latest");
+
+    await alex.post(`/api/tasks/${part}/complete`);
+    const ready = (feed: any) =>
+      feed.events.filter((e: any) => e.type === "became_available" && e.task.id === trip);
+    expect(ready(await alex.get(`/api/changes?after=${cursor}`))).toHaveLength(0);
+
+    await server.setClock("2026-10-10T08:00:00+11:00");
+    expect(ready(await alex.get(`/api/changes?after=${cursor}`))).toHaveLength(1);
+  });
 });

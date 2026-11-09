@@ -392,11 +392,15 @@ export class TaskService {
     });
   }
 
+  /**
+   * A parent, locked: closing it locks it too, so a part can't be added to a parent that is
+   * closing at the same moment and escape the decision about its open parts.
+   */
   private async visibleTask(c: Queryable, p: Principal, id: string): Promise<Task> {
-    const r = await c.query(`SELECT * FROM tasks t WHERE id = $1 AND ${visibleSql("t", 2)}`, [
-      id,
-      p.userId,
-    ]);
+    const r = await c.query(
+      `SELECT * FROM tasks t WHERE id = $1 AND ${visibleSql("t", 2)} FOR UPDATE`,
+      [id, p.userId],
+    );
     if (!r.rows[0]) throw new NotFoundError(`No task ${id}`);
     return taskFromRow(r.rows[0]);
   }
