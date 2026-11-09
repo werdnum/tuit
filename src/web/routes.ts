@@ -353,12 +353,14 @@ export function webRoutes(app: App): Hono<AuthEnv> {
 
   r.post(
     "/tasks/:id/done",
-    taskAction((p, id, form) =>
-      tasks.complete(p, id, {
-        ...(form.at ? { at: form.at, note: form.note || undefined } : {}),
+    taskAction((p, id, form) => {
+      // "Done earlier" sends a preset as `at`, or a picked day as `date`.
+      const at = form.at || form.date;
+      return tasks.complete(p, id, {
+        ...(at ? { at, note: form.note || undefined } : {}),
         open_parts: openParts(form),
-      }),
-    ),
+      });
+    }),
   );
   r.post(
     "/tasks/:id/skip",

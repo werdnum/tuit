@@ -234,4 +234,19 @@ test("a task broken into parts shows them, and leaves Now to them", async ({
   await expect(
     page.locator("[data-parts] li").filter({ hasText: "book the Eurostar" }),
   ).toContainText("done");
+
+  // Done earlier asks about open parts too.
+  await page.getByRole("button", { name: "Reopen" }).click();
+  await page.locator("[data-parts] li").getByRole("link", { name: "book the Eurostar" }).click();
+  await page.getByRole("button", { name: "Reopen" }).click();
+  await page.locator("[data-part-of]").getByRole("link").click();
+  await page.locator("summary", { hasText: "Done earlier…" }).click();
+  const earlier = page.locator("details", { hasText: "Or pick a date" });
+  await earlier.getByRole("combobox", { name: "Its 1 open part" }).selectOption("detach");
+  await earlier.getByLabel("Or pick a date").fill("2026-01-02");
+  await earlier.getByRole("button", { name: "Record it" }).click();
+  await expect(page.locator("[data-parts]")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Reopen" })).toBeVisible();
+  const parts = (await alexApi.get(`/api/tasks/${task.id}`)).parts;
+  expect(parts).toEqual([]);
 });

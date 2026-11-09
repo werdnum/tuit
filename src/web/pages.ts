@@ -394,14 +394,13 @@ export function detailPage(
   const doneEarlier = (label: string) => html`<details class="sheet" name="verb">
       <summary>${label}</summary>
       <div class="body">
-        <form method="post" action="${self}/done" class="presets">
-          ${back(self)}${openParts ? html`<input type="hidden" name="open_parts" value="done">` : ""}
-          <button name="at" value="yesterday">Yesterday</button>
-          <button name="at" value="2 days ago">2 days ago</button>
-        </form>
         <form method="post" action="${self}/done">
-          ${back(self)}${openParts ? html`<input type="hidden" name="open_parts" value="done">` : ""}
-          <label class="field"><span>Or pick a date</span><input type="date" name="at" max="${local(now).toISODate()}" required></label>
+          ${back(self)}${partsChoice("done")}
+          <div class="presets">
+            <button name="at" value="yesterday" formnovalidate>Yesterday</button>
+            <button name="at" value="2 days ago" formnovalidate>2 days ago</button>
+          </div>
+          <label class="field"><span>Or pick a date</span><input type="date" name="date" max="${local(now).toISODate()}" required></label>
           <button class="wide">Record it</button>
         </form>
       </div>
