@@ -60,6 +60,26 @@ describe("parts", () => {
     expect(nowTasks(await alex.get("/api/now")).map((t: any) => t.id)).toContain(trip);
   });
 
+  test("a parent comes back each time its last part closes, even when backdated", async () => {
+    const trip = await add(alex, "Europe trip booked");
+    const plan = await add(alex, "plan Jan 2–6", { parent_id: trip });
+    const train = await add(alex, "book the Eurostar", { parent_id: trip });
+    const prompt = "All its parts are closed: is it done, or is there more to do?";
+    const prompts = async () =>
+      (await alex.get(`/api/tasks/${trip}`)).activity.filter((a: any) => a.body === prompt).length;
+
+    await alex.post(`/api/tasks/${plan}/complete`);
+    await alex.post(`/api/tasks/${train}/complete`);
+    expect(await prompts()).toBe(1);
+
+    await alex.post(`/api/tasks/${plan}/reopen`);
+    expect((await alex.get(`/api/tasks/${trip}`)).status.held).toBe("1 part still open");
+    // Recorded as done yesterday: the latest closed_at among the parts (the Eurostar's) stays put.
+    await alex.post(`/api/tasks/${plan}/complete`, { at: "2026-10-04T09:00:00+11:00" });
+    expect(await prompts()).toBe(2);
+    expect((await alex.get(`/api/tasks/${trip}`)).status.held).toBeNull();
+  });
+
   test("closing a parent with open parts needs a decision about them", async () => {
     const trip = await add(alex, "Europe trip booked");
     const a = await add(alex, "plan Jan 2–6", { parent_id: trip });

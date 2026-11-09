@@ -51,11 +51,23 @@ export async function sweep(db: Database, now: Date): Promise<void> {
       );
       for (const d of deps.rows) states.set(d.id, d.state);
     }
-    const parts = new Map<string, { active: number; last_closed: Date | null }>();
-    const partRows = await c.query<{ parent_id: string; active: number; last_closed: Date | null }>(
-      `SELECT parent_id, count(*) FILTER (WHERE state IN ('open', 'waiting'))::int AS active,
-              max(closed_at) AS last_closed
-       FROM tasks WHERE parent_id = ANY($1) GROUP BY parent_id`,
+    // last_close is the latest closing event on any part. Keying the "all parts closed" marker
+    // on it (not on closed_at, which a backdated completion can leave unchanged) brings the
+    // parent back after every closing of its last part.
+    const parts = new Map<string, { active: number; last_close: string | null }>();
+    const partRows = await c.query<{
+      parent_id: string;
+      active: number;
+      last_close: string | null;
+    }>(
+      `SELECT k.parent_id, count(*) FILTER (WHERE k.state IN ('open', 'waiting'))::int AS active,
+              max(e.last)::text AS last_close
+       FROM tasks k
+       LEFT JOIN LATERAL (
+         SELECT max(seq) AS last FROM events
+         WHERE task_id = k.id AND type IN ('completed', 'expired', 'state_changed')
+       ) e ON true
+       WHERE k.parent_id = ANY($1) GROUP BY k.parent_id`,
       [tasks.map((t) => t.id)],
     );
     for (const r of partRows.rows) parts.set(r.parent_id, r);
@@ -109,10 +121,10 @@ export async function sweep(db: Database, now: Date): Promise<void> {
       }
 
       const p = parts.get(t.id);
-      if (t.state === "open" && p && p.active === 0 && p.last_closed) {
+      if (t.state === "open" && p && p.active === 0 && p.last_close) {
         // The parent was held out of Now while it had open parts; it comes back, once per
         // closing of its last part, for someone to decide whether it's done.
-        if (await firstTime(c, t.id, "parts_closed", p.last_closed.toISOString())) {
+        if (await firstTime(c, t.id, "parts_closed", p.last_close)) {
           await addActivity(
             c,
             null,
