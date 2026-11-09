@@ -10,7 +10,7 @@ import { visibleSql } from "../domain/tasks.ts";
 import { type Principal, splitAreaTag, type Task } from "../domain/types.ts";
 import type { Explanation } from "../domain/views.ts";
 import { CATEGORIES, defaultRules } from "../notify/rules.ts";
-import { actorText, momentEditText, whenText } from "./format.ts";
+import { actorText, momentEditText, QUIET_KINDS, whenText } from "./format.ts";
 import { type Flash, MANIFEST } from "./layout.ts";
 import { liveStream } from "./live.ts";
 import { taskIdCandidates } from "./markdown.ts";
@@ -20,6 +20,7 @@ import {
   detailPage,
   devLoginPage,
   errorPage,
+  feedPage,
   inspectPage,
   notificationsPage,
   nowPage,
@@ -730,6 +731,38 @@ export function webRoutes(app: App): Hono<AuthEnv> {
       );
     }
   });
+
+  // ---- Feed
+
+  r.get(
+    "/feed",
+    view(async (c, ctx) => {
+      const area = (c.req.query("area") ?? "").trim() || null;
+      const filter = {
+        others: c.req.query("who") === "others",
+        area,
+        showAll: c.req.query("all") === "1",
+      };
+      const rawBefore = c.req.query("before");
+      const before = rawBefore && /^\d{1,15}$/.test(rawBefore) ? Number(rawBefore) : undefined;
+      const feed = await tasks.recentActivity(ctx.me, {
+        before,
+        area: area ?? undefined,
+        others: filter.others,
+        hideKinds: filter.showAll ? [] : [...QUIET_KINDS],
+      });
+      const refs = await tasks.titles(ctx.me, taskIdCandidates(...feed.entries.map((e) => e.body)));
+      return c.html(
+        feedPage(ctx, {
+          filter,
+          ...feed,
+          refs,
+          areas: await tasks.allAreas(ctx.me),
+          paged: before !== undefined,
+        }),
+      );
+    }),
+  );
 
   // ---- Search
 

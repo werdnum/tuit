@@ -8,7 +8,7 @@ export interface LiveMark {
   at: number;
 }
 
-export type Tab = "now" | "queues" | "search" | null;
+export type Tab = "now" | "queues" | "feed" | "search" | null;
 
 export interface Flash {
   text: string;
@@ -220,6 +220,8 @@ details.sheet > .body { padding: 0 16px 14px; }
 .history .when { font-size: 13px; color: var(--muted); }
 .history li.agent { border-left: 3px solid var(--agent); }
 .history li.sys .body { color: var(--muted); font-size: 15px; }
+.feed .task { display: block; font-weight: 600; color: var(--text); text-decoration: none; }
+.feed .body { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); padding: 10px; border-radius: 10px; margin: 6px 0; }
 table.kv { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -630,6 +632,9 @@ const ICONS = {
   queues: raw(
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`,
   ),
+  feed: raw(
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>`,
+  ),
   search: raw(
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>`,
   ),
@@ -653,7 +658,7 @@ function tabbar(tab: Tab): Html {
   const t = (id: Exclude<Tab, null>, href: string, label: string) =>
     html`<a href="${href}" ${tab === id ? raw('aria-current="page"') : ""}>${ICONS[id]}<span>${label}</span></a>`;
   return html`<nav class="tabbar" aria-label="Main">
-    ${t("now", "/", "Now")}${t("queues", "/queues", "Queues")}${t("search", "/search", "Search")}
+    ${t("now", "/", "Now")}${t("queues", "/queues", "Queues")}${t("feed", "/feed", "Feed")}${t("search", "/search", "Search")}
   </nav>`;
 }
 
