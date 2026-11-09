@@ -236,10 +236,10 @@ test("a task broken into parts shows them, and leaves Now to them", async ({
   ).toContainText("done");
 
   // Done earlier asks about open parts too.
-  await page.getByRole("button", { name: "Reopen" }).click();
-  await page.locator("[data-parts] li").getByRole("link", { name: "book the Eurostar" }).click();
-  await page.getByRole("button", { name: "Reopen" }).click();
-  await page.locator("[data-part-of]").getByRole("link").click();
+  const [part] = (await alexApi.get(`/api/tasks/${task.id}`)).parts;
+  await alexApi.post(`/api/tasks/${task.id}/reopen`);
+  await alexApi.post(`/api/tasks/${part.id}/reopen`);
+  await page.goto(`/tasks/${task.id}`);
   await page.locator("summary", { hasText: "Done earlier…" }).click();
   const earlier = page.locator("details", { hasText: "Or pick a date" });
   await earlier.getByRole("combobox", { name: "Its 1 open part" }).selectOption("detach");
