@@ -1208,12 +1208,17 @@ export class TaskService {
       let t: Task | undefined;
       for (const cand of candidates) {
         const locked = await c.query(
-          `SELECT * FROM tasks t WHERE id = $3 AND ${eligible} FOR UPDATE SKIP LOCKED`,
+          `SELECT t.*, ${openPartsSql("t")} FROM tasks t WHERE id = $3 AND ${eligible} FOR UPDATE SKIP LOCKED`,
           [p.agent, p.userId, cand.id],
         );
-        // The area may have changed since the unlocked read.
+        // The area, dates or parts may have changed since the unlocked read. Adding a part
+        // locks its parent, so a part still being added makes this skip the parent.
         const row = locked.rows[0] ? taskFromRow(locked.rows[0]) : null;
-        if (row && (!input.areas || inAreas(row, input.areas))) {
+        if (
+          row &&
+          assess(row, now, undefined).available &&
+          (!input.areas || inAreas(row, input.areas))
+        ) {
           t = row;
           break;
         }
