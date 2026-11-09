@@ -112,7 +112,8 @@ struct NowScreen: View {
         }
         .contextMenu { TaskShareButton(task: item.task) }
         .swipeActions(edge: .leading) {
-            if !done {
+            // A task with open parts is closed from its own screen, which asks about them.
+            if !done && item.task.openPartCount == 0 {
                 Button { Task { await act(item) { api in
                     let _: TaskView = try await api.post("/tasks/\(item.task.id)/complete", CompleteBody(expectedRevision: item.task.revision))
                 } } } label: { Label("Done", systemImage: "checkmark") }

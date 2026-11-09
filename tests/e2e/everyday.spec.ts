@@ -250,3 +250,22 @@ test("a task broken into parts shows them, and leaves Now to them", async ({
   const parts = (await alexApi.get(`/api/tasks/${task.id}`)).parts;
   expect(parts).toEqual([]);
 });
+
+test("ticking an urgent task that has open parts asks about them on its page", async ({
+  page,
+  signIn,
+  alexApi,
+}) => {
+  const { task } = await alexApi.post("/api/tasks", {
+    title: "Passport renewed",
+    deadline: "today",
+  });
+  await alexApi.post("/api/tasks", { title: "get photos taken", parent_id: task.id });
+  await signIn(page, "alex");
+  await page.goto("/");
+
+  await page.getByRole("link", { name: "Done: Passport renewed" }).click();
+  await expect(page).toHaveURL(new RegExp(`/tasks/${task.id}$`));
+  await expect(page.locator("[data-done]")).toContainText("Its 1 open part");
+  expect((await alexApi.get(`/api/tasks/${task.id}`)).task.state).toBe("open");
+});

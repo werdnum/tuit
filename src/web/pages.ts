@@ -38,6 +38,9 @@ export interface Ctx {
 const back = (to: string) => html`<input type="hidden" name="back" value="${to}">`;
 
 function doneForm(t: Task, backTo: string): Html {
+  // Closing a task with open parts needs a choice about them, which its page asks.
+  if (t.open_parts)
+    return html`<a class="tick" href="/tasks/${t.id}" aria-label="Done: ${t.title}" title="Done…"></a>`;
   return html`<form class="tickform" method="post" action="/tasks/${t.id}/done">${back(backTo)}<button class="tick" aria-label="Done: ${t.title}" title="Done"></button></form>`;
 }
 
@@ -96,7 +99,11 @@ function rowMenu(item: QueueItem, opts: { backTo: string; now: Date; listId: str
             ? html`<form method="post" action="${action}/skip">${b}<button>Skip this time</button></form>`
             : ""
         }
-        <form method="post" action="${action}/close">${b}<input type="hidden" name="expected_revision" value="${t.revision}"><input type="hidden" name="state" value="expired"><button class="danger">No longer relevant</button></form>
+        ${
+          t.open_parts
+            ? html`<form method="get" action="${action}"><button class="danger">No longer relevant…</button></form>`
+            : html`<form method="post" action="${action}/close">${b}<input type="hidden" name="expected_revision" value="${t.revision}"><input type="hidden" name="state" value="expired"><button class="danger">No longer relevant</button></form>`
+        }
       </div>
       <form method="post" action="${action}/area" class="menu-area">
         ${b}<input type="hidden" name="expected_revision" value="${t.revision}">
