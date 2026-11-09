@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { App } from "../app.ts";
+import { NOW_PAGE_SIZE } from "../domain/board.ts";
 import { DomainError } from "../domain/errors.ts";
 import type { UserInfo } from "../domain/tasks.ts";
 import { ZONE } from "../domain/time.ts";
@@ -234,13 +235,21 @@ export async function buildMcpServer(
 
   tool(
     "now",
-    "The Now view for the person you act for: today's short plan, anything new since the plan was made, and urgent items (always shown). Also returns the current time and the areas in use. With area: only that area, plus its other eligible tasks under also.",
+    "The Now view for the person you act for: today's short plan, anything new since the plan was made, urgent items (always shown), and every other eligible task under also, in order. also is paged: more_count says how many follow, and a larger limit returns them. Also returns the current time and the areas in use. With area: only that area.",
     z
-      .object({ area: AreaInput.optional().describe('An area, e.g. "tuit"; "none" = no area') })
+      .object({
+        area: AreaInput.optional().describe('An area, e.g. "tuit"; "none" = no area'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(`How many tasks to return under also (default ${NOW_PAGE_SIZE})`),
+      })
       .strict(),
     READ,
-    async ({ area }) => {
-      const n = await board.now(p, { area });
+    async ({ area, limit }) => {
+      const n = await board.now(p, { area, limit });
       return {
         as_of: app.clock.now().toISOString(),
         timezone: ZONE,

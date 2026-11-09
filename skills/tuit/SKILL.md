@@ -109,7 +109,7 @@ like `sat`, `tomorrow 9am` and `2026-11-04` are read in the household's time zon
 
 | Command | What it does |
 | --- | --- |
-| `tuit` / `tuit now [--area A]` | The person's Now view: urgent items, today's shortlist, what's new |
+| `tuit` / `tuit now [--area A] [--all]` | The person's Now view: urgent items, today's shortlist, what's new, then everything else (50 unless `--all`) |
 | `tuit show <id> [--all]` | Brief, next step, dates and history |
 | `tuit search <text>` | Find tasks, including done, expired and shelved ones |
 | `tuit add <title> [--to ACTOR] [--brief T] [--action T] [--area A] [--deadline X]` | Capture a follow-up instead of leaving it in chat |

@@ -2,7 +2,7 @@ import { html, raw } from "hono/html";
 import type { DateTime } from "luxon";
 import type { TokenInfo } from "../api/auth.ts";
 import type { Config } from "../config.ts";
-import type { NowView, Queue } from "../domain/board.ts";
+import { NOW_PAGE_SIZE, type NowView, type Queue } from "../domain/board.ts";
 import type { TaskRef, UserInfo } from "../domain/tasks.ts";
 import { local, type Moment } from "../domain/time.ts";
 import type { ActivityEntry, Principal, Task } from "../domain/types.ts";
@@ -53,6 +53,8 @@ function itemRow(
     badge?: boolean;
     area?: boolean;
     menu?: Html;
+    /** Give the row an id, so a link can scroll back to it. */
+    anchor?: boolean;
   },
 ): Html {
   const t = item.task;
@@ -66,7 +68,7 @@ function itemRow(
     : tick
       ? doneForm(t, opts.backTo)
       : "";
-  return html`<li class="${cls}" data-task="${t.id}">
+  return html`<li class="${cls}" data-task="${t.id}"${opts.anchor ? raw(` id="t-${t.id}"`) : ""}>
     ${tickHtml}
     <a class="row-main ${tick ? "" : "solo"}" href="/tasks/${t.id}">
       <span class="row-title">${t.title} ${opts.badge ? stateBadge(t) : ""} ${opts.area === false ? "" : areaBadge(t)} ${privateBadge(t)}</span>
@@ -170,7 +172,8 @@ function awayBanner(away: NonNullable<NowView["away"]>, ctx: Ctx): Html {
   </div>`;
 }
 
-export function nowPage(ctx: Ctx, v: NowView): Html {
+/** `limit` is how many of "everything else" were asked for, when more than the first page. */
+export function nowPage(ctx: Ctx, v: NowView, limit?: number): Html {
   const isUrgentOpen = (x: { item: QueueItem; done: boolean }) => x.item.urgent && !x.done;
   const urgentIds = new Set(v.urgent.map((i) => i.task.id));
   const urgent = [...v.urgent];
@@ -193,8 +196,24 @@ export function nowPage(ctx: Ctx, v: NowView): Html {
   const allDone = plan.length > 0 && plan.every((x) => x.done) && also.length === 0;
   const nothing =
     plan.length === 0 && fresh.length === 0 && urgent.length === 0 && also.length === 0;
-  const self = v.area ? `/?area=${encodeURIComponent(v.area)}` : "/";
+  const nowHref = (limit: number | null) => {
+    const q = new URLSearchParams({
+      ...(v.area ? { area: v.area } : {}),
+      ...(limit ? { limit: Number.isFinite(limit) ? String(limit) : "all" } : {}),
+    }).toString();
+    return q ? `/?${q}` : "/";
+  };
+  // Acting on a row returns here, so a list expanded past the first page stays expanded.
+  const shownLimit = limit && limit > NOW_PAGE_SIZE ? limit : null;
+  const self = nowHref(shownLimit);
+  const lastShown = v.also[v.also.length - 1];
+  const moreHref = `${nowHref((shownLimit ?? NOW_PAGE_SIZE) + NOW_PAGE_SIZE)}${lastShown ? `#t-${lastShown.task.id}` : ""}`;
   const areaName = (a: string) => (a === "none" ? "no area" : `#${a}`);
+  const alsoHeading = v.area
+    ? `${plan.length || fresh.length ? "Also in" : "In"} ${areaName(v.area)}`
+    : plan.length || fresh.length
+      ? "Everything else"
+      : "Everything";
   // Captures made while narrowed land in that area; "none" is a filter, not an area to file in.
   const fileTo = v.area && v.area !== "none" ? v.area : null;
   const menu = (i: QueueItem) => rowMenu(i, { backTo: self, now: ctx.now, listId: "area-names" });
@@ -248,10 +267,17 @@ export function nowPage(ctx: Ctx, v: NowView): Html {
       }
       ${
         also.length
-          ? html`<h2>${plan.length || fresh.length ? "Also in" : "In"} ${areaName(v.area ?? "")}</h2>${list(
-              also.map((i) => row(i)),
-              `In ${areaName(v.area ?? "")}`,
+          ? html`<h2>${alsoHeading}</h2>${list(
+              also.map((i) =>
+                itemRow(i, { backTo: self, area: v.area === null, menu: menu(i), anchor: true }),
+              ),
+              alsoHeading,
             )}`
+          : ""
+      }
+      ${
+        v.more_count > 0
+          ? html`<p class="center"><a class="btn quiet" href="${moreHref}" data-show-more>Show ${Math.min(v.more_count, NOW_PAGE_SIZE)} more (${v.more_count} left)</a></p>`
           : ""
       }
       ${
@@ -263,11 +289,6 @@ export function nowPage(ctx: Ctx, v: NowView): Html {
           : ""
       }
       <div class="actions">
-        ${
-          v.more_count > 0
-            ? html`<form method="post" action="/now/more">${back(self)}<button class="wide">Show more (${v.more_count})</button></form>`
-            : ""
-        }
         ${
           plan.length || fresh.length || also.length
             ? html`<form method="post" action="/now/enough">${back(self)}<input type="hidden" name="on" value="1"><button class="wide quiet">Enough for now</button></form>`

@@ -5,6 +5,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { ZodError, z } from "zod";
 import { type AuthEnv, safeNext } from "../api/auth.ts";
 import type { App } from "../app.ts";
+import { nowLimit } from "../domain/board.ts";
 import { ConflictError, DomainError, NotFoundError, ValidationError } from "../domain/errors.ts";
 import { visibleSql } from "../domain/tasks.ts";
 import { type Principal, splitAreaTag, type Task } from "../domain/types.ts";
@@ -251,9 +252,12 @@ export function webRoutes(app: App): Hono<AuthEnv> {
 
   r.get(
     "/",
-    view(async (c, ctx) =>
-      c.html(nowPage(ctx, await board.now(ctx.me, { area: c.req.query("area") || null }))),
-    ),
+    view(async (c, ctx) => {
+      const limit = nowLimit(c.req.query("limit"));
+      return c.html(
+        nowPage(ctx, await board.now(ctx.me, { area: c.req.query("area") || null, limit }), limit),
+      );
+    }),
   );
   r.post(
     "/capture",
@@ -263,13 +267,6 @@ export function webRoutes(app: App): Hono<AuthEnv> {
       // Capturing while looking at an area files it there, unless the title names its own.
       const tagged = form.area && form.area !== "none" && !splitAreaTag(title).area;
       await tasks.create(p, tagged ? { title, area: form.area } : { title });
-      return undefined;
-    }),
-  );
-  r.post(
-    "/now/more",
-    action(async (_c, p) => {
-      await board.showMore(p);
       return undefined;
     }),
   );

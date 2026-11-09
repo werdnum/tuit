@@ -32,11 +32,25 @@ import {
   toItem,
 } from "./views.ts";
 
-export const NOW_LIMIT = 5;
+/** How many tasks the day's list ("Today") is made from each morning. */
+export const NOW_PLAN_SIZE = 5;
+/** How many of the remaining tasks Now shows before offering more. */
+export const NOW_PAGE_SIZE = 50;
+// Now shows every eligible task, so as a queue it has no limit worth speaking of.
 export const NOW_CONFIG: QueueConfig = parseQueueConfig({
   actor: "me_or_anyone",
-  visible_limit: NOW_LIMIT,
+  visible_limit: 200,
 });
+/**
+ * A `limit` from a query string: a positive whole number, or "all". Anything else means the
+ * default.
+ */
+export function nowLimit(raw: string | undefined): number | undefined {
+  if (raw === "all") return Number.POSITIVE_INFINITY;
+  const n = Number(raw);
+  return raw && Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
 /** "Enough for now" lasts until this local hour tomorrow. */
 const DAY_STARTS_AT_HOUR = 4;
 
@@ -61,8 +75,9 @@ export interface NowView {
   areas: string[];
   plan: { item: QueueItem; done: boolean }[];
   new_items: QueueItem[];
-  /** When narrowed to an area: its other eligible tasks, beyond today's plan. */
+  /** The other eligible tasks, beyond today's plan and what's new, in order (one page of them). */
   also: QueueItem[];
+  /** How many more tasks follow `also`, for a client to page through with a larger limit. */
   more_count: number;
   urgent: QueueItem[];
   enough_until: string | null;
@@ -172,11 +187,20 @@ export class Board {
 
   /**
    * Now for this person. While "enough for now" is on, only urgent items come back; the rest is
-   * counted in `resting_count` so a client can offer "show anyway".
+   * counted in `resting_count` so a client can offer "show anyway". `limit` is how many of the
+   * remaining tasks (`also`) to return; the rest are counted in `more_count`.
    */
-  async now(p: Principal, opts: { area?: string | null } = {}): Promise<NowView> {
+  async now(p: Principal, opts: { area?: string | null; limit?: number } = {}): Promise<NowView> {
     const view = await this.fullNow(p, opts.area ? areaFilter(opts.area) : null);
-    if (!view.enough_until) return view;
+    if (!view.enough_until) {
+      // Every eligible task is already loaded and ranked, so a large limit costs only the response.
+      const limit = Math.max(1, opts.limit ?? NOW_PAGE_SIZE);
+      return {
+        ...view,
+        also: view.also.slice(0, limit),
+        more_count: Math.max(0, view.also.length - limit),
+      };
+    }
     const hidden = [
       ...view.plan.filter((x) => !x.done).map((x) => x.item),
       ...view.new_items,
@@ -219,7 +243,7 @@ export class Board {
       );
       plan = r.rows[0];
       if (!plan) {
-        const ids = eligible.slice(0, NOW_LIMIT).map((a) => a.task.id);
+        const ids = eligible.slice(0, NOW_PLAN_SIZE).map((a) => a.task.id);
         await this.db.query(
           `INSERT INTO day_plans (user_id, local_date, task_ids, seen_ids, created_at) VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (user_id, local_date) DO NOTHING`,
@@ -233,7 +257,7 @@ export class Board {
       }
     }
     const planIds = [
-      ...new Set(plan?.task_ids ?? eligible.slice(0, NOW_LIMIT).map((a) => a.task.id)),
+      ...new Set(plan?.task_ids ?? eligible.slice(0, NOW_PLAN_SIZE).map((a) => a.task.id)),
     ];
     const seen = new Set(plan?.seen_ids ?? eligible.map((a) => a.task.id));
 
@@ -338,14 +362,11 @@ export class Board {
       areas: areaRows.rows.map((r) => r.area),
       plan: planView.filter((x) => inArea(x.item.task)),
       new_items: fresh.filter((a) => inArea(a.task)).map((a) => toItem(a, p, now, users)),
-      also:
-        area === null
-          ? []
-          : rest
-              // Urgent ones already show in the urgent list, which is built from everything.
-              .filter((a) => !freshIds.has(a.task.id) && !a.urgent && inArea(a.task))
-              .map((a) => toItem(a, p, now, users)),
-      more_count: area === null ? rest.length - fresh.length : 0,
+      also: rest
+        // Urgent ones already show in the urgent list, which is built from everything.
+        .filter((a) => !freshIds.has(a.task.id) && !a.urgent && inArea(a.task))
+        .map((a) => toItem(a, p, now, users)),
+      more_count: 0,
       urgent: urgent.filter((a) => inArea(a.task)).map((a) => toItem(a, p, now, users)),
       enough_until:
         plan?.enough_until && plan.enough_until > now ? plan.enough_until.toISOString() : null,
@@ -353,35 +374,6 @@ export class Board {
       resting_count: 0,
       away,
     };
-  }
-
-  /** Explicitly pull the next few items into today's plan. */
-  async showMore(p: Principal, count = 3): Promise<void> {
-    if (!p.userId || p.agent) throw new ForbiddenError("Only the person can change their own list");
-    const view = await this.fullNow(p);
-    const now = this.clock.now();
-    const planIds = view.plan.map((x) => x.item.task.id);
-    const taken = new Set([...planIds, ...view.new_items.map((i) => i.task.id)]);
-    const all = await this.assessments(p, now);
-    const next = all
-      .filter((a) => !taken.has(a.task.id) && queueChecks(NOW_CONFIG, a, p, now).every((c) => c.ok))
-      .sort(compareBy(NOW_CONFIG.order, NOW_CONFIG, p, now))
-      .slice(0, count)
-      .map((a) => a.task.id);
-    // Appending only ids not already present keeps concurrent "show more" taps from duplicating.
-    // One transaction, so the notification goes out exactly when the change commits.
-    const userId = p.userId;
-    await this.db.tx(async (c) => {
-      await c.query(
-        `UPDATE day_plans
-       SET task_ids = task_ids || ARRAY(SELECT x FROM unnest($3::text[]) x WHERE NOT x = ANY(task_ids)),
-           seen_ids = seen_ids || $3::text[],
-           enough_until = NULL
-       WHERE user_id = $1 AND local_date = $2`,
-        [p.userId, view.date, [...view.new_items.map((i) => i.task.id), ...next]],
-      );
-      await notifyLive(c, userId);
-    });
   }
 
   async enoughForNow(p: Principal, on: boolean): Promise<string | null> {

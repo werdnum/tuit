@@ -242,7 +242,7 @@ struct OfflineTests {
         #expect(json["expected_revision"] as? Int == 42)
         #expect(json["idempotency_key"] as? String == body.idempotencyKey)
         #expect(API.canQueue("PATCH", "/tasks/id", data))
-        #expect(!API.canQueue("POST", "/now/more", data))
+        #expect(!API.canQueue("POST", "/now/enough", data))
         #expect(!API.canQueue("POST", "/tasks/id/snooze", try API.encoder.encode(SnoozeBody(until: "tomorrow"))))
     }
 }
