@@ -19,4 +19,12 @@ test("Now lists everything beyond today's list, paging 50 at a time", async ({
   await expect(rest.locator("li[data-task]")).toHaveCount(52);
   await expect(page.getByRole("link", { name: /Show \d+ more/ })).toHaveCount(0);
   await expect(nowRow(page, "chore 57")).toBeVisible();
+
+  // Ticking a task far down the list keeps the list expanded and the place on the page.
+  const before = await page.evaluate(() => window.scrollY);
+  await nowRow(page, "chore 56").getByRole("button", { name: /done/i }).click();
+  await expect(nowRow(page, "chore 56")).toHaveCount(0);
+  await expect(rest.locator("li[data-task]")).toHaveCount(51);
+  await expect(nowRow(page, "chore 57")).toBeVisible();
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(before / 2);
 });

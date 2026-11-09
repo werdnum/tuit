@@ -250,17 +250,12 @@ export function webRoutes(app: App): Hono<AuthEnv> {
 
   r.get(
     "/",
-    view(async (c, ctx) =>
-      c.html(
-        nowPage(
-          ctx,
-          await board.now(ctx.me, {
-            area: c.req.query("area") || null,
-            limit: nowLimit(c.req.query("limit")),
-          }),
-        ),
-      ),
-    ),
+    view(async (c, ctx) => {
+      const limit = nowLimit(c.req.query("limit"));
+      return c.html(
+        nowPage(ctx, await board.now(ctx.me, { area: c.req.query("area") || null, limit }), limit),
+      );
+    }),
   );
   r.post(
     "/capture",

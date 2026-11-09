@@ -313,7 +313,8 @@ document.addEventListener("submit", (e) => {
     try {
       const res = await fetch(action, { method: "POST", body, credentials: "same-origin" });
       const doc = new DOMParser().parseFromString(await res.text(), "text/html");
-      const moved = res.redirected && res.url !== location.href;
+      // Ignore the fragment: a page reached by "show more" carries one, the redirect never does.
+      const moved = res.redirected && res.url !== location.href.split("#")[0];
       if (moved) history.pushState(null, "", res.url);
       swap(doc, submitted, f);
       shownAt = Date.now();

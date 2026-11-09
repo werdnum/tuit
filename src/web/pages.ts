@@ -165,7 +165,8 @@ function awayBanner(away: NonNullable<NowView["away"]>, ctx: Ctx): Html {
   </div>`;
 }
 
-export function nowPage(ctx: Ctx, v: NowView): Html {
+/** `limit` is how many of "everything else" were asked for, when more than the first page. */
+export function nowPage(ctx: Ctx, v: NowView, limit?: number): Html {
   const isUrgentOpen = (x: { item: QueueItem; done: boolean }) => x.item.urgent && !x.done;
   const urgentIds = new Set(v.urgent.map((i) => i.task.id));
   const urgent = [...v.urgent];
@@ -188,11 +189,18 @@ export function nowPage(ctx: Ctx, v: NowView): Html {
   const allDone = plan.length > 0 && plan.every((x) => x.done) && also.length === 0;
   const nothing =
     plan.length === 0 && fresh.length === 0 && urgent.length === 0 && also.length === 0;
-  const self = v.area ? `/?area=${encodeURIComponent(v.area)}` : "/";
-  const moreHref = `/?${new URLSearchParams({
-    ...(v.area ? { area: v.area } : {}),
-    limit: String(v.also.length + NOW_PAGE_SIZE),
-  })}${v.also.length ? `#t-${v.also[v.also.length - 1]?.task.id}` : ""}`;
+  const nowHref = (limit: number | null) => {
+    const q = new URLSearchParams({
+      ...(v.area ? { area: v.area } : {}),
+      ...(limit ? { limit: String(limit) } : {}),
+    }).toString();
+    return q ? `/?${q}` : "/";
+  };
+  // Acting on a row returns here, so a list expanded past the first page stays expanded.
+  const shownLimit = limit && limit > NOW_PAGE_SIZE ? limit : null;
+  const self = nowHref(shownLimit);
+  const lastShown = v.also[v.also.length - 1];
+  const moreHref = `${nowHref((shownLimit ?? NOW_PAGE_SIZE) + NOW_PAGE_SIZE)}${lastShown ? `#t-${lastShown.task.id}` : ""}`;
   const areaName = (a: string) => (a === "none" ? "no area" : `#${a}`);
   const alsoHeading = v.area
     ? `${plan.length || fresh.length ? "Also in" : "In"} ${areaName(v.area)}`
