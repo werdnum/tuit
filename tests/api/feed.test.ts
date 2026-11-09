@@ -25,7 +25,8 @@ async function feedHtml(user: string, query = ""): Promise<string> {
   return res.text();
 }
 
-const entries = (html: string) => [...html.matchAll(/data-entry="(\d+)"/g)].map((m) => Number(m[1]));
+const entries = (html: string) =>
+  [...html.matchAll(/data-entry="(\d+)"/g)].map((m) => Number(m[1]));
 
 test("newest first, across tasks, with note text", async () => {
   const a = await alex.post("/api/tasks", { title: "Renew the car rego" });
