@@ -169,8 +169,11 @@ struct NowScreen: View {
 
     private func load() async {
         guard let api = session.api else { return }
-        let query = area.map { ["area": $0] } ?? [:]
-        if let data = session.offlineStore?.cached("/now", query: query) {
+        let firstPage = area.map { ["area": $0] } ?? [:]
+        // Offline, only the first page is saved; asking for more would miss it.
+        let expanded = limit != Self.pageSize && session.offlineStore?.offline != true
+        // A saved first page would collapse an expanded list while it reloads, so keep what's shown.
+        if !expanded, let data = session.offlineStore?.cached("/now", query: firstPage) {
             now = try? API.decoder.decode(NowView.self, from: data)
         } else if now?.area != area {
             now = nil
@@ -178,9 +181,8 @@ struct NowScreen: View {
         busy = true
         defer { busy = false }
         do {
-            var query = area.map { ["area": $0] } ?? [:]
-            // Offline, only the first page is saved; asking for more would miss it.
-            if limit != Self.pageSize, session.offlineStore?.offline != true { query["limit"] = String(limit) }
+            var query = firstPage
+            if expanded { query["limit"] = String(limit) }
             now = try await api.get("/now", query: query)
         } catch {
             self.error = session.handle(error)
