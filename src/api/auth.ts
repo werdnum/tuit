@@ -200,6 +200,7 @@ export class Auth {
         .replace(/^tuit-/, "")
         .replace(/[^a-zA-Z0-9_.-]/g, "-")
         .slice(0, 64) || "connector";
+    await this.rememberConnector(user.id, agent);
     return { userId: user.id, agent, canWrite: true, key: `jwt:${client}:${user.id}` };
   }
 
@@ -291,14 +292,29 @@ export class Auth {
     return r.rows.map(tokenInfo);
   }
 
+  /** Written at most hourly per connector, so busy MCP traffic doesn't rewrite the row. */
+  private async rememberConnector(userId: string, agent: string): Promise<void> {
+    const now = this.clock.now();
+    await this.db.query(
+      `INSERT INTO connector_agents (user_id, agent, first_seen_at, last_seen_at)
+       VALUES ($1, $2, $3, $3)
+       ON CONFLICT (user_id, agent) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
+       WHERE connector_agents.last_seen_at < EXCLUDED.last_seen_at - interval '1 hour'`,
+      [userId, agent, now],
+    );
+  }
+
   /**
-   * Names of agents someone in the household holds an unrevoked token for: who a task can
-   * usefully be handed to. Expiry is ignored because a connector's short-lived OAuth access
-   * token lapses between refreshes while the connector itself is still set up.
+   * Agents a task can usefully be handed to: those someone in the household holds an unrevoked
+   * token for, and connectors that have signed in through the external issuer. Token expiry is
+   * ignored because a connector's short-lived OAuth access token lapses between refreshes while
+   * the connector itself is still set up.
    */
   async agentNames(): Promise<string[]> {
     const r = await this.db.query<{ agent: string }>(
-      "SELECT DISTINCT agent FROM tokens WHERE kind = 'agent' AND revoked_at IS NULL ORDER BY agent",
+      `SELECT agent FROM tokens WHERE kind = 'agent' AND revoked_at IS NULL
+       UNION SELECT agent FROM connector_agents
+       ORDER BY agent`,
     );
     return r.rows.map((row) => row.agent);
   }

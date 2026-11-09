@@ -94,7 +94,11 @@ export function restApi(app: App): Hono<AuthEnv> {
   api.get("/tasks/:id", async (c) => {
     const p = c.get("principal");
     const v = await board.view(p, c.req.param("id"));
-    return c.json({ ...v, activity: await tasks.activity(p, v.task.id) });
+    return c.json({
+      ...v,
+      waiting_on_this: await tasks.waitingOn(p, v.task.id),
+      activity: await tasks.activity(p, v.task.id),
+    });
   });
 
   const mutation =

@@ -3,6 +3,7 @@ import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { freePort } from "../harness/postgres.ts";
 import { TestServer } from "../harness/server.ts";
+import { signIn } from "../harness/session.ts";
 import { Mcp } from "./client.ts";
 
 // Remote connectors authenticate with an external authorization server (Keycloak in
@@ -72,6 +73,23 @@ test("a connector token from the issuer acts for that person as the connector's 
 
   expect(created.task.created_by).toEqual({ user: "sam", agent: "claude-ai" });
   await mcp.close();
+});
+
+test("a connector that has signed in is offered by name when handing a task off", async () => {
+  const alex = await signIn(server, "alex");
+  const { task } = await (await server.api("alex", "family-assistant")).post("/api/tasks", {
+    title: "plan the week",
+  });
+  const handoffOptions = async () =>
+    (await (await alex.fetch(`/tasks/${task.id}`)).text()).match(/<option value="agent:[^"]+"/g);
+
+  expect(await handoffOptions()).toEqual(['<option value="agent:family-assistant"']);
+  expect(await mcpStatus(await connectorToken("sam@example.com"))).toBe(200);
+
+  expect(await handoffOptions()).toEqual([
+    '<option value="agent:claude-ai"',
+    '<option value="agent:family-assistant"',
+  ]);
 });
 
 test.each([

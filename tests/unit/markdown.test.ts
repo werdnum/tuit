@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { markdownHtml } from "../../src/web/markdown.ts";
+import { markdownHtml, taskIdCandidates } from "../../src/web/markdown.ts";
 
 const render = (s: string) => String(markdownHtml(s));
 
@@ -40,4 +40,25 @@ test("strips scripts, handlers, styles, images and unsafe links", () => {
 
 test("escapes text that only looks like markup", () => {
   expect(render("1 < 2 & 3 > 2")).toContain("1 &lt; 2 &amp; 3 &gt; 2");
+});
+
+test("mentions of visible task ids link to the task; other id-shaped words stay text", () => {
+  const refs = new Map([
+    ["agntc9s5", { id: "agntc9s5", title: "2022 amended <return>", state: "waiting" }],
+  ]);
+  const text =
+    "Review alongside agntc9s5 and research the rest. `agntc9s5` in code, [see agntc9s5](https://x.test).";
+
+  expect(taskIdCandidates(text, null)).toEqual(["agntc9s5", "research"]);
+  const out = String(markdownHtml(text, refs));
+  expect(out).toContain(
+    'alongside <a href="/tasks/agntc9s5" title="2022 amended &lt;return&gt;">agntc9s5</a> and research',
+  );
+  expect(out).toContain("<code>agntc9s5</code>");
+  expect(out).toMatch(/<a href="https:\/\/x.test"[^>]*>see agntc9s5<\/a>/);
+  expect(out.match(/<a /g)).toHaveLength(2);
+});
+
+test("ids aren't linked when the reader can't see that task", () => {
+  expect(String(markdownHtml("see agntc9s5", new Map()))).toBe("<p>see agntc9s5</p>\n");
 });

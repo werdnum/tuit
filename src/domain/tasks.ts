@@ -54,6 +54,13 @@ export function visibleSql(alias: string, param: number): string {
   return `(${alias}.visibility = 'household' OR ${alias}.owner_id = $${param}::text)`;
 }
 
+/** Enough of another task to name and link it. */
+export interface TaskRef {
+  id: string;
+  title: string;
+  state: string;
+}
+
 export interface UserInfo {
   id: string;
   name: string;
@@ -667,11 +674,12 @@ export class TaskService {
             "waiting kind 'until' needs follow_up (when it becomes actionable)",
           );
         }
+        let blockerTitle = "";
         if (w.kind === "task") {
           if (!w.task_id) throw new ValidationError("waiting kind 'task' needs task_id");
           if (w.task_id === t.id) throw new ValidationError("A task can't wait on itself");
           const dep = await c.query(
-            `SELECT state, visibility FROM tasks t WHERE id = $1 AND ${visibleSql("t", 2)}`,
+            `SELECT title, state, visibility FROM tasks t WHERE id = $1 AND ${visibleSql("t", 2)}`,
             [w.task_id, p.userId],
           );
           if (!dep.rows[0]) throw new NotFoundError(`No task ${w.task_id}`);
@@ -680,11 +688,12 @@ export class TaskService {
               "A household task can't wait on a private one: it would reveal that task",
             );
           }
+          blockerTitle = dep.rows[0].title;
         }
         t.state = "waiting";
         t.waiting = {
           kind: w.kind,
-          for: w.for ?? "",
+          for: w.for ?? blockerTitle,
           task_id: w.kind === "task" ? (w.task_id ?? null) : null,
           since: now.toISOString(),
           follow_up: followUp,
@@ -1093,6 +1102,31 @@ export class TaskService {
         : [p.userId, like, opts.limit ?? 50, area],
     );
     return r.rows.map(taskFromRow);
+  }
+
+  /** Titles of whichever of these ids name a task the caller may see; the rest are left out. */
+  async titles(p: Principal, ids: string[]): Promise<Map<string, TaskRef>> {
+    const out = new Map<string, TaskRef>();
+    if (!ids.length) return out;
+    await this.beforeAccess();
+    const r = await this.db.query<TaskRef>(
+      `SELECT id, title, state FROM tasks t WHERE id = ANY($1) AND ${visibleSql("t", 2)}`,
+      [ids, p.userId],
+    );
+    for (const row of r.rows) out.set(row.id, row);
+    return out;
+  }
+
+  /** Tasks the caller may see that are waiting on this one. */
+  async waitingOn(p: Principal, id: string): Promise<TaskRef[]> {
+    await this.beforeAccess();
+    const r = await this.db.query<TaskRef>(
+      `SELECT id, title, state FROM tasks t
+       WHERE waiting_task_id = $1 AND state = 'waiting' AND ${visibleSql("t", 2)}
+       ORDER BY created_at`,
+      [id, p.userId],
+    );
+    return r.rows;
   }
 
   /** All tasks visible to the caller, optionally filtered by state. */

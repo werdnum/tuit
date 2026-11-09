@@ -71,7 +71,9 @@ from others, and a household queue shows each viewer only what that viewer may s
   - `until`: nothing to do before a moment; the task reopens automatically then.
   - `task`: blocked by another task. It reopens when that task closes, with a system note
     saying *how* it closed. "Blocker was shelved" is a different situation from "blocker done",
-    so the human gets to decide what happens next.
+    so the human gets to decide what happens next. Each task links to the other: the waiting
+    task names its blocker, and the blocker lists what is waiting on it (only tasks the reader
+    may see).
 
   "Waiting for a human decision" is not a waiting state. It is a handoff: `open`, next actor =
   that human, next action = "Decide: ...". That puts it in their Now.
