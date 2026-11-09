@@ -360,7 +360,7 @@ someone else holds the next action, because a commitment stays theirs.
   capture and handoffs get visible feedback without reshuffling the plan. "Enough for now" hides
   them too; only urgent items show through it.
 - **Everything else**: every other eligible task follows, in ranking order, so nothing hides
-  behind a "show more" tap. It is paged 50 at a time (`limit` on the API, a link on the page);
+  behind a "show more" tap. It is paged 50 at a time (`limit` on the API, a number or `all`; a link on the page);
   "Enough for now" hides it like the rest.
 - There is no rollover ceremony. A new day computes a fresh shortlist, and expired items are
   already gone.

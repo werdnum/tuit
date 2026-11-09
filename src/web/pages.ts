@@ -192,7 +192,7 @@ export function nowPage(ctx: Ctx, v: NowView, limit?: number): Html {
   const nowHref = (limit: number | null) => {
     const q = new URLSearchParams({
       ...(v.area ? { area: v.area } : {}),
-      ...(limit ? { limit: String(limit) } : {}),
+      ...(limit ? { limit: Number.isFinite(limit) ? String(limit) : "all" } : {}),
     }).toString();
     return q ? `/?${q}` : "/";
   };

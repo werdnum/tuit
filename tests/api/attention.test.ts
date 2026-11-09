@@ -92,6 +92,7 @@ describe("Now", () => {
     expect(all.more_count).toBe(0);
     const everything = [...planTitles(all), ...itemTitles(all.also)];
     expect(new Set(everything).size).toBe(60);
+    expect((await alex.get("/api/now?limit=all")).also).toHaveLength(55);
   });
 
   test("tasks beyond today's list don't show as new, and 'enough for now' rests them too", async () => {

@@ -539,7 +539,7 @@ const commands: Record<string, Command> = {
       const area = str(ctx.values, "area");
       const query = new URLSearchParams({
         ...(area ? { area } : {}),
-        ...(ctx.values.all ? { limit: "1000" } : {}),
+        ...(ctx.values.all ? { limit: "all" } : {}),
       }).toString();
       const v = await client.get<NowView>(query ? `/api/now?${query}` : "/api/now");
       ctx.json ? printJson(v) : printNow(v);

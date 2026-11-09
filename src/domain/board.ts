@@ -29,15 +29,17 @@ import {
 export const NOW_PLAN_SIZE = 5;
 /** How many of the remaining tasks Now shows before offering more. */
 export const NOW_PAGE_SIZE = 50;
-/** The most Now will return in one go, however many pages are asked for. */
-export const NOW_MAX_LIMIT = 1000;
 // Now shows every eligible task, so as a queue it has no limit worth speaking of.
 export const NOW_CONFIG: QueueConfig = parseQueueConfig({
   actor: "me_or_anyone",
   visible_limit: 200,
 });
-/** A `limit` from a query string; anything that isn't a positive whole number means the default. */
+/**
+ * A `limit` from a query string: a positive whole number, or "all". Anything else means the
+ * default.
+ */
 export function nowLimit(raw: string | undefined): number | undefined {
+  if (raw === "all") return Number.POSITIVE_INFINITY;
   const n = Number(raw);
   return raw && Number.isInteger(n) && n > 0 ? n : undefined;
 }
@@ -177,7 +179,8 @@ export class Board {
   async now(p: Principal, opts: { area?: string | null; limit?: number } = {}): Promise<NowView> {
     const view = await this.fullNow(p, opts.area ? areaFilter(opts.area) : null);
     if (!view.enough_until) {
-      const limit = Math.min(Math.max(1, opts.limit ?? NOW_PAGE_SIZE), NOW_MAX_LIMIT);
+      // Every eligible task is already loaded and ranked, so a large limit costs only the response.
+      const limit = Math.max(1, opts.limit ?? NOW_PAGE_SIZE);
       return {
         ...view,
         also: view.also.slice(0, limit),

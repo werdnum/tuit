@@ -9,7 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { App } from "../app.ts";
-import { NOW_MAX_LIMIT, NOW_PAGE_SIZE } from "../domain/board.ts";
+import { NOW_PAGE_SIZE } from "../domain/board.ts";
 import { DomainError } from "../domain/errors.ts";
 import type { UserInfo } from "../domain/tasks.ts";
 import { ZONE } from "../domain/time.ts";
@@ -242,7 +242,6 @@ export async function buildMcpServer(
           .number()
           .int()
           .min(1)
-          .max(NOW_MAX_LIMIT)
           .optional()
           .describe(`How many tasks to return under also (default ${NOW_PAGE_SIZE})`),
       })
