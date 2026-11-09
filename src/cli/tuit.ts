@@ -398,7 +398,13 @@ const HIDDEN_HISTORY_KINDS = new Set(["system", "edit"]);
 
 async function printTask(
   client: Client,
-  v: { task: Task; status: TaskStatus; activity: ActivityEntry[] },
+  v: {
+    task: Task;
+    status: TaskStatus;
+    activity: ActivityEntry[];
+    part_of?: { id: string; title: string } | null;
+    parts?: Task[];
+  },
   all: boolean,
 ): Promise<void> {
   const names = await householdNames(client);
@@ -428,6 +434,10 @@ async function printTask(
       ? `; ${w.kind === "until" ? "until" : "follow up"} ${fmtMoment(w.follow_up)}`
       : "";
     row("waiting", `${what} (since ${fmtInstant(w.since, false)}${fu})`);
+  }
+  if (v.part_of) row("part of", `${v.part_of.title} ${c.dim(v.part_of.id)}`);
+  for (const [i, k] of (v.parts ?? []).entries()) {
+    row(i === 0 ? "parts" : "", `${c.dim(k.id)}  ${stateBadge(k.state).padEnd(10)} ${k.title}`);
   }
   if (t.recurrence) {
     const mode = t.recurrence.mode === "after_completion" ? "every" : "quiet for";
@@ -550,7 +560,7 @@ const commands: Record<string, Command> = {
     usage:
       "tuit add <title...> [--deadline X] [--target X] [--expires X] [--available X] [--private]\n" +
       "         [--to ACTOR] [--brief T] [--action T] [--every N | --since-done N] [--last-done X]\n" +
-      "         [--area A]   (or end the title with #area)",
+      "         [--area A]   (or end the title with #area)   [--part-of ID]",
     summary: "Capture a task (title is all you need)",
     options: {
       deadline: { type: "string" },
@@ -565,6 +575,7 @@ const commands: Record<string, Command> = {
       "since-done": { type: "string" },
       "last-done": { type: "string" },
       area: { type: "string" },
+      "part-of": { type: "string" },
     },
     async run(ctx) {
       const v = ctx.values;
@@ -597,6 +608,7 @@ const commands: Record<string, Command> = {
           recurrence,
           last_done: str(v, "last-done"),
           area: str(v, "area"),
+          parent_id: str(v, "part-of"),
         }),
       );
       confirm(ctx, "Added", created);
@@ -616,13 +628,14 @@ const commands: Record<string, Command> = {
     },
   },
   done: {
-    usage: "tuit done <id> [--at WHEN] [--note T]",
+    usage: "tuit done <id> [--at WHEN] [--note T] [--parts done|expire|detach]",
     summary: "Mark done (--at records an earlier completion, e.g. --at yesterday)",
-    options: { at: { type: "string" }, note: { type: "string" } },
+    options: { at: { type: "string" }, note: { type: "string" }, parts: { type: "string" } },
     run: (ctx) =>
       taskMutation(ctx, "Done:", (id) => `/api/tasks/${id}/complete`, {
         at: str(ctx.values, "at"),
         note: str(ctx.values, "note"),
+        open_parts: str(ctx.values, "parts"),
       }),
   },
   skip: {
@@ -767,23 +780,25 @@ const commands: Record<string, Command> = {
     run: (ctx) => plainTaskPost(ctx, "Unpinned:", "pin", { pinned: false }),
   },
   drop: {
-    usage: "tuit drop <id> [--reason T]",
+    usage: "tuit drop <id> [--reason T] [--parts done|expire|detach]",
     summary: "No longer relevant: expire it (not done; notes kept, still searchable)",
-    options: { reason: { type: "string" } },
+    options: { reason: { type: "string" }, parts: { type: "string" } },
     run: (ctx) =>
       taskMutation(ctx, "Dropped:", (id) => `/api/tasks/${id}/close`, {
         state: "expired",
         reason: str(ctx.values, "reason"),
+        open_parts: str(ctx.values, "parts"),
       }),
   },
   shelve: {
-    usage: "tuit shelve <id> [--reason T]",
+    usage: "tuit shelve <id> [--reason T] [--parts done|expire|detach]",
     summary: "Gone cold: take it out of rotation (still searchable)",
-    options: { reason: { type: "string" } },
+    options: { reason: { type: "string" }, parts: { type: "string" } },
     run: (ctx) =>
       taskMutation(ctx, "Shelved:", (id) => `/api/tasks/${id}/close`, {
         state: "shelved",
         reason: str(ctx.values, "reason"),
+        open_parts: str(ctx.values, "parts"),
       }),
   },
   reopen: {
@@ -795,7 +810,8 @@ const commands: Record<string, Command> = {
     usage:
       "tuit edit <id> [--title T] [--brief T] [--action T] [--done-means T] [--to ACTOR]\n" +
       "         [--deadline X] [--target X] [--expires X] [--available X]   (X = none clears)\n" +
-      "         [--private | --household] [--requires a,b] [--prefers a,b] [--area A] [--rev N]",
+      "         [--private | --household] [--requires a,b] [--prefers a,b] [--area A] [--rev N]\n" +
+      "         [--part-of ID]   (none detaches)",
     summary: "Change fields (pass --rev to refuse if someone else changed it first)",
     options: {
       title: { type: "string" },
@@ -812,6 +828,7 @@ const commands: Record<string, Command> = {
       requires: { type: "string" },
       prefers: { type: "string" },
       area: { type: "string" },
+      "part-of": { type: "string" },
       rev: { type: "string" },
     },
     run(ctx) {
@@ -833,6 +850,7 @@ const commands: Record<string, Command> = {
         requires: listOpt(str(v, "requires")),
         prefers: listOpt(str(v, "prefers")),
         area: str(v, "area") === "none" ? "" : str(v, "area"),
+        parent_id: str(v, "part-of") === "none" ? null : str(v, "part-of"),
         expected_revision: intOpt(v, "rev"),
       });
       if (Object.keys(body).filter((k) => k !== "expected_revision").length === 0) {

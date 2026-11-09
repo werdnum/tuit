@@ -98,6 +98,7 @@ const TASK_COLUMNS = [
   "expires_date",
   "expires_at",
   "area",
+  "parent_id",
   "requires",
   "prefers",
   "recurrence",
@@ -150,6 +151,7 @@ function taskColumns(t: Task): unknown[] {
     eDate,
     eAt,
     t.area,
+    t.parent_id,
     t.requires,
     t.prefers,
     t.recurrence ? JSON.stringify(t.recurrence) : null,
@@ -380,6 +382,138 @@ export class TaskService {
     });
   }
 
+  private async visibleTask(c: Queryable, p: Principal, id: string): Promise<Task> {
+    const r = await c.query(`SELECT * FROM tasks t WHERE id = $1 AND ${visibleSql("t", 2)}`, [
+      id,
+      p.userId,
+    ]);
+    if (!r.rows[0]) throw new NotFoundError(`No task ${id}`);
+    return taskFromRow(r.rows[0]);
+  }
+
+  /**
+   * The rules for parts, checked whenever a task's parent, visibility or recurrence changes: one
+   * level, no routines, and no private part under a household parent (it would reveal the part).
+   */
+  private async checkParts(
+    c: Queryable,
+    p: Principal,
+    t: Task,
+    opts: { parentChanged: boolean },
+  ): Promise<void> {
+    const kids = await c.query<{ visibility: string }>(
+      "SELECT visibility FROM tasks WHERE parent_id = $1",
+      [t.id],
+    );
+    if (t.parent_id) {
+      if (t.parent_id === t.id) throw new ValidationError("A task can't be part of itself");
+      const parent = await this.visibleTask(c, p, t.parent_id);
+      if (parent.parent_id) {
+        throw new ValidationError(
+          `"${parent.title}" is itself part of another task, and parts can't have parts`,
+        );
+      }
+      if (kids.rows.length) {
+        throw new ValidationError("This task has parts of its own, so it can't be a part");
+      }
+      if (parent.recurrence) throw new ValidationError("A routine can't have parts");
+      if (t.recurrence) throw new ValidationError("A routine can't be part of another task");
+      if (parent.visibility === "household" && t.visibility === "private") {
+        throw new ValidationError(
+          "A household task can't have a private part: it would reveal that task",
+        );
+      }
+      if (opts.parentChanged && CLOSED_STATES.includes(parent.state)) {
+        throw new ValidationError(`"${parent.title}" is ${parent.state}; reopen it first`);
+      }
+    }
+    if (kids.rows.length) {
+      if (t.recurrence) throw new ValidationError("A routine can't have parts");
+      if (t.visibility === "household" && kids.rows.some((k) => k.visibility === "private")) {
+        throw new ValidationError(
+          "A household task can't have a private part: make that part household first",
+        );
+      }
+    }
+  }
+
+  private async notePartAdded(
+    c: Queryable,
+    p: Principal,
+    parent: Task,
+    part: Task,
+    now: Date,
+  ): Promise<void> {
+    await addActivity(c, p, parent.id, "system", `Part added: ${part.title}`, now, {
+      data: { part: part.id },
+    });
+    await addEvent(c, p, "updated", { taskId: parent.id }, now, { fields: ["parts"] });
+  }
+
+  /**
+   * Closing a task with open parts needs a decision about them, never a silent one: close them
+   * as done, mark them no longer relevant, or keep them as separate tasks.
+   */
+  private async settleParts(
+    c: Queryable,
+    p: Principal,
+    parent: Task,
+    how: "done" | "expire" | "detach" | undefined,
+    now: Date,
+  ): Promise<void> {
+    const r = await c.query(
+      "SELECT * FROM tasks WHERE parent_id = $1 AND state IN ('open', 'waiting') ORDER BY seq FOR UPDATE",
+      [parent.id],
+    );
+    if (!r.rows.length) return;
+    if (!how) {
+      const n = r.rows.length;
+      throw new ValidationError(
+        `This task has ${n} open part${n === 1 ? "" : "s"}. Say what happens to ${n === 1 ? "it" : "them"}: done too, no longer relevant, or kept as separate tasks (open_parts "done", "expire" or "detach").`,
+      );
+    }
+    for (const row of r.rows) {
+      const part = taskFromRow(row);
+      const from = part.state;
+      if (how === "detach") {
+        part.parent_id = null;
+      } else {
+        part.state = how === "done" ? "done" : "expired";
+        part.close_reason = how === "done" ? "" : `${parent.title} was closed`;
+        part.closed_at = now.toISOString();
+        part.waiting = null;
+        part.claim = null;
+      }
+      this.bump(part, now);
+      await writeTask(c, part);
+      if (how === "detach") {
+        await addActivity(c, p, part.id, "edit", `No longer part of ${parent.title}`, now, {
+          data: { changes: { parent_id: { from: parent.id, to: null } } },
+        });
+        await addEvent(c, p, "updated", { taskId: part.id }, now, { fields: ["parent_id"] });
+      } else if (how === "done") {
+        await addActivity(c, p, part.id, "completion", `Done along with ${parent.title}`, now);
+        await addEvent(c, p, "completed", { taskId: part.id }, now, {
+          at: now.toISOString(),
+          recurring: false,
+        });
+      } else {
+        await addActivity(
+          c,
+          p,
+          part.id,
+          "state_change",
+          `No longer relevant: ${part.close_reason}`,
+          now,
+          {
+            data: { state: { from, to: "expired" } },
+          },
+        );
+        await addEvent(c, p, "expired", { taskId: part.id }, now, { from });
+      }
+    }
+  }
+
   private async lockTask(
     c: Queryable,
     p: Principal,
@@ -512,6 +646,7 @@ export class TaskService {
         : { title: input.title.trim(), area: normalizeArea(input.area) };
     return this.mutate(p, input.idempotency_key, async (c, now) => {
       const nowIso = now.toISOString();
+      const parent = input.parent_id ? await this.visibleTask(c, p, input.parent_id) : null;
       const t: Task = {
         id: newId(),
         seq: 0,
@@ -520,7 +655,7 @@ export class TaskService {
         next_action: input.next_action ?? "",
         done_means: input.done_means ?? "",
         owner: userId,
-        visibility: input.visibility ?? "household",
+        visibility: input.visibility ?? parent?.visibility ?? "household",
         next_actor: actor,
         actor_since: nowIso,
         state: "open",
@@ -533,7 +668,8 @@ export class TaskService {
         target_rule: input.target_rule ?? null,
         deadline: toMoment(input.deadline, now),
         expires: toMoment(input.expires, now),
-        area: tagged.area,
+        area: tagged.area ?? (input.area === undefined ? (parent?.area ?? null) : null),
+        parent_id: parent?.id ?? null,
         requires: input.requires ?? [],
         prefers: input.prefers ?? [],
         recurrence: input.recurrence ?? null,
@@ -552,8 +688,10 @@ export class TaskService {
         if (!t.recurrence) throw new ValidationError("last_done only applies to routines");
         t.last_done_at = completionInstant(toMoment(input.last_done, now) as Moment).toISOString();
       }
+      if (parent) await this.checkParts(c, p, t, { parentChanged: true });
       await insertTask(c, t);
       await addActivity(c, p, t.id, "created", "", now);
+      if (parent) await this.notePartAdded(c, p, parent, t, now);
       if (t.last_done_at) {
         await addActivity(c, p, t.id, "completion", "Recorded when created", now, {
           happenedAt: new Date(t.last_done_at),
@@ -588,6 +726,7 @@ export class TaskService {
       if (input.next_action !== undefined) t.next_action = input.next_action;
       if (input.done_means !== undefined) t.done_means = input.done_means;
       if (input.area !== undefined) t.area = normalizeArea(input.area);
+      if (input.parent_id !== undefined) t.parent_id = input.parent_id || null;
       if (input.requires !== undefined) t.requires = input.requires;
       if (input.prefers !== undefined) t.prefers = input.prefers;
       if (input.recurrence !== undefined) t.recurrence = input.recurrence;
@@ -604,6 +743,17 @@ export class TaskService {
       if (input.available_rule !== undefined) t.available_rule = input.available_rule;
       if (input.target_rule !== undefined) t.target_rule = input.target_rule;
       recomputeDerivedDates(t);
+      const parentChanged = t.parent_id !== before.parent_id;
+      if (
+        parentChanged ||
+        t.visibility !== before.visibility ||
+        !sameJson(t.recurrence, before.recurrence)
+      ) {
+        await this.checkParts(c, p, t, { parentChanged });
+      }
+      if (parentChanged && t.parent_id) {
+        await this.notePartAdded(c, p, await this.visibleTask(c, p, t.parent_id), t, now);
+      }
       const handedOff = actor ? await this.applyActorChange(c, t, actor, now) : false;
 
       const changed: Record<string, { from: unknown; to: unknown }> = {};
@@ -769,6 +919,7 @@ export class TaskService {
         t.waiting = null;
       } else {
         if (t.state === "done") return t;
+        await this.settleParts(c, p, t, input.open_parts, now);
         t.state = "done";
         t.closed_at = happened.toISOString();
         t.close_reason = "";
@@ -883,6 +1034,7 @@ export class TaskService {
     return this.mutate(p, input.idempotency_key, async (c, now) => {
       const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
       if (t.state === input.state) return t;
+      await this.settleParts(c, p, t, input.open_parts, now);
       const from = t.state;
       t.state = input.state;
       t.close_reason = input.reason ?? "";
@@ -1115,6 +1267,17 @@ export class TaskService {
     );
     for (const row of r.rows) out.set(row.id, row);
     return out;
+  }
+
+  /** This task's parts that the caller may see, open ones first. */
+  async parts(p: Principal, id: string): Promise<Task[]> {
+    await this.beforeAccess();
+    const r = await this.db.query(
+      `SELECT * FROM tasks t WHERE parent_id = $1 AND ${visibleSql("t", 2)}
+       ORDER BY (state IN ('open', 'waiting')) DESC, seq`,
+      [id, p.userId],
+    );
+    return r.rows.map(taskFromRow);
   }
 
   /** Tasks the caller may see that are waiting on this one. */

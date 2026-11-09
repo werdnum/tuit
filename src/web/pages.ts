@@ -67,7 +67,7 @@ function itemRow(
     ${tickHtml}
     <a class="row-main ${tick ? "" : "solo"}" href="/tasks/${t.id}">
       <span class="row-title">${t.title} ${opts.badge ? stateBadge(t) : ""} ${opts.area === false ? "" : areaBadge(t)} ${privateBadge(t)}</span>
-      ${item.why ? html`<span class="row-why">${item.why}</span>` : ""}
+      ${item.why || t.parent_title ? html`<span class="row-why">${t.parent_title ? html`<span data-row-part-of>Part of ${t.parent_title}</span>${item.why ? " · " : ""}` : ""}${item.why}</span>` : ""}
     </a>
     ${menu ?? html`<span class="chev" aria-hidden="true">›</span>`}
   </li>`;
@@ -325,6 +325,8 @@ export function detailPage(
     refs: Map<string, TaskRef>;
     /** Tasks waiting on this one. */
     blocks: TaskRef[];
+    /** This task's parts that the reader may see. */
+    parts: Task[];
     /** Active tasks this one may wait on. */
     waitable: Task[];
   },
@@ -336,6 +338,16 @@ export function detailPage(
   const routine = !!t.recurrence;
   const isOwner = t.owner === ctx.me.userId;
   const { users, me, now } = ctx;
+  const openParts = d.parts.filter((k) => k.state === "open" || k.state === "waiting").length;
+  const partsChoice = (preset: "done" | "expire") =>
+    openParts
+      ? html`<label class="field"><span>Its ${openParts} open part${openParts === 1 ? "" : "s"}</span><select name="open_parts">
+          <option value="done" ${preset === "done" ? "selected" : ""}>Done too</option>
+          <option value="expire" ${preset === "expire" ? "selected" : ""}>No longer relevant</option>
+          <option value="detach">Keep as separate tasks</option>
+        </select></label>`
+      : "";
+  const parent = t.parent_id ? d.refs.get(t.parent_id) : undefined;
 
   const statusLine = closed
     ? ""
@@ -383,12 +395,12 @@ export function detailPage(
       <summary>${label}</summary>
       <div class="body">
         <form method="post" action="${self}/done" class="presets">
-          ${back(self)}
+          ${back(self)}${openParts ? html`<input type="hidden" name="open_parts" value="done">` : ""}
           <button name="at" value="yesterday">Yesterday</button>
           <button name="at" value="2 days ago">2 days ago</button>
         </form>
         <form method="post" action="${self}/done">
-          ${back(self)}
+          ${back(self)}${openParts ? html`<input type="hidden" name="open_parts" value="done">` : ""}
           <label class="field"><span>Or pick a date</span><input type="date" name="at" max="${local(now).toISODate()}" required></label>
           <button class="wide">Record it</button>
         </form>
@@ -397,7 +409,7 @@ export function detailPage(
 
   const primary = closed
     ? html`<form method="post" action="${self}/reopen" class="actions">${back(self)}${rev}<button class="primary wide">Reopen</button></form>`
-    : html`<form method="post" action="${self}/done" class="actions">${back(self)}<button class="primary wide">${routine ? "Did it" : "Done"}</button></form>`;
+    : html`<form method="post" action="${self}/done" class="actions" data-done>${back(self)}${partsChoice("done")}<button class="primary wide">${routine ? "Did it" : "Done"}</button></form>`;
 
   const handoffOptions = [
     ...users.map((u) => ({
@@ -466,6 +478,7 @@ export function detailPage(
             <form method="post" action="${self}/close">
               ${back(self)}${rev}<input type="hidden" name="state" value="expired">
               <label class="field"><span>Why (optional)</span><input type="text" name="reason" placeholder="e.g. the event was cancelled"></label>
+              ${partsChoice("expire")}
               <button class="wide danger">Mark no longer relevant</button>
             </form>
           </div>
@@ -477,6 +490,7 @@ export function detailPage(
             <form method="post" action="${self}/close">
               ${back(self)}${rev}<input type="hidden" name="state" value="shelved">
               <label class="field"><span>Note (optional)</span><input type="text" name="reason"></label>
+              ${partsChoice("expire")}
               <button class="wide">Shelve it</button>
             </form>
           </div>
@@ -552,6 +566,7 @@ export function detailPage(
     body: html`
       <h1>${t.title}</h1>
       <div>${stateBadge(t)} ${areaBadge(t)} ${privateBadge(t)} ${s.pinned ? html`<span class="badge" data-pinned>pinned</span>` : ""}</div>
+      ${parent ? html`<p class="small muted" data-part-of>Part of <a href="/tasks/${parent.id}">${parent.title}</a></p>` : ""}
       ${statusLine}
       ${nextLine}
       ${s.routine && !s.urgent ? html`<p class="small muted" data-routine>${s.routine.label}</p>` : ""}
@@ -561,6 +576,7 @@ export function detailPage(
       ${primary}
       ${verbs}
       ${note}
+      ${partsSection(ctx, t, d.parts, closed)}
       <h2>Brief</h2>
       ${briefSection}
       ${attachmentsSection(t, d.picker)}
@@ -568,6 +584,46 @@ export function detailPage(
       ${moreSection(ctx, t, isOwner)}
     `,
   });
+}
+
+/**
+ * A task's parts, and a title-only capture for another. A part can't have parts and a routine
+ * can't be broken up, so neither shows this.
+ */
+function partsSection(ctx: Ctx, t: Task, parts: Task[], closed: boolean): Html {
+  if (t.parent_id || t.recurrence) return html``;
+  const self = `/tasks/${t.id}`;
+  const list = parts.length
+    ? html`<h2>Parts</h2>
+        <ul class="list" data-parts>
+          ${parts.map((k) => {
+            const open = k.state === "open" || k.state === "waiting";
+            return itemRow(
+              {
+                task: k,
+                why: open
+                  ? `Next: ${actorText(k.next_actor, ctx.users, ctx.me)}${k.next_action ? ` — ${k.next_action}` : ""}`
+                  : "",
+              },
+              { backTo: self, badge: true, area: false, done: k.state === "done", tick: open },
+            );
+          })}
+        </ul>`
+    : "";
+  const add = closed
+    ? ""
+    : html`<details class="sheet" data-add-part>
+        <summary>${parts.length ? "Add a part" : "Break into parts"}</summary>
+        <div class="body">
+          <p class="small muted">Each part shows up on its own. This task stays out of Now until they're all closed.</p>
+          <form method="post" action="${self}/parts">
+            ${back(self)}
+            <label class="field"><span>Part</span><input type="text" name="title" required placeholder="e.g. book the Eurostar"></label>
+            <button class="wide">Add part</button>
+          </form>
+        </div>
+      </details>`;
+  return html`${list}${add}`;
 }
 
 /** What a waiting task is waiting for; another task is named and linked when the reader can see it. */

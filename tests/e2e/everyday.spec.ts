@@ -205,3 +205,33 @@ test("a task can wait on another one, and each links to the other", async ({
   await expect(page).toHaveURL(new RegExp(`/tasks/${blocker.id}$`));
   await expect(page.locator("[data-blocks]")).toContainText("Waiting on this: Book the Eurostar");
 });
+
+test("a task broken into parts shows them, and leaves Now to them", async ({
+  page,
+  signIn,
+  alexApi,
+}) => {
+  const { task } = await alexApi.post("/api/tasks", { title: "Europe trip booked" });
+  await signIn(page, "alex");
+  await page.goto(`/tasks/${task.id}`);
+
+  await page.locator("summary", { hasText: "Break into parts" }).click();
+  await page.getByRole("textbox", { name: "Part" }).fill("book the Eurostar");
+  await page.getByRole("button", { name: "Add part" }).click();
+
+  await expect(page.locator("[data-parts]")).toContainText("book the Eurostar");
+  await expect(page.locator("[data-done]")).toContainText("Its 1 open part");
+
+  await page.goto("/");
+  const row = nowRow(page, "book the Eurostar");
+  await expect(row).toContainText("Part of Europe trip booked");
+  await expect(page.locator(`main li[data-task="${task.id}"]`)).toHaveCount(0);
+
+  await row.getByRole("link").click();
+  await page.locator("[data-part-of]").getByRole("link").click();
+  await expect(page).toHaveURL(new RegExp(`/tasks/${task.id}$`));
+  await page.locator("[data-done]").getByRole("button", { name: "Done" }).click();
+  await expect(
+    page.locator("[data-parts] li").filter({ hasText: "book the Eurostar" }),
+  ).toContainText("done");
+});

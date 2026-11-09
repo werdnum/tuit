@@ -107,7 +107,11 @@ export class Board {
 
   async assessments(p: Principal, now: Date): Promise<Assessment[]> {
     const r = await this.db.query(
-      `SELECT t.*, a.snoozed_until AS att_snoozed_until, a.pinned AS att_pinned
+      `SELECT t.*, a.snoozed_until AS att_snoozed_until, a.pinned AS att_pinned,
+         (SELECT count(*) FROM tasks k
+          WHERE k.parent_id = t.id AND k.state IN ('open', 'waiting'))::int AS open_parts,
+         (SELECT pt.title FROM tasks pt
+          WHERE pt.id = t.parent_id AND ${visibleSql("pt", 1)}) AS parent_title
        FROM tasks t LEFT JOIN attention a ON a.task_id = t.id AND a.user_id = $1::text
        WHERE t.state IN ('open', 'waiting') AND ${visibleSql("t", 1)}`,
       [p.userId],
@@ -134,6 +138,10 @@ export class Board {
   /** A task with its time-derived status for this viewer. */
   async view(p: Principal, taskId: string): Promise<{ task: Task; status: TaskStatus }> {
     const t = await this.tasks.get(p, taskId);
+    const openParts = (await this.tasks.parts(p, taskId)).filter(
+      (k) => k.state === "open" || k.state === "waiting",
+    ).length;
+    if (openParts) t.open_parts = openParts;
     const att = await this.tasks.attention(p, taskId);
     const a = assess(t, this.clock.now(), {
       snoozed_until: att.snoozed_until ? new Date(att.snoozed_until) : null,

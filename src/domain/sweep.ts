@@ -51,6 +51,14 @@ export async function sweep(db: Database, now: Date): Promise<void> {
       );
       for (const d of deps.rows) states.set(d.id, d.state);
     }
+    const parts = new Map<string, { active: number; last_closed: Date | null }>();
+    const partRows = await c.query<{ parent_id: string; active: number; last_closed: Date | null }>(
+      `SELECT parent_id, count(*) FILTER (WHERE state IN ('open', 'waiting'))::int AS active,
+              max(closed_at) AS last_closed
+       FROM tasks WHERE parent_id = ANY($1) GROUP BY parent_id`,
+      [tasks.map((t) => t.id)],
+    );
+    for (const r of partRows.rows) parts.set(r.parent_id, r);
 
     for (const t of tasks) {
       if (t.expires && momentEnd(t.expires) <= now) {
@@ -93,6 +101,25 @@ export async function sweep(db: Database, now: Date): Promise<void> {
             now,
             `The task this was waiting on was ${depState}, not done — check whether this still makes sense`,
           );
+        }
+      }
+
+      const p = parts.get(t.id);
+      if (t.state === "open" && p && p.active === 0 && p.last_closed) {
+        // The parent was held out of Now while it had open parts; it comes back, once per
+        // closing of its last part, for someone to decide whether it's done.
+        if (await firstTime(c, t.id, "parts_closed", p.last_closed.toISOString())) {
+          await addActivity(
+            c,
+            null,
+            t.id,
+            "system",
+            "All its parts are closed: is it done, or is there more to do?",
+            now,
+          );
+          await addEvent(c, null, "became_available", { taskId: t.id }, now, {
+            reason: "all its parts are closed",
+          });
         }
       }
 
