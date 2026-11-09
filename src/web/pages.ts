@@ -967,6 +967,91 @@ export function viewPage(
   });
 }
 
+// ---------------------------------------------------------------- Feed
+
+export interface FeedFilter {
+  others: boolean;
+  area: string | null;
+  showAll: boolean;
+}
+
+function feedHref(f: FeedFilter, before?: number): string {
+  const q = new URLSearchParams();
+  if (f.others) q.set("who", "others");
+  if (f.area) q.set("area", f.area);
+  if (f.showAll) q.set("all", "1");
+  if (before !== undefined) q.set("before", String(before));
+  const s = q.toString();
+  return s ? `/feed?${s}` : "/feed";
+}
+
+export function feedPage(
+  ctx: Ctx,
+  d: {
+    filter: FeedFilter;
+    entries: ActivityEntry[];
+    tasks: Map<string, Task>;
+    refs: Map<string, TaskRef>;
+    areas: string[];
+    more: boolean;
+    paged: boolean;
+  },
+): Html {
+  const { me, users, now } = ctx;
+  const f = d.filter;
+  const chip = (href: string, on: boolean, label: string) =>
+    html`<a href="${href}" aria-current="${on}">${label}</a>`;
+  const areas = [...new Set([...d.areas, ...(f.area ? [f.area] : [])])];
+  const chips = html`<nav class="chips" aria-label="Whose changes" data-who>
+      ${chip(feedHref({ ...f, others: false }), !f.others, "Everyone")}
+      ${chip(feedHref({ ...f, others: true }), f.others, "Not me")}
+    </nav>
+    ${
+      areas.length
+        ? html`<nav class="chips" aria-label="Areas" data-areas>
+            ${chip(feedHref({ ...f, area: null }), f.area === null, "All areas")}
+            ${areas.map((a) => chip(feedHref({ ...f, area: a }), f.area === a, a === "none" ? "No area" : `#${a}`))}
+          </nav>`
+        : ""
+    }`;
+
+  const rows = d.entries.map((e) => {
+    const t = d.tasks.get(e.task_id) as Task;
+    const x = activityText(e, t, users, me);
+    const late =
+      e.kind === "completion" &&
+      new Date(e.recorded_at).getTime() - new Date(e.happened_at).getTime() > 3_600_000;
+    return html`<li class="${e.author.agent ? "agent" : ""} ${QUIET_KINDS.has(e.kind) ? "sys" : ""}" data-kind="${e.kind}" data-entry="${e.id}">
+      <a class="task" href="/tasks/${t.id}">${t.title}</a>
+      <div class="when">${whenText(e.recorded_at, now)} · ${authorHtml(e, users, me)}${late ? html` · happened ${whenText(e.happened_at, now)}` : ""} ${areaBadge(t)} ${privateBadge(t)}</div>
+      <div><strong>${x.head}</strong></div>
+      ${x.body ? html`<div class="body md">${markdownHtml(x.body, d.refs)}</div>` : ""}
+    </li>`;
+  });
+  const last = d.entries.at(-1);
+
+  return page({
+    title: "Feed",
+    tab: "feed",
+    flash: ctx.flash,
+    live: ctx.live,
+    top: topTitle("Feed", "Recent changes"),
+    body: html`
+      ${chips}
+      ${
+        rows.length
+          ? html`<div class="card feed"><ul class="history" data-feed>${rows}</ul></div>`
+          : html`<div class="empty">${d.paged ? "Nothing older." : "Nothing has changed yet."}</div>`
+      }
+      <div class="actions">
+        ${d.paged ? html`<a class="btn quiet" href="${feedHref(f)}">Newest</a>` : ""}
+        ${d.more && last ? html`<a class="btn quiet" href="${feedHref(f, last.id)}" data-older>Older</a>` : ""}
+        <a class="btn quiet" href="${feedHref({ ...f, showAll: !f.showAll })}">${f.showAll ? "Hide edits and bookkeeping" : "Show edits and bookkeeping"}</a>
+      </div>
+    `,
+  });
+}
+
 // ---------------------------------------------------------------- Search
 
 export function searchPage(ctx: Ctx, q: string, results: Task[] | null): Html {

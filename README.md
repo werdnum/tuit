@@ -133,6 +133,8 @@ and webhook transport checks.
 - an inspect view;
 - atomic checkpoint, idempotency keys, revision checks, and claims with side-effect-aware leases;
 - the change feed, and live updates in the web UI driven by it (no refreshing to see changes);
+- a Feed tab in the web UI: everyone's recent history across the tasks you can see, newest first,
+  filterable to other people's changes or one area;
 - notifications to browsers (Web Push) and the iPhone app (APNs), with per-person rules (what kind
   of change, whose tasks, which area, by a person or an agent) and quiet hours that end in one
   summary;

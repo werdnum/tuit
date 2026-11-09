@@ -1079,6 +1079,69 @@ export class TaskService {
     });
   }
 
+  /**
+   * History across every task the caller can see, newest first: what the web feed shows.
+   * Visibility is the task's as it is now, so a task made private drops out of others' feeds.
+   * `before` pages backwards by entry id; `others` leaves out what the caller did themselves
+   * (an agent acting for them counts as someone else, as it does for notifications).
+   */
+  async recentActivity(
+    p: Principal,
+    opts: {
+      before?: number;
+      limit?: number;
+      area?: string;
+      others?: boolean;
+      hideKinds?: string[];
+    } = {},
+  ): Promise<{ entries: ActivityEntry[]; tasks: Map<string, Task>; more: boolean }> {
+    await this.beforeAccess();
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+    const values: unknown[] = [p.userId];
+    const where = [visibleSql("t", 1)];
+    const param = (v: unknown) => {
+      values.push(v);
+      return `$${values.length}`;
+    };
+    if (opts.before !== undefined) where.push(`a.id < ${param(opts.before)}`);
+    if (opts.area !== undefined)
+      where.push(`coalesce(t.area, 'none') = ${param(areaFilter(opts.area))}`);
+    if (opts.others) {
+      where.push(`NOT (a.author_user IS NOT DISTINCT FROM $1::text AND a.author_agent IS NULL)`);
+    }
+    if (opts.hideKinds?.length) where.push(`a.kind <> ALL(${param(opts.hideKinds)})`);
+    const r = await this.db.query(
+      `SELECT a.* FROM activity a JOIN tasks t ON t.id = a.task_id
+       WHERE ${where.join(" AND ")}
+       ORDER BY a.id DESC
+       LIMIT ${param(limit + 1)}`,
+      values,
+    );
+    const entries = r.rows.slice(0, limit).map(activityFromRow);
+    const ids = [...new Set(entries.map((e) => e.task_id))];
+    const tr = ids.length
+      ? await this.db.query(`SELECT * FROM tasks t WHERE id = ANY($2) AND ${visibleSql("t", 1)}`, [
+          p.userId,
+          ids,
+        ])
+      : { rows: [] };
+    const tasks = new Map<string, Task>(tr.rows.map((row) => [row.id, taskFromRow(row)]));
+    return {
+      entries: entries.filter((e) => tasks.has(e.task_id)),
+      tasks,
+      more: r.rows.length > limit,
+    };
+  }
+
+  /** Areas on any task the caller can see, open or closed. */
+  async allAreas(p: Principal): Promise<string[]> {
+    const r = await this.db.query<{ area: string }>(
+      `SELECT DISTINCT area FROM tasks t WHERE area IS NOT NULL AND ${visibleSql("t", 1)} ORDER BY area`,
+      [p.userId],
+    );
+    return r.rows.map((x) => x.area);
+  }
+
   /** Text search over everything the caller can see, including closed tasks and notes. */
   async search(
     p: Principal,
