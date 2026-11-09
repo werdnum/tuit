@@ -3,7 +3,7 @@ import type { DateTime } from "luxon";
 import type { TokenInfo } from "../api/auth.ts";
 import type { Config } from "../config.ts";
 import type { NowView, Queue } from "../domain/board.ts";
-import type { UserInfo } from "../domain/tasks.ts";
+import type { TaskRef, UserInfo } from "../domain/tasks.ts";
 import { local, type Moment } from "../domain/time.ts";
 import type { ActivityEntry, Principal, Task } from "../domain/types.ts";
 import type { Explanation, QueueItem, QueueResult, TaskStatus } from "../domain/views.ts";
@@ -321,6 +321,12 @@ export function detailPage(
     picker: Config["googlePicker"];
     /** Agents with a token, offered by name when handing off. */
     agents: string[];
+    /** Tasks mentioned by id in the brief and history, and the one this waits on. */
+    refs: Map<string, TaskRef>;
+    /** Tasks waiting on this one. */
+    blocks: TaskRef[];
+    /** Active tasks this one may wait on. */
+    waitable: Task[];
   },
 ): Html {
   const { task: t, status: s } = d;
@@ -352,7 +358,7 @@ export function detailPage(
   const waitingBox =
     t.state === "waiting" && t.waiting
       ? html`<div class="card pad" data-waiting>
-          <div>Waiting${t.waiting.for ? html` for <strong>${t.waiting.for}</strong>` : ""} since ${agoText(t.waiting.since, now)}.</div>
+          ${waitingText(t, d.refs, now)}
           ${t.waiting.follow_up ? html`<div class="small muted">Follow up ${momentHtml(t.waiting.follow_up, now)}</div>` : ""}
           <form method="post" action="${self}/resume" class="actions">
             ${back(self)}${rev}
@@ -361,6 +367,12 @@ export function detailPage(
           </form>
         </div>`
       : "";
+
+  const blocksBox = d.blocks.length
+    ? html`<p class="small muted" data-blocks>Waiting on this: ${d.blocks.map(
+        (b, i) => html`${i ? ", " : ""}<a href="/tasks/${b.id}">${b.title}</a>`,
+      )}</p>`
+    : "";
 
   const snoozed = s.snoozed_until
     ? html`<div class="linkrow small muted" data-snoozed>Snoozed until ${momentHtml({ at: s.snoozed_until }, now)}
@@ -416,6 +428,7 @@ export function detailPage(
               <label class="field"><span>Follow up (optional)</span><input type="text" name="follow_up" placeholder="e.g. fri, +3d, 2026-10-10"></label>
               <button class="wide">Mark waiting</button>
             </form>
+            ${waitOnTaskForm(self, back(self), rev, d.waitable)}
           </div>
         </details>
         <details class="sheet" name="verb">
@@ -485,7 +498,7 @@ export function detailPage(
     ? html`<section class="card pad" data-conflict role="alert">
         <p><strong>Someone else changed the brief while you were editing.</strong> Nothing was lost — here's theirs, and yours is below to merge and save.</p>
         <p class="small muted">Current brief</p>
-        <div class="brief md" data-current-brief>${t.brief ? markdownHtml(t.brief) : html`<span class="muted">(empty)</span>`}</div>
+        <div class="brief md" data-current-brief>${t.brief ? markdownHtml(t.brief, d.refs) : html`<span class="muted">(empty)</span>`}</div>
         <form method="post" action="${self}/brief">
           ${back(self)}${rev}
           <label class="field"><span>Your version</span><textarea name="brief" rows="6">${d.conflict.mine}</textarea></label>
@@ -493,7 +506,7 @@ export function detailPage(
         </form>
       </section>`
     : html`<section class="card pad">
-        ${t.brief ? html`<div class="brief md" data-brief>${markdownHtml(t.brief)}</div>` : html`<div class="muted" data-brief>No brief yet.</div>`}
+        ${t.brief ? html`<div class="brief md" data-brief>${markdownHtml(t.brief, d.refs)}</div>` : html`<div class="muted" data-brief>No brief yet.</div>`}
         <details>
           <summary class="small" style="min-height:44px;display:flex;align-items:center;color:var(--accent)">Edit brief</summary>
           <form method="post" action="${self}/brief">
@@ -517,7 +530,7 @@ export function detailPage(
           return html`<li class="${e.author.agent ? "agent" : ""} ${QUIET_KINDS.has(e.kind) ? "sys" : ""}" data-kind="${e.kind}">
             <div class="when">${whenText(e.happened_at, now)} · ${authorHtml(e, users, me)}${late ? html` · recorded ${agoText(e.recorded_at, now)}` : ""}</div>
             <div><strong>${x.head}</strong></div>
-            ${x.body ? html`<div class="body md">${markdownHtml(x.body)}</div>` : ""}
+            ${x.body ? html`<div class="body md">${markdownHtml(x.body, d.refs)}</div>` : ""}
           </li>`;
         })}
       </ul>
@@ -543,6 +556,7 @@ export function detailPage(
       ${nextLine}
       ${s.routine && !s.urgent ? html`<p class="small muted" data-routine>${s.routine.label}</p>` : ""}
       ${waitingBox}
+      ${blocksBox}
       ${snoozed}
       ${primary}
       ${verbs}
@@ -554,6 +568,44 @@ export function detailPage(
       ${moreSection(ctx, t, isOwner)}
     `,
   });
+}
+
+/** What a waiting task is waiting for; another task is named and linked when the reader can see it. */
+function waitingText(t: Task, refs: Map<string, TaskRef>, now: Date): Html {
+  const w = t.waiting as NonNullable<Task["waiting"]>;
+  const since = agoText(w.since, now);
+  const blocker = w.kind === "task" && w.task_id ? refs.get(w.task_id) : undefined;
+  if (blocker) {
+    return html`<div>Waiting on <a href="/tasks/${blocker.id}" data-blocker><strong>${blocker.title}</strong></a> since ${since}. It comes back when that's closed.</div>`;
+  }
+  return html`<div>Waiting${w.for ? html` for <strong>${w.for}</strong>` : ""} since ${since}.</div>`;
+}
+
+/** The second way to wait: on another task, picked from the active ones, grouped by area. */
+function waitOnTaskForm(self: string, back: Html, rev: Html, waitable: Task[]): Html {
+  if (!waitable.length) return html``;
+  const byArea = new Map<string, Task[]>();
+  for (const t of [...waitable].sort((a, b) => a.title.localeCompare(b.title))) {
+    const key = t.area ?? "";
+    byArea.set(key, [...(byArea.get(key) ?? []), t]);
+  }
+  const groups = [...byArea.entries()].sort(([a], [b]) =>
+    a === "" ? 1 : b === "" ? -1 : a.localeCompare(b),
+  );
+  return html`<form method="post" action="${self}/waiting" data-wait-on-task>
+      ${back}${rev}
+      <input type="hidden" name="on" value="task">
+      <label class="field"><span>Or another task</span><select name="task_id" required>
+        <option value="">Choose a task…</option>
+        ${groups.map(
+          ([area, ts]) =>
+            html`<optgroup label="${area ? `#${area}` : "No area"}">${ts.map(
+              (t) => html`<option value="${t.id}">${t.title}</option>`,
+            )}</optgroup>`,
+        )}
+      </select></label>
+      <button class="wide">Wait on that task</button>
+    </form>`;
 }
 
 /** Where a link goes, in a person's words. */
