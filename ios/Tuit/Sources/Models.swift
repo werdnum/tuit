@@ -125,6 +125,8 @@ struct TaskItem: Codable, Hashable, Identifiable {
     var prefers: [String]
     var recurrence: Recurrence?
     var attachments: [Attachment]
+    /// Parts still open or waiting; absent when there are none.
+    var openParts: Int? = nil
     var lastDoneAt: String?
     var lastSkipAt: String?
     var claim: Claim?
@@ -135,6 +137,7 @@ struct TaskItem: Codable, Hashable, Identifiable {
 
     var isClosed: Bool { ["done", "expired", "shelved"].contains(state) }
     var isPrivate: Bool { visibility == "private" }
+    var openPartCount: Int { openParts ?? 0 }
 }
 
 struct TaskStatus: Codable, Hashable {

@@ -78,6 +78,12 @@ export interface Task {
   expires: Moment | null;
   /** Which part of life it belongs to ("home", "tuit"). Flat, one per task, optional. */
   area: string | null;
+  /** The task this is a part of. One level: a part has no parts of its own. */
+  parent_id: string | null;
+  /** Parts still open or waiting; only where a view loaded it. */
+  open_parts?: number;
+  /** The parent's title, where a view loaded it and the reader may see the parent. */
+  parent_title?: string;
   requires: string[];
   prefers: string[];
   recurrence: Recurrence | null;
@@ -149,6 +155,9 @@ export function taskFromRow(r: any): Task {
     deadline: momentFromColumns(r.deadline_date, r.deadline_at),
     expires: momentFromColumns(r.expires_date, r.expires_at),
     area: r.area,
+    parent_id: r.parent_id ?? null,
+    ...(r.open_parts ? { open_parts: r.open_parts } : {}),
+    ...(r.parent_title != null ? { parent_title: r.parent_title } : {}),
     requires: r.requires,
     prefers: r.prefers,
     recurrence: r.recurrence,
@@ -286,6 +295,9 @@ export const TaskFieldsInput = z
     deadline: nullable(MomentInput),
     expires: nullable(MomentInput),
     area: nullable(AreaInput),
+    parent_id: nullable(z.string().max(40)).describe(
+      "Make this a part of another task (null to detach). One level only: a part can't have parts, and routines can't be parents or parts. A new part takes its parent's area and visibility unless given.",
+    ),
     requires: z.array(z.string().min(1).max(50)).max(20),
     prefers: z.array(z.string().min(1).max(50)).max(20),
     recurrence: nullable(RecurrenceInput),
@@ -387,11 +399,20 @@ export const DetachInput = z
   .strict();
 export type DetachInput = z.infer<typeof DetachInput>;
 
+/** What happens to a task's open parts when it is closed. */
+export const OpenPartsInput = z
+  .enum(["done", "expire", "detach"])
+  .optional()
+  .describe(
+    'Required when the task has open parts: "done" closes them as done too, "expire" marks them no longer relevant, "detach" keeps them as separate tasks.',
+  );
+
 export const CompleteInput = z
   .object({
     /** When it was actually done ("yesterday", "thu", an ISO instant). Defaults to now. */
     at: MomentInput.optional(),
     note: z.string().max(20_000).optional().describe(NOTE_DESCRIPTION),
+    open_parts: OpenPartsInput,
     expected_revision: z.number().int().optional(),
     claim_id: ClaimIdInput,
     idempotency_key: z.string().max(200).optional(),
@@ -403,6 +424,7 @@ export const CloseInput = z
   .object({
     state: z.enum(["expired", "shelved"]),
     reason: z.string().max(2000).optional(),
+    open_parts: OpenPartsInput,
     expected_revision: z.number().int().optional(),
     claim_id: ClaimIdInput,
     idempotency_key: z.string().max(200).optional(),

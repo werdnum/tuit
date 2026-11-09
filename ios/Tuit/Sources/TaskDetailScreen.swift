@@ -11,6 +11,7 @@ struct TaskDetailScreen: View {
     @State private var error: String?
     @State private var sheet: Sheet?
     @State private var confirmClose: String?
+    @State private var confirmDone = false
 
     enum Sheet: String, Identifiable {
         case note, handOff, waiting, complete, edit, attach
@@ -51,14 +52,27 @@ struct TaskDetailScreen: View {
             titleVisibility: .visible
         ) {
             if let state = confirmClose {
-                Button(state == "expired" ? "No longer relevant" : "Shelve") {
-                    Task { await mutate { api, t in try await api.post("/tasks/\(t.id)/close", CloseBody(state: state, expectedRevision: t.revision)) } }
+                let verb = state == "expired" ? "No longer relevant" : "Shelve"
+                if (view?.task.openPartCount ?? 0) > 0 {
+                    Button("\(verb), parts too") { close(state, parts: "expire") }
+                    Button("\(verb), keep parts as tasks") { close(state, parts: "detach") }
+                } else {
+                    Button(verb) { close(state, parts: nil) }
                 }
             }
         } message: {
             Text(confirmClose == "expired"
                  ? "It closes without being done. Its notes are kept and you can still find it."
                  : "It goes cold but stays searchable. Reopen it any time.")
+        }
+        .confirmationDialog(
+            "Its \(partsText(view?.task.openPartCount ?? 0))",
+            isPresented: $confirmDone,
+            titleVisibility: .visible
+        ) {
+            Button("Done too") { complete(parts: "done") }
+            Button("Keep as separate tasks") { complete(parts: "detach") }
+            Button("No longer relevant") { complete(parts: "expire") }
         }
     }
 
@@ -177,6 +191,18 @@ struct TaskDetailScreen: View {
         }
     }
 
+    private func partsText(_ n: Int) -> String {
+        n == 1 ? "1 open part" : "\(n) open parts"
+    }
+
+    private func complete(parts: String?) {
+        Task { await mutate { api, t in try await api.post("/tasks/\(t.id)/complete", CompleteBody(expectedRevision: t.revision, openParts: parts)) } }
+    }
+
+    private func close(_ state: String, parts: String?) {
+        Task { await mutate { api, t in try await api.post("/tasks/\(t.id)/close", CloseBody(state: state, expectedRevision: t.revision, openParts: parts)) } }
+    }
+
     @ViewBuilder
     private func actions(_ v: TaskView) -> some View {
         let t = v.task
@@ -188,7 +214,9 @@ struct TaskDetailScreen: View {
             }
         } else {
             Section {
-                Button { Task { await mutate { api, t in try await api.post("/tasks/\(t.id)/complete", CompleteBody(expectedRevision: t.revision)) } } } label: {
+                Button {
+                    if t.openPartCount > 0 { confirmDone = true } else { complete(parts: nil) }
+                } label: {
                     Label(t.recurrence == nil ? "Done" : "Did it", systemImage: "checkmark.circle")
                 }
                 Button { sheet = .complete } label: { Label("Done earlier…", systemImage: "clock.arrow.circlepath") }

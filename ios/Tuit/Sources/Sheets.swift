@@ -205,17 +205,28 @@ struct CompleteEarlierSheet: View {
     let done: () async -> Void
     @State private var date = Calendar.current.date(byAdding: .day, value: -1, to: .now)!
     @State private var note = ""
+    @State private var parts = "done"
 
     var body: some View {
         SheetForm(title: "Done earlier", action: "Done", submit: { api in
             let _: TaskView = try await api.post("/tasks/\(task.id)/complete", CompleteBody(
                 at: Fmt.day(date),
                 note: note.trimmed.isEmpty ? nil : note.trimmed,
-                expectedRevision: task.revision
+                expectedRevision: task.revision,
+                openParts: task.openPartCount > 0 ? parts : nil
             ))
         }, done: done) {
             Section {
                 DatePicker("When", selection: $date, in: ...Date.now, displayedComponents: .date)
+            }
+            if task.openPartCount > 0 {
+                Section {
+                    Picker("Its \(task.openPartCount == 1 ? "1 open part" : "\(task.openPartCount) open parts")", selection: $parts) {
+                        Text("Done too").tag("done")
+                        Text("Keep as separate tasks").tag("detach")
+                        Text("No longer relevant").tag("expire")
+                    }
+                }
             }
             Section("Note") {
                 TextField("Optional", text: $note, axis: .vertical)

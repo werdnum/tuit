@@ -119,6 +119,9 @@ export function assess(t: Task, now: Date, att: Attention | undefined): Assessme
   if (t.state === "open" && t.available_from && momentStart(t.available_from) > now) {
     held = `not available until ${describeMoment(t.available_from, now)}`;
   }
+  if (t.state === "open" && t.open_parts) {
+    held = `${t.open_parts} part${t.open_parts === 1 ? "" : "s"} still open`;
+  }
   if (t.state === "waiting") held = "waiting";
   if (!active) held = t.state;
 

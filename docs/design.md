@@ -58,6 +58,16 @@ from others, and a household queue shows each viewer only what that viewer may s
   lowercase word. It is deliberately flat and single — not a project hierarchy, and not a tag
   set — so "show me the Tuit stuff" has one exact answer. A capture that starts or ends with
   `#word` files the task there.
+- **parts**: a task can be broken into parts, one level deep. The parent is the outcome ("Europe
+  trip booked"); each part is a step that shows up on its own, labelled with its parent. While
+  any part is open or waiting, the parent is held out of Now (computed, not a state); when the
+  last part closes, the parent comes back with a note asking whether it's done. Closing a parent
+  with open parts needs an explicit choice: close them as done, mark them no longer relevant, or
+  keep them as separate tasks. A part can't have parts, routines can't be parents or parts, and a
+  household parent can't have a private part (it would reveal it); a household part of a private
+  parent is fine, and others simply don't see what it's part of. A new part takes its parent's
+  area and visibility. Deliberately not here: more levels, progress bars, project pages. A part
+  added to a parent doesn't close with the parent's own `expires`; it stays open and linked.
 - **next actor** is whose turn it is: a named human, a named agent, or anyone. Capture defaults to
   the creator. **owner** is who is responsible overall (defaults to the creator). They differ once
   a task changes hands.

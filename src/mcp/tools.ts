@@ -97,6 +97,7 @@ Model
 - Moments are a calendar date ("sat") or an exact instant ("sat 9am"); they never collapse into each other. Fields: available_from, target (not overdue when missed), deadline (consequences), expires (auto-expires after).
 - Routines (recurrence after_completion / since_done) are one persistent task: complete_task records a completion and it rests; skip_routine passes without resetting "last done".
 - area = which part of life a task belongs to ("home", "tuit", "cluster"): one optional word per task, not a hierarchy. Reuse an existing area (now lists them) rather than inventing near-duplicates. A title captured as "#tuit fix the feed" sets it.
+- parts: a task can be broken into parts (create_task with parent_id). The parent is the outcome and stays out of Now while any part is open, then comes back for someone to decide whether it's done; closing it with open parts needs open_parts. One level only.
 - Order comes from dates (deadline, target) and pins, not priority numbers. When the person says something matters more, pin_task it; don't invent a deadline to make it sort first.
 
 How to work
@@ -297,15 +298,30 @@ export async function buildMcpServer(
 
   tool(
     "get_task",
-    "A task with its time-derived status, the tasks waiting on it (waiting_on_this), and its activity history (progress notes, handoffs, completions). Bookkeeping entries (edits, system) only with include_system.",
+    "A task with its time-derived status, its parent (part_of) and parts, the tasks waiting on it (waiting_on_this), and its activity history (progress notes, handoffs, completions). Bookkeeping entries (edits, system) only with include_system.",
     z.object({ task_id: taskId, include_system: z.boolean().default(false) }).strict(),
     READ,
     async ({ task_id, include_system }) => {
       const v = await view(task_id);
       const activity = await tasks.activity(p, task_id);
       const blocks = await tasks.waitingOn(p, task_id);
+      const parts = await tasks.parts(p, task_id);
+      const partOf = v.task.parent_id
+        ? (await tasks.titles(p, [v.task.parent_id])).get(v.task.parent_id)
+        : undefined;
       return {
         ...v,
+        ...(partOf ? { part_of: partOf } : {}),
+        ...(parts.length
+          ? {
+              parts: parts.map((k) => ({
+                id: k.id,
+                title: k.title,
+                state: k.state,
+                next_actor: k.next_actor,
+              })),
+            }
+          : {}),
         ...(blocks.length ? { waiting_on_this: blocks } : {}),
         activity: activity.filter((a) => include_system || !SYSTEM_KINDS.has(a.kind)).map(entry),
       };

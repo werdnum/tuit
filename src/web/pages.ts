@@ -38,6 +38,9 @@ export interface Ctx {
 const back = (to: string) => html`<input type="hidden" name="back" value="${to}">`;
 
 function doneForm(t: Task, backTo: string): Html {
+  // Closing a task with open parts needs a choice about them, which its page asks.
+  if (t.open_parts)
+    return html`<a class="tick" href="/tasks/${t.id}" aria-label="Done: ${t.title}" title="Done…"></a>`;
   return html`<form class="tickform" method="post" action="/tasks/${t.id}/done">${back(backTo)}<button class="tick" aria-label="Done: ${t.title}" title="Done"></button></form>`;
 }
 
@@ -69,7 +72,7 @@ function itemRow(
     ${tickHtml}
     <a class="row-main ${tick ? "" : "solo"}" href="/tasks/${t.id}">
       <span class="row-title">${t.title} ${opts.badge ? stateBadge(t) : ""} ${opts.area === false ? "" : areaBadge(t)} ${privateBadge(t)}</span>
-      ${item.why ? html`<span class="row-why">${item.why}</span>` : ""}
+      ${item.why || t.parent_title ? html`<span class="row-why">${t.parent_title ? html`<span data-row-part-of>Part of ${t.parent_title}</span>${item.why ? " · " : ""}` : ""}${item.why}</span>` : ""}
     </a>
     ${menu ?? html`<span class="chev" aria-hidden="true">›</span>`}
   </li>`;
@@ -98,7 +101,11 @@ function rowMenu(item: QueueItem, opts: { backTo: string; now: Date; listId: str
             ? html`<form method="post" action="${action}/skip">${b}<button>Skip this time</button></form>`
             : ""
         }
-        <form method="post" action="${action}/close">${b}<input type="hidden" name="expected_revision" value="${t.revision}"><input type="hidden" name="state" value="expired"><button class="danger">No longer relevant</button></form>
+        ${
+          t.open_parts
+            ? html`<form method="get" action="${action}"><button class="danger">No longer relevant…</button></form>`
+            : html`<form method="post" action="${action}/close">${b}<input type="hidden" name="expected_revision" value="${t.revision}"><input type="hidden" name="state" value="expired"><button class="danger">No longer relevant</button></form>`
+        }
       </div>
       <form method="post" action="${action}/area" class="menu-area">
         ${b}<input type="hidden" name="expected_revision" value="${t.revision}">
@@ -346,6 +353,8 @@ export function detailPage(
     refs: Map<string, TaskRef>;
     /** Tasks waiting on this one. */
     blocks: TaskRef[];
+    /** This task's parts that the reader may see. */
+    parts: Task[];
     /** Active tasks this one may wait on. */
     waitable: Task[];
   },
@@ -357,6 +366,16 @@ export function detailPage(
   const routine = !!t.recurrence;
   const isOwner = t.owner === ctx.me.userId;
   const { users, me, now } = ctx;
+  const openParts = d.parts.filter((k) => k.state === "open" || k.state === "waiting").length;
+  const partsChoice = (preset: "done" | "expire") =>
+    openParts
+      ? html`<label class="field"><span>Its ${openParts} open part${openParts === 1 ? "" : "s"}</span><select name="open_parts">
+          <option value="done" ${preset === "done" ? "selected" : ""}>Done too</option>
+          <option value="expire" ${preset === "expire" ? "selected" : ""}>No longer relevant</option>
+          <option value="detach">Keep as separate tasks</option>
+        </select></label>`
+      : "";
+  const parent = t.parent_id ? d.refs.get(t.parent_id) : undefined;
 
   const statusLine = closed
     ? ""
@@ -403,14 +422,13 @@ export function detailPage(
   const doneEarlier = (label: string) => html`<details class="sheet" name="verb">
       <summary>${label}</summary>
       <div class="body">
-        <form method="post" action="${self}/done" class="presets">
-          ${back(self)}
-          <button name="at" value="yesterday">Yesterday</button>
-          <button name="at" value="2 days ago">2 days ago</button>
-        </form>
         <form method="post" action="${self}/done">
-          ${back(self)}
-          <label class="field"><span>Or pick a date</span><input type="date" name="at" max="${local(now).toISODate()}" required></label>
+          ${back(self)}${partsChoice("done")}
+          <div class="presets">
+            <button name="at" value="yesterday" formnovalidate>Yesterday</button>
+            <button name="at" value="2 days ago" formnovalidate>2 days ago</button>
+          </div>
+          <label class="field"><span>Or pick a date</span><input type="date" name="date" max="${local(now).toISODate()}" required></label>
           <button class="wide">Record it</button>
         </form>
       </div>
@@ -418,7 +436,7 @@ export function detailPage(
 
   const primary = closed
     ? html`<form method="post" action="${self}/reopen" class="actions">${back(self)}${rev}<button class="primary wide">Reopen</button></form>`
-    : html`<form method="post" action="${self}/done" class="actions">${back(self)}<button class="primary wide">${routine ? "Did it" : "Done"}</button></form>`;
+    : html`<form method="post" action="${self}/done" class="actions" data-done>${back(self)}${partsChoice("done")}<button class="primary wide">${routine ? "Did it" : "Done"}</button></form>`;
 
   const handoffOptions = [
     ...users.map((u) => ({
@@ -487,6 +505,7 @@ export function detailPage(
             <form method="post" action="${self}/close">
               ${back(self)}${rev}<input type="hidden" name="state" value="expired">
               <label class="field"><span>Why (optional)</span><input type="text" name="reason" placeholder="e.g. the event was cancelled"></label>
+              ${partsChoice("expire")}
               <button class="wide danger">Mark no longer relevant</button>
             </form>
           </div>
@@ -498,6 +517,7 @@ export function detailPage(
             <form method="post" action="${self}/close">
               ${back(self)}${rev}<input type="hidden" name="state" value="shelved">
               <label class="field"><span>Note (optional)</span><input type="text" name="reason"></label>
+              ${partsChoice("expire")}
               <button class="wide">Shelve it</button>
             </form>
           </div>
@@ -573,6 +593,7 @@ export function detailPage(
     body: html`
       <h1>${t.title}</h1>
       <div>${stateBadge(t)} ${areaBadge(t)} ${privateBadge(t)} ${s.pinned ? html`<span class="badge" data-pinned>pinned</span>` : ""}</div>
+      ${parent ? html`<p class="small muted" data-part-of>Part of <a href="/tasks/${parent.id}">${parent.title}</a></p>` : ""}
       ${statusLine}
       ${nextLine}
       ${s.routine && !s.urgent ? html`<p class="small muted" data-routine>${s.routine.label}</p>` : ""}
@@ -582,6 +603,7 @@ export function detailPage(
       ${primary}
       ${verbs}
       ${note}
+      ${partsSection(ctx, t, d.parts, closed)}
       <h2>Brief</h2>
       ${briefSection}
       ${attachmentsSection(t, d.picker)}
@@ -589,6 +611,46 @@ export function detailPage(
       ${moreSection(ctx, t, isOwner)}
     `,
   });
+}
+
+/**
+ * A task's parts, and a title-only capture for another. A part can't have parts and a routine
+ * can't be broken up, so neither shows this.
+ */
+function partsSection(ctx: Ctx, t: Task, parts: Task[], closed: boolean): Html {
+  if (t.parent_id || t.recurrence) return html``;
+  const self = `/tasks/${t.id}`;
+  const list = parts.length
+    ? html`<h2>Parts</h2>
+        <ul class="list" data-parts>
+          ${parts.map((k) => {
+            const open = k.state === "open" || k.state === "waiting";
+            return itemRow(
+              {
+                task: k,
+                why: open
+                  ? `Next: ${actorText(k.next_actor, ctx.users, ctx.me)}${k.next_action ? ` — ${k.next_action}` : ""}`
+                  : "",
+              },
+              { backTo: self, badge: true, area: false, done: k.state === "done", tick: open },
+            );
+          })}
+        </ul>`
+    : "";
+  const add = closed
+    ? ""
+    : html`<details class="sheet" data-add-part>
+        <summary>${parts.length ? "Add a part" : "Break into parts"}</summary>
+        <div class="body">
+          <p class="small muted">Each part shows up on its own. This task stays out of Now until they're all closed.</p>
+          <form method="post" action="${self}/parts">
+            ${back(self)}
+            <label class="field"><span>Part</span><input type="text" name="title" required placeholder="e.g. book the Eurostar"></label>
+            <button class="wide">Add part</button>
+          </form>
+        </div>
+      </details>`;
+  return html`${list}${add}`;
 }
 
 /** What a waiting task is waiting for; another task is named and linked when the reader can see it. */
@@ -985,6 +1047,91 @@ export function viewPage(
             )
           : html`<div class="empty">Nothing here.</div>`
       }`,
+  });
+}
+
+// ---------------------------------------------------------------- Feed
+
+export interface FeedFilter {
+  others: boolean;
+  area: string | null;
+  showAll: boolean;
+}
+
+function feedHref(f: FeedFilter, before?: number): string {
+  const q = new URLSearchParams();
+  if (f.others) q.set("who", "others");
+  if (f.area) q.set("area", f.area);
+  if (f.showAll) q.set("all", "1");
+  if (before !== undefined) q.set("before", String(before));
+  const s = q.toString();
+  return s ? `/feed?${s}` : "/feed";
+}
+
+export function feedPage(
+  ctx: Ctx,
+  d: {
+    filter: FeedFilter;
+    entries: ActivityEntry[];
+    tasks: Map<string, Task>;
+    refs: Map<string, TaskRef>;
+    areas: string[];
+    more: boolean;
+    paged: boolean;
+  },
+): Html {
+  const { me, users, now } = ctx;
+  const f = d.filter;
+  const chip = (href: string, on: boolean, label: string) =>
+    html`<a href="${href}" aria-current="${on}">${label}</a>`;
+  const areas = [...new Set([...d.areas, ...(f.area ? [f.area] : [])])];
+  const chips = html`<nav class="chips" aria-label="Whose changes" data-who>
+      ${chip(feedHref({ ...f, others: false }), !f.others, "Everyone")}
+      ${chip(feedHref({ ...f, others: true }), f.others, "Not me")}
+    </nav>
+    ${
+      areas.length
+        ? html`<nav class="chips" aria-label="Areas" data-areas>
+            ${chip(feedHref({ ...f, area: null }), f.area === null, "All areas")}
+            ${areas.map((a) => chip(feedHref({ ...f, area: a }), f.area === a, a === "none" ? "No area" : `#${a}`))}
+          </nav>`
+        : ""
+    }`;
+
+  const rows = d.entries.map((e) => {
+    const t = d.tasks.get(e.task_id) as Task;
+    const x = activityText(e, t, users, me);
+    const late =
+      e.kind === "completion" &&
+      new Date(e.recorded_at).getTime() - new Date(e.happened_at).getTime() > 3_600_000;
+    return html`<li class="${e.author.agent ? "agent" : ""} ${QUIET_KINDS.has(e.kind) ? "sys" : ""}" data-kind="${e.kind}" data-entry="${e.id}">
+      <a class="task" href="/tasks/${t.id}">${t.title}</a>
+      <div class="when">${whenText(e.recorded_at, now)} · ${authorHtml(e, users, me)}${late ? html` · happened ${whenText(e.happened_at, now)}` : ""} ${areaBadge(t)} ${privateBadge(t)}</div>
+      <div><strong>${x.head}</strong></div>
+      ${x.body ? html`<div class="body md">${markdownHtml(x.body, d.refs)}</div>` : ""}
+    </li>`;
+  });
+  const last = d.entries.at(-1);
+
+  return page({
+    title: "Feed",
+    tab: "feed",
+    flash: ctx.flash,
+    live: ctx.live,
+    top: topTitle("Feed", "Recent changes"),
+    body: html`
+      ${chips}
+      ${
+        rows.length
+          ? html`<div class="card feed"><ul class="history" data-feed>${rows}</ul></div>`
+          : html`<div class="empty">${d.paged ? "Nothing older." : "Nothing has changed yet."}</div>`
+      }
+      <div class="actions">
+        ${d.paged ? html`<a class="btn quiet" href="${feedHref(f)}">Newest</a>` : ""}
+        ${d.more && last ? html`<a class="btn quiet" href="${feedHref(f, last.id)}" data-older>Older</a>` : ""}
+        <a class="btn quiet" href="${feedHref({ ...f, showAll: !f.showAll })}">${f.showAll ? "Hide edits and bookkeeping" : "Show edits and bookkeeping"}</a>
+      </div>
+    `,
   });
 }
 

@@ -11,7 +11,7 @@ import { visibleSql } from "../domain/tasks.ts";
 import { type Principal, splitAreaTag, type Task } from "../domain/types.ts";
 import type { Explanation } from "../domain/views.ts";
 import { CATEGORIES, defaultRules } from "../notify/rules.ts";
-import { actorText, momentEditText, whenText } from "./format.ts";
+import { actorText, momentEditText, QUIET_KINDS, whenText } from "./format.ts";
 import { type Flash, MANIFEST } from "./layout.ts";
 import { liveStream } from "./live.ts";
 import { taskIdCandidates } from "./markdown.ts";
@@ -21,6 +21,7 @@ import {
   detailPage,
   devLoginPage,
   errorPage,
+  feedPage,
   inspectPage,
   notificationsPage,
   nowPage,
@@ -287,11 +288,13 @@ export function webRoutes(app: App): Hono<AuthEnv> {
   ): Promise<Response> {
     const v = await board.view(ctx.me, id);
     const activity = await tasks.activity(ctx.me, id);
+    const parts = await tasks.parts(ctx.me, id);
     const refs = await tasks.titles(
       ctx.me,
       [
         ...taskIdCandidates(v.task.brief, ...activity.map((a) => a.body)),
         ...(v.task.waiting?.task_id ? [v.task.waiting.task_id] : []),
+        ...(v.task.parent_id ? [v.task.parent_id] : []),
       ].filter((ref) => ref !== id),
     );
     const html = detailPage(ctx, {
@@ -299,6 +302,7 @@ export function webRoutes(app: App): Hono<AuthEnv> {
       activity,
       refs,
       blocks: await tasks.waitingOn(ctx.me, id),
+      parts,
       waitable: (await tasks.list(ctx.me, ["open", "waiting"])).filter(
         (t) => t.id !== id && !(v.task.visibility === "household" && t.visibility === "private"),
       ),
@@ -331,6 +335,11 @@ export function webRoutes(app: App): Hono<AuthEnv> {
     }),
   );
 
+  const openParts = (form: Form) =>
+    form.open_parts === "done" || form.open_parts === "expire" || form.open_parts === "detach"
+      ? form.open_parts
+      : undefined;
+
   const taskAction = (
     handler: (p: Principal, id: string, form: Form) => Promise<unknown>,
   ): ((c: WebContext) => Promise<Response>) =>
@@ -342,9 +351,14 @@ export function webRoutes(app: App): Hono<AuthEnv> {
 
   r.post(
     "/tasks/:id/done",
-    taskAction((p, id, form) =>
-      tasks.complete(p, id, form.at ? { at: form.at, note: form.note || undefined } : {}),
-    ),
+    taskAction((p, id, form) => {
+      // "Done earlier" sends a preset as `at`, or a picked day as `date`.
+      const at = form.at || form.date;
+      return tasks.complete(p, id, {
+        ...(at ? { at, note: form.note || undefined } : {}),
+        open_parts: openParts(form),
+      });
+    }),
   );
   r.post(
     "/tasks/:id/skip",
@@ -418,9 +432,18 @@ export function webRoutes(app: App): Hono<AuthEnv> {
       tasks.close(p, id, {
         state: form.state === "shelved" ? "shelved" : "expired",
         reason: form.reason?.trim() || undefined,
+        open_parts: openParts(form),
         expected_revision: revision(form),
       }),
     ),
+  );
+  r.post(
+    "/tasks/:id/parts",
+    taskAction((p, id, form) => {
+      const title = (form.title ?? "").trim();
+      if (!title) throw new ValidationError("Type the part to add");
+      return tasks.create(p, { title, parent_id: id });
+    }),
   );
   r.post(
     "/tasks/:id/reopen",
@@ -727,6 +750,38 @@ export function webRoutes(app: App): Hono<AuthEnv> {
       );
     }
   });
+
+  // ---- Feed
+
+  r.get(
+    "/feed",
+    view(async (c, ctx) => {
+      const area = (c.req.query("area") ?? "").trim() || null;
+      const filter = {
+        others: c.req.query("who") === "others",
+        area,
+        showAll: c.req.query("all") === "1",
+      };
+      const rawBefore = c.req.query("before");
+      const before = rawBefore && /^\d{1,15}$/.test(rawBefore) ? Number(rawBefore) : undefined;
+      const feed = await tasks.recentActivity(ctx.me, {
+        before,
+        area: area ?? undefined,
+        others: filter.others,
+        hideKinds: filter.showAll ? [] : [...QUIET_KINDS],
+      });
+      const refs = await tasks.titles(ctx.me, taskIdCandidates(...feed.entries.map((e) => e.body)));
+      return c.html(
+        feedPage(ctx, {
+          filter,
+          ...feed,
+          refs,
+          areas: await tasks.allAreas(ctx.me),
+          paged: before !== undefined,
+        }),
+      );
+    }),
+  );
 
   // ---- Search
 

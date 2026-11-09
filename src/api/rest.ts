@@ -97,6 +97,10 @@ export function restApi(app: App): Hono<AuthEnv> {
     return c.json({
       ...v,
       waiting_on_this: await tasks.waitingOn(p, v.task.id),
+      parts: await tasks.parts(p, v.task.id),
+      part_of: v.task.parent_id
+        ? ((await tasks.titles(p, [v.task.parent_id])).get(v.task.parent_id) ?? null)
+        : null,
       activity: await tasks.activity(p, v.task.id),
     });
   });

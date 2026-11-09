@@ -187,6 +187,8 @@ struct CompleteBody: Encodable {
     var at: String? = ISO8601DateFormatter().string(from: .now)
     var note: String? = nil
     var expectedRevision: Int? = nil
+    /// What happens to open parts: "done", "expire" or "detach". Required when there are any.
+    var openParts: String? = nil
     var idempotencyKey = UUID().uuidString
 }
 
@@ -194,6 +196,7 @@ struct CloseBody: Encodable {
     var state: String
     var reason: String? = nil
     var expectedRevision: Int? = nil
+    var openParts: String? = nil
     var idempotencyKey = UUID().uuidString
 }
 
