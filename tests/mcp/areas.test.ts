@@ -39,6 +39,24 @@ test("an agent files, finds and narrows Now by area", async () => {
   ).toEqual(["prune old backups"]);
 });
 
+test("find_tasks lists compact rows, and full records on request", async () => {
+  await claude.call("create_task", {
+    title: "renew the passports",
+    brief: "Forms are in the blue folder",
+    next_action: "Book a photo",
+  });
+
+  const compact = await claude.call("find_tasks", { text: "passports" });
+  const full = await claude.call("find_tasks", { text: "passports", detail: true });
+
+  expect(compact.tasks).toEqual([
+    expect.objectContaining({ title: "renew the passports", next_action: "Book a photo" }),
+  ]);
+  expect(compact.tasks[0].id).toEqual(full.tasks[0].id);
+  expect(compact.tasks[0]).not.toHaveProperty("brief");
+  expect(full.tasks[0].brief).toBe("Forms are in the blue folder");
+});
+
 test("an agent pins what the person says matters, and it tops their list", async () => {
   for (let i = 1; i <= 6; i++) await alex.post("/api/tasks", { title: `chore ${i}` });
   await alex.get("/api/now");
