@@ -129,6 +129,25 @@ function prune<T extends object>(o: T): Partial<T> {
 }
 
 const brief = (t: Task) => prune(t);
+/** A listing row: enough to pick a task or spot a duplicate. get_task has the rest. */
+const row = (t: Task) =>
+  prune({
+    id: t.id,
+    title: t.title,
+    state: t.state,
+    area: t.area,
+    next_action: t.next_action,
+    next_actor: t.next_actor,
+    waiting: t.waiting,
+    available_from: t.available_from,
+    target: t.target,
+    deadline: t.deadline,
+    expires: t.expires,
+    parent_id: t.parent_id,
+    open_parts: t.open_parts,
+    recurrence: t.recurrence,
+    claim: t.claim ? { agent: t.claim.agent, expires_at: t.claim.expires_at } : null,
+  });
 const item = (i: QueueItem) => ({ ...prune({ ...i, task: undefined }), task: brief(i.task) });
 const entry = (a: ActivityEntry) =>
   prune({ ...a, task_id: undefined, data: Object.keys(a.data).length ? a.data : undefined });
@@ -272,7 +291,7 @@ export async function buildMcpServer(
 
   tool(
     "find_tasks",
-    'Search or list tasks, optionally in one area. With text: searches title, brief, next action and notes, including closed tasks (state "active" limits to open/waiting). Without text: lists tasks in the given states (default active).',
+    'Search or list tasks, optionally in one area. With text: searches title, brief, next action and notes, including closed tasks (state "active" limits to open/waiting). Without text: lists tasks in the given states (default active). Each task comes back as a compact row (id, title, state, area, next action, next actor, dates, parent, claim); read one with get_task for its brief, done_means, attachments and history, or pass detail: true for full records.',
     z
       .object({
         text: z.string().min(1).optional(),
@@ -282,17 +301,21 @@ export async function buildMcpServer(
           .describe('"active" (open + waiting) or a list of states'),
         area: AreaInput.optional().describe('Only this area; "none" = tasks without one'),
         limit: z.number().int().min(1).max(200).default(50),
+        detail: z
+          .boolean()
+          .default(false)
+          .describe("true returns each task's full record instead of a compact row"),
       })
       .strict(),
     READ,
-    async ({ text, state, area, limit }) => {
+    async ({ text, state, area, limit, detail }) => {
       const states = state === "active" ? ["open", "waiting"] : state;
       let list = text
         ? await tasks.search(p, text, { includeClosed: state !== "active", limit: 200, area })
         : await tasks.list(p, states ?? ["open", "waiting"]);
       if (text && Array.isArray(state)) list = list.filter((t) => state.includes(t.state));
       if (area) list = list.filter((t) => inAreas(t, [area]));
-      return { tasks: list.slice(0, limit).map(brief) };
+      return { tasks: list.slice(0, limit).map(detail ? brief : row) };
     },
   );
 

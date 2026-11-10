@@ -82,6 +82,9 @@ Revoking a token in Settings takes effect immediately.
 - **Areas group tasks** (`home`, `tuit`, `cluster`). Reuse an area already in use (`now` lists
   them) rather than inventing a near-duplicate. `find_tasks` and `now` take `area`; `"none"`
   means tasks without one.
+- **`find_tasks` returns compact rows** (id, title, state, area, next action, next actor, dates,
+  parent, claim): enough to pick a task or check for a duplicate. Read the one you want with
+  `get_task`, or pass `detail: true` when you really need every full record.
 - **Big outcomes can have parts.** `create_task` with `parent_id` adds a step to an outcome. The
   parent stays out of Now until its parts are closed, then comes back to be confirmed done.
   `get_task` lists `parts` and `part_of`. Closing a parent with open parts needs `open_parts`
