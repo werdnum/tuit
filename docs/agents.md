@@ -9,7 +9,7 @@ Every credential acts for exactly one person. There is no household-wide superus
 
 | Credential | Acts as | Sees | Get one |
 | --- | --- | --- | --- |
-| Agent token | `agent:<name>` for one person | household tasks, plus that person's private tasks | Settings → Tokens, or `npm run admin -- mint-token --user alex --agent claude` |
+| Agent token | `agent:<name>` for one person | household tasks, plus that person's private tasks | Settings → Tokens, or `node src/admin.ts mint-token --user alex --agent claude` |
 | Personal token | the person (e.g. their own CLI) | the same | Settings → Tokens, or `mint-token --user alex --personal` |
 | Display token | nobody, read-only | household tasks only | Settings → Tokens, or `mint-display-token --by alex` |
 | OAuth connector | `agent:<name>` for whoever approved it | the same as an agent token | added from claude.ai / ChatGPT (see below) |
@@ -289,8 +289,8 @@ Mint each token using Settings → Tokens, or the operator command in the Tuit
 runtime environment:
 
 ```bash
-npm run admin -- mint-token --user andrew --agent family-assistant --label family-assistant
-npm run admin -- mint-token --user teija --agent family-assistant --label family-assistant
+node src/admin.ts mint-token --user andrew --agent family-assistant --label family-assistant
+node src/admin.ts mint-token --user teija --agent family-assistant --label family-assistant
 ```
 
 Token values are secrets: capture them directly into secret storage, not chat or logs.
