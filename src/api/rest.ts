@@ -199,7 +199,8 @@ export function restApi(app: App): Hono<AuthEnv> {
       ...input,
       attachment_id: c.req.param("attachmentId"),
     });
-    return c.json(await board.view(p, t.id));
+    const v = await board.view(p, t.id);
+    return c.json(t.warning ? { ...v, warning: t.warning } : v);
   });
   api.get("/tasks/:id/explain", async (c) =>
     c.json(
