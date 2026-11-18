@@ -203,6 +203,19 @@ describe("areas hidden by default", () => {
     expect(titles(q.urgent)).toEqual(["patch the exposed host"]);
   });
 
+  test("an urgent hidden task still shows when it arrives after the plan, or is already on it", async () => {
+    const early = await add(alex, "rotate the leaked key", { area: "security" });
+    await alex.get("/api/now");
+    await add(alex, "patch the exposed host", { area: "security", deadline: "2026-10-06" });
+    await alex.patch(`/api/tasks/${early}`, { deadline: "2026-10-06" });
+    await alex.patch("/api/areas/security", { hidden_by_default: true });
+
+    const now = await alex.get("/api/now");
+
+    expect(titles(now.urgent).sort()).toEqual(["patch the exposed host", "rotate the leaked key"]);
+    expect(everything(now)).toEqual([]);
+  });
+
   test("explain says the area is hidden", async () => {
     const id = await add(alex, "bump openssl", { area: "security" });
     await alex.patch("/api/areas/security", { hidden_by_default: true });

@@ -387,9 +387,12 @@ export class Board {
     const rest = eligible.filter((a) => !inPlan.has(a.task.id));
     const fresh = rest.filter((a) => !seen.has(a.task.id));
     const freshIds = new Set(fresh.map((a) => a.task.id));
+    // Only what the lists will really show: a hidden-area task left out of them must still be
+    // able to show as urgent.
+    const listed = (t: Task) => area !== null || !isHidden(t);
     const shownIds = new Set([
-      ...planView.filter((x) => !x.done).map((x) => x.item.task.id),
-      ...freshIds,
+      ...planView.filter((x) => !x.done && listed(x.item.task)).map((x) => x.item.task.id),
+      ...fresh.filter((a) => listed(a.task)).map((a) => a.task.id),
     ]);
 
     const urgent = all
