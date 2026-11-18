@@ -398,7 +398,8 @@ export class Board {
     ];
     const inPlan = new Set(planIds);
     const rest = eligible.filter((a) => !inPlan.has(a.task.id));
-    const fresh = rest.filter((a) => !seen.has(a.task.id));
+    // A P2 task sorts last, so it never shows as new above everything else.
+    const fresh = rest.filter((a) => !seen.has(a.task.id) && a.priority !== "P2");
     const freshIds = new Set(fresh.map((a) => a.task.id));
     // Only what the lists will really show: a hidden-area task left out of them must still be
     // able to show as urgent.

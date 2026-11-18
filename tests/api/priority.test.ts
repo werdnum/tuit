@@ -76,6 +76,19 @@ describe("priority bands", () => {
     expect(listed(now)).toEqual(["fix the gate latch", "sort the photo albums"]);
   });
 
+  test("a new task set to P2 sorts last instead of showing as new", async () => {
+    await add(alex, "fix the gate latch");
+    await alex.get("/api/now");
+    await add(alex, "call the council");
+    const id = await add(alex, "sort the photo albums");
+
+    await setPriority(alex, id, "P2");
+
+    const now = await alex.get("/api/now");
+    expect(titles(now.new_items)).toEqual(["call the council"]);
+    expect(titles(now.also)).toEqual(["sort the photo albums"]);
+  });
+
   test("a P2 task with a close deadline still shows as urgent", async () => {
     const id = await add(alex, "lodge the rates objection", { deadline: "2026-10-06" });
     await setPriority(alex, id, "P2");

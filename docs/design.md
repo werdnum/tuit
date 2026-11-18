@@ -409,8 +409,9 @@ scale invites re-ranking that no one keeps up.
   24 hours, shows in the urgent list whatever the priority, so a P2 task with a real deadline still
   surfaces.
 - **P0** puts the task at the top of today's plan straight away, as the pin used to.
-- **P2** tasks stay on Now, at the bottom, and are never picked for the day's plan (setting P2
-  takes a task off today's list). They don't need snoozing and don't resurface.
+- **P2** tasks stay on Now, at the bottom of "everything else", and are never picked for the
+  day's plan or shown under *New since this morning* (setting P2 takes a task off today's list).
+  They don't need snoozing and don't resurface.
 - Priority is per person, like snooze, and changes no shared task field. A person sets it in the
   UI (P0 / P1 / P2 on a row's menu and on the task page), the CLI (`tuit priority`) or the API.
   An agent sets it (`set_priority`) only when the person says so, never on its own judgement, and
