@@ -61,6 +61,7 @@ export const TOOL_NAMES = [
   "attach_link",
   "remove_attachment",
   "pin_task",
+  "set_area",
   "claim_next",
   "release_claim",
   "list_queues",
@@ -96,7 +97,7 @@ Model
 - A human decision needed is NOT waiting: hand off to that human with next_action "Decide: ...". That puts it in their Now.
 - Moments are a calendar date ("sat") or an exact instant ("sat 9am"); they never collapse into each other. Fields: available_from, target (not overdue when missed), deadline (consequences), expires (auto-expires after).
 - Routines (recurrence after_completion / since_done) are one persistent task: complete_task records a completion and it rests; skip_routine passes without resetting "last done".
-- area = which part of life a task belongs to ("home", "tuit", "cluster"): one optional word per task, not a hierarchy. Reuse an existing area (now lists them) rather than inventing near-duplicates. A title captured as "#tuit fix the feed" sets it.
+- area = which part of life a task belongs to ("home", "tuit", "cluster"): one optional word per task, not a hierarchy. Reuse an existing area (now lists them) rather than inventing near-duplicates. A title captured as "#tuit fix the feed" sets it. An area can be hidden by default (set_area): its tasks stay out of the person's Now and unnamed queues, never out of your own inbox or claim_next.
 - parts: a task can be broken into parts (create_task with parent_id). The parent is the outcome and stays out of Now while any part is open, then comes back for someone to decide whether it's done; closing it with open parts needs open_parts. One level only.
 - Order comes from dates (deadline, target) and pins, not priority numbers. When the person says something matters more, pin_task it; don't invent a deadline to make it sort first.
 
@@ -257,7 +258,7 @@ export async function buildMcpServer(
 
   tool(
     "now",
-    "The Now view for the person you act for: today's short plan, anything new since the plan was made, urgent items (always shown), and every other eligible task under also, in order. also is paged: more_count says how many follow, and a larger limit returns them. Also returns the current time and the areas in use. With area: only that area.",
+    "The Now view for the person you act for: today's short plan, anything new since the plan was made, urgent items (always shown), and every other eligible task under also, in order. also is paged: more_count says how many follow, and a larger limit returns them. Also returns the current time and the areas in use. Areas hidden by default (hidden_by_default) are left out except for urgent items; hidden_areas counts what each holds and when the oldest became the person's turn. With area: only that area, hidden or not.",
     z
       .object({
         area: AreaInput.optional().describe('An area, e.g. "tuit"; "none" = no area'),
@@ -468,6 +469,21 @@ export async function buildMcpServer(
   );
 
   tool(
+    "set_area",
+    "Change a household-wide area setting. hidden_by_default: true leaves the area's tasks out of the person's Now and of saved queues that don't name the area in areas (urgent ones still show; Now counts the rest under hidden_areas). Naming the area (now with area, or a queue whose areas include it) shows them. It changes nothing for agents: claim_next, inboxes and queues of an agent's turn are unaffected. Only on the person's say-so.",
+    z
+      .object({
+        area: AreaInput.describe('The area, e.g. "security"'),
+        hidden_by_default: z.boolean(),
+      })
+      .strict(),
+    WRITE,
+    async ({ area, hidden_by_default }) => ({
+      area: await board.setArea(p, area, { hidden_by_default }),
+    }),
+  );
+
+  tool(
     "claim_next",
     'Atomically take the oldest open task handed to you (or task_id, or only from areas; "none" means no area), with a lease. side_effects defaults to true (a lapse goes to a person to check); pass false for pure research/drafting that is safe to retry. Keep the returned task.claim.id and pass it as claim_id on every later change you make to the task (checkpoint, hand_off, complete_task, release_claim...). Without it, a change to a claimed task still goes through but is recorded as made over the claim and comes back with a warning. Returns task null when there is nothing to do.',
     ClaimInput,
@@ -538,7 +554,7 @@ export async function buildMcpServer(
 
   tool(
     "explain",
-    "Why a task is or isn't in Now (default) or a saved queue: verdict (shown / urgent / beyond_limit / excluded), a summary, and every check applied.",
+    'Why a task is or isn\'t in Now (default) or a saved queue: verdict (shown / urgent / beyond_limit / excluded), a summary, and every check applied (an area_hidden check means "excluded: area hidden by default").',
     z.object({ task_id: taskId, queue_id: z.string().optional() }).strict(),
     READ,
     async ({ task_id, queue_id }) => board.explain(p, task_id, queue_id),

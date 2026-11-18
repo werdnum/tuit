@@ -78,6 +78,7 @@ test("the tool surface is small and task-oriented", async () => {
       "reopen_task",
       "run_queue",
       "save_queue",
+      "set_area",
       "skip_routine",
       "snooze_task",
       "update_task",

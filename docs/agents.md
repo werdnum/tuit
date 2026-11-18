@@ -81,7 +81,9 @@ Revoking a token in Settings takes effect immediately.
   permission system, not by this tracker.
 - **Areas group tasks** (`home`, `tuit`, `cluster`). Reuse an area already in use (`now` lists
   them) rather than inventing a near-duplicate. `find_tasks` and `now` take `area`; `"none"`
-  means tasks without one.
+  means tasks without one. An area can be hidden by default (`set_area`, on the person's say-so):
+  its tasks leave the person's Now and unnamed queues (urgent ones still show, and `now` counts
+  the rest under `hidden_areas`), but your own inbox and `claim_next` are unaffected.
 - **`find_tasks` returns compact rows** (id, title, state, area, next action, next actor, dates,
   parent, claim): enough to pick a task or check for a duplicate. Read the one you want with
   `get_task`, or pass `detail: true` when you really need every full record.

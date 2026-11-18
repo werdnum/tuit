@@ -391,6 +391,11 @@ function printNow(v: NowView): void {
       out(c.dim(`  Areas: ${v.areas.map((a) => `#${a}`).join(" ")} (tuit now --area NAME)`));
     }
   }
+  // An older server sends no hidden_areas.
+  for (const h of v.hidden_areas ?? []) {
+    const days = Math.max(0, Math.floor((Date.now() - Date.parse(h.oldest_since)) / 86_400_000));
+    out(c.dim(`#${h.area}: ${h.count} hidden, oldest ${days}d (tuit now --area ${h.area})`));
+  }
   if (v.waiting_count > 0) {
     out(c.dim(`${v.waiting_count} waiting on someone or something (tuit search to find them)`));
   }

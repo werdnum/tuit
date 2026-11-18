@@ -217,6 +217,15 @@ export function restApi(app: App): Hono<AuthEnv> {
     return c.json(t ? await board.view(p, t.id) : { task: null });
   });
 
+  api.get("/areas", async (c) => c.json({ areas: await board.areaSettings(c.get("principal")) }));
+  api.patch("/areas/:area", async (c) => {
+    const input = z
+      .object({ hidden_by_default: z.boolean(), idempotency_key: z.string().max(200).optional() })
+      .strict()
+      .parse(await body(c));
+    return c.json({ area: await board.setArea(c.get("principal"), c.req.param("area"), input) });
+  });
+
   api.get("/queues", async (c) => c.json({ queues: await board.listQueues(c.get("principal")) }));
   api.post("/queues", async (c) => {
     const input = QueueSaveInput.parse(await body(c));

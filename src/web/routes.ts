@@ -271,6 +271,16 @@ export function webRoutes(app: App): Hono<AuthEnv> {
     }),
   );
   r.post(
+    "/areas/:area/hidden",
+    action(async (c, p, form) => {
+      const area = c.req.param("area") as string;
+      const on = form.on !== "0";
+      await board.setArea(p, area, { hidden_by_default: on });
+      flash(c, on ? `#${area} is hidden from Now` : `#${area} shows in Now again`);
+      return undefined;
+    }),
+  );
+  r.post(
     "/now/enough",
     action(async (_c, p, form) => {
       await board.enoughForNow(p, form.on !== "0");

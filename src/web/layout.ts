@@ -162,6 +162,8 @@ button:disabled { opacity: 0.5; }
 fieldset.plain { border: 0; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
 .center { text-align: center; }
+.hidden-areas { list-style: none; padding: 0; margin: 12px 0; }
+.hidden-areas li { margin: 4px 0; }
 .empty { text-align: center; padding: 40px 16px 24px; color: var(--muted); }
 .empty .big { font-size: 22px; color: var(--text); font-weight: 600; margin-bottom: 6px; }
 .calm { text-align: center; padding: 28px 16px; }
