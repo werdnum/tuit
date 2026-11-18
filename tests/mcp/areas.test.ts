@@ -67,3 +67,24 @@ test("an agent pins what the person says matters, and it tops their list", async
   expect(pinned.status.pinned).toBe(true);
   expect((await alex.get("/api/now")).plan[0].item.task.title).toBe("the one that matters");
 });
+
+test("an agent hides an area on request, and Now counts what it holds", async () => {
+  await claude.call("create_task", { title: "bump openssl", area: "security" });
+  await claude.call("create_task", { title: "ring the vet" });
+
+  const set = await claude.call("set_area", { area: "security", hidden_by_default: true });
+  const now = await claude.call("now", {});
+
+  expect(set.area).toMatchObject({
+    area: "security",
+    hidden_by_default: true,
+    updated_by: { user: "alex", agent: "claude" },
+  });
+  expect(now.hidden_by_default).toEqual(["security"]);
+  expect(now.hidden_areas).toMatchObject([{ area: "security", count: 1 }]);
+  expect(
+    [...now.plan.map((p: any) => p.item), ...now.new_items, ...now.also].map(
+      (i: any) => i.task.title,
+    ),
+  ).toEqual(["ring the vet"]);
+});

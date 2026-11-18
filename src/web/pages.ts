@@ -241,6 +241,21 @@ export function nowPage(ctx: Ctx, v: NowView, limit?: number): Html {
         </nav>`
       : "";
 
+  // Hidden areas stay findable: a line each on unnarrowed Now, and a switch on the area itself.
+  const hiddenLines = v.hidden_areas.length
+    ? html`<ul class="hidden-areas muted center" data-hidden-areas>${v.hidden_areas.map(
+        (h) =>
+          html`<li><a href="/?area=${encodeURIComponent(h.area)}">#${h.area}: ${h.count} hidden, oldest ${Math.max(0, Math.floor((ctx.now.getTime() - new Date(h.oldest_since).getTime()) / 86_400_000))}d</a></li>`,
+      )}</ul>`
+    : "";
+  const hideSwitch = fileTo
+    ? html`<form method="post" action="/areas/${encodeURIComponent(fileTo)}/hidden" class="center" data-area-hidden="${v.area_hidden}">
+        ${back(self)}<input type="hidden" name="on" value="${v.area_hidden ? "0" : "1"}">
+        <button class="quiet">${v.area_hidden ? `Show #${fileTo} in Now` : `Hide #${fileTo} from Now`}</button>
+        ${v.area_hidden ? html`<p class="muted">Hidden by default: these show only here and in queues that name #${fileTo}, unless urgent.</p>` : ""}
+      </form>`
+    : "";
+
   const shortlist = enough
     ? html`<section class="calm card" data-enough>
         <div class="big">Enough for now.</div>
@@ -309,6 +324,8 @@ export function nowPage(ctx: Ctx, v: NowView, limit?: number): Html {
       ${v.away ? awayBanner(v.away, ctx) : ""}
       ${urgentStrip(urgent, self, undefined, menu)}
       ${shortlist}
+      ${hiddenLines}
+      ${hideSwitch}
       ${areaNames}
       ${
         v.waiting_count

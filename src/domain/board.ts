@@ -11,7 +11,7 @@ import {
   visibleSql,
 } from "./tasks.ts";
 import { local, localDate } from "./time.ts";
-import { type Principal, type Task, taskFromRow } from "./types.ts";
+import { normalizeArea, type Principal, type Task, taskFromRow } from "./types.ts";
 import {
   type Assessment,
   type Attention,
@@ -21,7 +21,9 @@ import {
   type Explanation,
   evaluateQueue,
   explainTask,
+  hiddenByArea,
   inAreas,
+  NO_HIDDEN_AREAS,
   parseQueueConfig,
   type QueueConfig,
   type QueueItem,
@@ -67,12 +69,37 @@ export interface Queue {
   created_by_agent: string | null;
 }
 
+/** A household-wide area setting. An area nobody has changed has no record and the defaults. */
+export interface AreaSetting {
+  area: string;
+  hidden_by_default: boolean;
+  updated_at: string;
+  updated_by: { user: string | null; agent: string | null };
+}
+
+/** A hidden area's tasks that would otherwise be on the person's Now. */
+export interface HiddenAreaSummary {
+  area: string;
+  count: number;
+  /** When the longest-waiting of them became the person's (or anyone's) turn. */
+  oldest_since: string;
+}
+
 export interface NowView {
   date: string;
   /** The area this view is narrowed to, if any. */
   area: string | null;
+  /** Whether that area is hidden by default (so it shows only when named, as now). */
+  area_hidden: boolean;
   /** Areas with active tasks the person can see, for filtering. */
   areas: string[];
+  /** Which of `areas` are hidden by default: their tasks show only when the area is named. */
+  hidden_by_default: string[];
+  /**
+   * One line per hidden area holding tasks that would otherwise be on Now (unnarrowed Now only),
+   * so a hidden area can't quietly pile up.
+   */
+  hidden_areas: HiddenAreaSummary[];
   plan: { item: QueueItem; done: boolean }[];
   new_items: QueueItem[];
   /** The other eligible tasks, beyond today's plan and what's new, in order (one page of them). */
@@ -100,6 +127,16 @@ function queueFromRow(r: any): Queue {
     created_at: r.created_at.toISOString(),
     updated_at: r.updated_at.toISOString(),
     created_by_agent: r.created_by_agent,
+  };
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: raw pg row
+function areaSettingFromRow(r: any): AreaSetting {
+  return {
+    area: r.area,
+    hidden_by_default: r.hidden_by_default,
+    updated_at: r.updated_at.toISOString(),
+    updated_by: { user: r.updated_by_user, agent: r.updated_by_agent },
   };
 }
 
@@ -150,6 +187,54 @@ export class Board {
     return this.tasks.users();
   }
 
+  // ---- Area settings
+
+  /** Areas flagged hidden by default. Filtering only, so it needn't be limited to visible ones. */
+  async hiddenAreas(): Promise<Set<string>> {
+    const r = await this.db.query<{ area: string }>(
+      "SELECT area FROM area_settings WHERE hidden_by_default",
+    );
+    return new Set(r.rows.map((x) => x.area));
+  }
+
+  /**
+   * Settings for areas this person can see on a task, or that no task uses yet; an area only on
+   * someone else's private tasks stays unnamed.
+   */
+  async areaSettings(p: Principal): Promise<AreaSetting[]> {
+    const r = await this.db.query(
+      `SELECT s.* FROM area_settings s
+       WHERE EXISTS (SELECT 1 FROM tasks t WHERE t.area = s.area AND ${visibleSql("t", 1)})
+          OR NOT EXISTS (SELECT 1 FROM tasks t WHERE t.area = s.area)
+       ORDER BY s.area`,
+      [p.userId],
+    );
+    return r.rows.map(areaSettingFromRow);
+  }
+
+  async setArea(
+    p: Principal,
+    rawArea: string,
+    input: { hidden_by_default: boolean; idempotency_key?: string },
+  ): Promise<AreaSetting> {
+    const area = normalizeArea(rawArea);
+    if (!area) throw new ValidationError("Name an area");
+    return this.tasks.mutate(p, input.idempotency_key, async (c, now) => {
+      const r = await c.query(
+        `INSERT INTO area_settings (area, hidden_by_default, updated_at, updated_by_user, updated_by_agent)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (area) DO UPDATE SET hidden_by_default = EXCLUDED.hidden_by_default,
+           updated_at = EXCLUDED.updated_at, updated_by_user = EXCLUDED.updated_by_user,
+           updated_by_agent = EXCLUDED.updated_by_agent
+         RETURNING *`,
+        [area, input.hidden_by_default, now, p.userId, p.agent],
+      );
+      // Open Now pages redraw with the area in or out.
+      await notifyLive(c);
+      return areaSettingFromRow(r.rows[0]);
+    });
+  }
+
   /** The change feed, after bringing time-driven events up to date. */
   async changes(p: Principal, after: string | undefined, limit?: number): Promise<FeedPage> {
     await this.beforeAccess();
@@ -177,12 +262,13 @@ export class Board {
     const now = this.clock.now();
     const cfg = queueId ? (await this.getQueue(p, queueId)).config : NOW_CONFIG;
     const all = await this.assessments(p, now);
+    const hidden = await this.hiddenAreas();
     let target = all.find((a) => a.task.id === taskId);
     if (!target) {
       const t = await this.tasks.get(p, taskId);
       target = assess(t, now, undefined);
     }
-    return explainTask(cfg, all, target, p, now, await this.users());
+    return explainTask(cfg, all, target, p, now, await this.users(), hidden);
   }
 
   /**
@@ -221,18 +307,27 @@ export class Board {
 
   /**
    * Narrowing to an area filters what is shown; it never changes the day's plan, which is made
-   * from everything, so switching areas can't reshuffle the list.
+   * from everything that isn't hidden, so switching areas can't reshuffle the list. Tasks in an
+   * area hidden by default stay eligible, so naming the area shows them, but never join the plan
+   * and show unnarrowed only when urgent.
    */
   private async fullNow(p: Principal, area: string | null = null): Promise<NowView> {
     await this.beforeAccess();
     const now = this.clock.now();
     const users = await this.users();
     const all = await this.assessments(p, now);
+    const hidden = await this.hiddenAreas();
     const today = planDay(now);
     const eligible = all
       .filter((a) => onNow(a, p, now))
       .sort(compareBy(NOW_CONFIG.order, NOW_CONFIG, p, now));
     const byId = new Map(eligible.map((a) => [a.task.id, a]));
+    const isHidden = (t: Task) => hiddenByArea(NOW_CONFIG, t, hidden);
+    const planCandidates = () =>
+      eligible
+        .filter((a) => !isHidden(a.task))
+        .slice(0, NOW_PLAN_SIZE)
+        .map((a) => a.task.id);
 
     let plan: PlanRow | undefined;
     // Only the person themself fixes their day's list; an agent peeking at Now mustn't.
@@ -243,7 +338,7 @@ export class Board {
       );
       plan = r.rows[0];
       if (!plan) {
-        const ids = eligible.slice(0, NOW_PLAN_SIZE).map((a) => a.task.id);
+        const ids = planCandidates();
         await this.db.query(
           `INSERT INTO day_plans (user_id, local_date, task_ids, seen_ids, created_at) VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (user_id, local_date) DO NOTHING`,
@@ -256,9 +351,7 @@ export class Board {
         plan = again.rows[0];
       }
     }
-    const planIds = [
-      ...new Set(plan?.task_ids ?? eligible.slice(0, NOW_PLAN_SIZE).map((a) => a.task.id)),
-    ];
+    const planIds = [...new Set(plan?.task_ids ?? planCandidates())];
     const seen = new Set(plan?.seen_ids ?? eligible.map((a) => a.task.id));
 
     const missing = planIds.filter((id) => !byId.has(id));
@@ -355,11 +448,25 @@ export class Board {
          AND ${visibleSql("t", 1)} ORDER BY area`,
       [p.userId],
     );
-    const inArea = (t: Task) => area === null || inAreas(t, [area]);
+    const inArea = (t: Task) => (area === null ? !isHidden(t) : inAreas(t, [area]));
+    const areas = areaRows.rows.map((r) => r.area);
+    const hiddenAreas: HiddenAreaSummary[] = [];
+    if (area === null) {
+      for (const h of areas.filter((a) => hidden.has(a))) {
+        const since = eligible
+          .filter((a) => a.task.area === h)
+          .map((a) => a.task.actor_since)
+          .sort();
+        if (since[0]) hiddenAreas.push({ area: h, count: since.length, oldest_since: since[0] });
+      }
+    }
     return {
       date: today,
       area,
-      areas: areaRows.rows.map((r) => r.area),
+      area_hidden: area !== null && hidden.has(area),
+      areas,
+      hidden_by_default: areas.filter((a) => hidden.has(a)),
+      hidden_areas: hiddenAreas,
       plan: planView.filter((x) => inArea(x.item.task)),
       new_items: fresh.filter((a) => inArea(a.task)).map((a) => toItem(a, p, now, users)),
       also: rest
@@ -367,7 +474,10 @@ export class Board {
         .filter((a) => !freshIds.has(a.task.id) && !a.urgent && inArea(a.task))
         .map((a) => toItem(a, p, now, users)),
       more_count: 0,
-      urgent: urgent.filter((a) => inArea(a.task)).map((a) => toItem(a, p, now, users)),
+      // Urgent always shows, hidden area or not.
+      urgent: urgent
+        .filter((a) => area === null || inAreas(a.task, [area]))
+        .map((a) => toItem(a, p, now, users)),
       enough_until:
         plan?.enough_until && plan.enough_until > now ? plan.enough_until.toISOString() : null,
       waiting_count: waiting,
@@ -525,6 +635,7 @@ export class Board {
       p,
       now,
       await this.users(),
+      await this.hiddenAreas(),
     );
     return { queue, result };
   }
@@ -538,6 +649,7 @@ export class Board {
       p,
       now,
       await this.users(),
+      await this.hiddenAreas(),
     );
   }
 
@@ -557,9 +669,10 @@ export class Board {
   }
 }
 
+// Hidden areas are left out where Now is shown, not here, so naming an area still finds them.
 function onNow(a: Assessment, p: Principal, now: Date): boolean {
   return (
-    queueChecks(NOW_CONFIG, a, p, now).every((c) => c.ok) ||
+    queueChecks(NOW_CONFIG, a, p, now, NO_HIDDEN_AREAS).every((c) => c.ok) ||
     (a.claim_lapsed && a.task.owner === p.userId)
   );
 }

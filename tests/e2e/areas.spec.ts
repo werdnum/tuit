@@ -65,3 +65,27 @@ test("capturing while looking at tasks with no area files the task without one",
   const all = await alexApi.get("/api/tasks");
   expect(all.tasks.find((t: { title: string }) => t.title === "ring the vet").area).toBeNull();
 });
+
+test("an area can be hidden from Now on its own page, and Now still says what it holds", async ({
+  page,
+  signIn,
+  alexApi,
+}) => {
+  await alexApi.post("/api/tasks", { title: "mow the lawn", area: "home" });
+  await alexApi.post("/api/tasks", { title: "bump openssl", area: "security" });
+  await signIn(page, "alex");
+  await page.goto("/?area=security");
+
+  await page.getByRole("button", { name: "Hide #security from Now" }).click();
+  await expect(page.getByRole("button", { name: "Show #security in Now" })).toBeVisible();
+  await expect(nowRow(page, "bump openssl")).toBeVisible();
+  await page.goto("/");
+
+  await expect(nowRow(page, "bump openssl")).toHaveCount(0);
+  await expect(nowRow(page, "mow the lawn")).toBeVisible();
+  await page.getByRole("link", { name: "#security: 1 hidden, oldest 0d" }).click();
+  await expect(page).toHaveURL(/\?area=security$/);
+  await page.getByRole("button", { name: "Show #security in Now" }).click();
+  await page.goto("/");
+  await expect(nowRow(page, "bump openssl")).toBeVisible();
+});

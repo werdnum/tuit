@@ -57,7 +57,8 @@ from others, and a household queue shows each viewer only what that viewer may s
 - **area** is which part of life a task belongs to (`home`, `tuit`, `cluster`): one optional
   lowercase word. It is deliberately flat and single — not a project hierarchy, and not a tag
   set — so "show me the Tuit stuff" has one exact answer. A capture that starts or ends with
-  `#word` files the task there.
+  `#word` files the task there. An area can be **hidden by default** (a household-wide setting, for
+  an area a machine fills, such as vulnerability tasks): see *Now* below.
 - **parts**: a task can be broken into parts, one level deep. The parent is the outcome ("Europe
   trip booked"); each part is a step that shows up on its own, labelled with its parent. While
   any part is open or waiting, the parent is held out of Now (computed, not a state); when the
@@ -378,7 +379,15 @@ someone else holds the next action, because a commitment stays theirs.
   already gone.
 - **Narrowing to an area** filters what Now shows (the plan, new items and urgent ones in that
   area), and "everything else" becomes the area's other eligible tasks. It never changes the day's plan, which
-  is always made from everything, so switching between areas can't reshuffle the list.
+  is always made from everything not hidden, so switching between areas can't reshuffle the list.
+- **Areas hidden by default** stay out of Now and out of every queue that doesn't name them in
+  `areas`; naming the area (narrowing Now to it, or a queue that lists it) shows them as usual.
+  Their tasks never join the day's plan. Urgent ones still show in the urgent list, because urgent
+  items always show. Unnarrowed Now carries one line per hidden area with tasks that would
+  otherwise be there ("#security: 14 hidden, oldest 41d", the age being how long the oldest has
+  been the person's turn), so nothing rots unseen, and Explain names the reason (`area_hidden`).
+  Hiding is about what a person sees: a queue of an agent's turn, `claim_next`, inboxes and
+  dispatch are unaffected.
 
 ### Priority
 

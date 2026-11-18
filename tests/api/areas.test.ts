@@ -136,3 +136,107 @@ describe("pinning", () => {
     expect(planTitles(await alex.get("/api/now"))[0]).toBe("the one that matters");
   });
 });
+
+describe("areas hidden by default", () => {
+  const everything = (now: any) =>
+    [...now.plan.map((p: any) => p.item), ...now.new_items, ...now.also].map(
+      (i: any) => i.task.title,
+    );
+
+  test("a hidden area leaves Now and unnamed queues, and naming it brings its tasks back", async () => {
+    await add(alex, "mow the lawn", { area: "home" });
+    await add(alex, "bump openssl", { area: "security" });
+    await add(alex, "bump zlib", { area: "security" });
+
+    const set = await alex.patch("/api/areas/%23Security", { hidden_by_default: true });
+
+    expect(set.area).toMatchObject({ area: "security", hidden_by_default: true });
+    const now = await alex.get("/api/now");
+    expect(everything(now)).toEqual(["mow the lawn"]);
+    expect(now.areas).toEqual(["home", "security"]);
+    expect(now.hidden_by_default).toEqual(["security"]);
+    expect(now.hidden_areas).toEqual([
+      { area: "security", count: 2, oldest_since: "2026-10-05T03:00:00.000Z" },
+    ]);
+
+    const named = await alex.get("/api/now?area=security");
+    expect(everything(named)).toEqual(["bump openssl", "bump zlib"]);
+    expect(named.area_hidden).toBe(true);
+    expect(named.hidden_areas).toEqual([]);
+
+    const unnamed = await alex.post("/api/queues/preview", { config: {} });
+    expect(titles(unnamed.items)).toEqual(["mow the lawn"]);
+    const listed = await alex.post("/api/queues/preview", { config: { areas: ["security"] } });
+    expect(titles(listed.items)).toEqual(["bump openssl", "bump zlib"]);
+  });
+
+  test("a hidden task never joins the day's plan, so unhiding doesn't reshuffle it", async () => {
+    await add(alex, "bump openssl", { area: "security" });
+    await alex.patch("/api/areas/security", { hidden_by_default: true });
+    for (let i = 1; i <= 6; i++) await add(alex, `chore ${i}`);
+
+    expect(planTitles(await alex.get("/api/now"))).toEqual([
+      "chore 1",
+      "chore 2",
+      "chore 3",
+      "chore 4",
+      "chore 5",
+    ]);
+    await alex.patch("/api/areas/security", { hidden_by_default: false });
+
+    const now = await alex.get("/api/now");
+    expect(planTitles(now)).toEqual(["chore 1", "chore 2", "chore 3", "chore 4", "chore 5"]);
+    expect(titles(now.also)).toEqual(["bump openssl", "chore 6"]);
+    expect(now.hidden_areas).toEqual([]);
+  });
+
+  test("an urgent task in a hidden area still shows as urgent", async () => {
+    await add(alex, "patch the exposed host", { area: "security", deadline: "2026-10-06" });
+    await add(alex, "bump zlib", { area: "security" });
+    await alex.patch("/api/areas/security", { hidden_by_default: true });
+
+    const now = await alex.get("/api/now");
+
+    expect(titles(now.urgent)).toEqual(["patch the exposed host"]);
+    expect(everything(now)).toEqual([]);
+    const q = await alex.post("/api/queues/preview", { config: {} });
+    expect(titles(q.urgent)).toEqual(["patch the exposed host"]);
+  });
+
+  test("explain says the area is hidden", async () => {
+    const id = await add(alex, "bump openssl", { area: "security" });
+    await alex.patch("/api/areas/security", { hidden_by_default: true });
+
+    const why = await alex.get(`/api/tasks/${id}/explain`);
+
+    expect(why.verdict).toBe("excluded");
+    expect(why.summary).toMatch(/area hidden by default/);
+    expect(why.checks).toContainEqual(expect.objectContaining({ check: "area_hidden", ok: false }));
+  });
+
+  test("hiding changes nothing for agents: their queues and claims work as before", async () => {
+    const agent = await server.api("alex", "claude");
+    await add(alex, "bump openssl", { area: "security", next_actor: "agent:claude" });
+    await alex.patch("/api/areas/security", { hidden_by_default: true });
+
+    const inbox = await alex.post("/api/queues/preview", { config: { actor: "agent:claude" } });
+    expect(titles(inbox.items)).toEqual(["bump openssl"]);
+    const claimed = await agent.post("/api/claim", {});
+    expect(claimed.task.title).toBe("bump openssl");
+  });
+
+  test("settings list only areas the caller can see, and need a writer", async () => {
+    await add(alex, "birthday present", { area: "secret", visibility: "private" });
+    await alex.patch("/api/areas/secret", { hidden_by_default: true });
+    await alex.patch("/api/areas/security", { hidden_by_default: true });
+
+    expect((await alex.get("/api/areas")).areas.map((a: any) => a.area)).toEqual([
+      "secret",
+      "security",
+    ]);
+    expect((await sam.get("/api/areas")).areas.map((a: any) => a.area)).toEqual(["security"]);
+    expect((await alex.call("PATCH", "/api/areas/none", { hidden_by_default: true })).status).toBe(
+      400,
+    );
+  });
+});

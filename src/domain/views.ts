@@ -235,6 +235,17 @@ export function inAreas(t: Task, areas: string[]): boolean {
   return areas.map(areaFilter).includes(t.area ?? "none");
 }
 
+/**
+ * Whether a person's view leaves this task out because its area is hidden by default. Naming
+ * areas (any `areas` filter) shows exactly those, and a queue of an agent's turn is that agent's
+ * inbox, which hiding never touches.
+ */
+export function hiddenByArea(cfg: QueueConfig, t: Task, hidden: ReadonlySet<string>): boolean {
+  return !!t.area && hidden.has(t.area) && !cfg.areas && !cfg.actor.startsWith("agent:");
+}
+
+export const NO_HIDDEN_AREAS: ReadonlySet<string> = new Set();
+
 /** Filters that also bound the urgent list: who, what text, whose, which area and visibility. */
 function scopeChecks(cfg: QueueConfig, a: Assessment, viewer: Principal): Check[] {
   const t = a.task;
@@ -282,9 +293,18 @@ export function queueChecks(
   a: Assessment,
   viewer: Principal,
   now: Date,
+  hidden: ReadonlySet<string>,
 ): Check[] {
   const t = a.task;
   const checks = scopeChecks(cfg, a, viewer);
+  // Not a scope check: an urgent task in a hidden area still shows in the urgent list.
+  if (hiddenByArea(cfg, t, hidden)) {
+    checks.push({
+      check: "area_hidden",
+      ok: false,
+      detail: `area hidden by default (#${t.area}); name the area to see it`,
+    });
+  }
   const stateOk =
     t.state === "open" ||
     (t.state === "waiting" && (cfg.include_waiting || a.follow_up_due)) ||
@@ -441,10 +461,11 @@ export function evaluateQueue(
   viewer: Principal,
   now: Date,
   users: UserInfo[],
+  hidden: ReadonlySet<string>,
 ): QueueResult {
   const cmp = compareBy(cfg.order, cfg, viewer, now);
   const matched = assessments
-    .filter((a) => queueChecks(cfg, a, viewer, now).every((c) => c.ok))
+    .filter((a) => queueChecks(cfg, a, viewer, now, hidden).every((c) => c.ok))
     .sort(cmp);
   const shown = matched.slice(0, cfg.visible_limit);
   const shownIds = new Set(shown.map((a) => a.task.id));
@@ -475,9 +496,10 @@ export function explainTask(
   viewer: Principal,
   now: Date,
   users: UserInfo[],
+  hidden: ReadonlySet<string>,
 ): Explanation {
-  const checks = queueChecks(cfg, target, viewer, now);
-  const result = evaluateQueue(cfg, assessments, viewer, now, users);
+  const checks = queueChecks(cfg, target, viewer, now, hidden);
+  const result = evaluateQueue(cfg, assessments, viewer, now, users, hidden);
   const id = target.task.id;
   const pos = result.items.findIndex((i) => i.task.id === id);
   const failed = checks.filter((c) => !c.ok);
@@ -503,7 +525,7 @@ export function explainTask(
   }
   if (failed.length === 0) {
     const all = assessments
-      .filter((a) => queueChecks(cfg, a, viewer, now).every((c) => c.ok))
+      .filter((a) => queueChecks(cfg, a, viewer, now, hidden).every((c) => c.ok))
       .sort(compareBy(cfg.order, cfg, viewer, now));
     const p = all.findIndex((a) => a.task.id === id) + 1;
     return {
