@@ -86,6 +86,7 @@ test("an area can be hidden from Now on its own page, and Now still says what it
   await page.getByRole("link", { name: "#security: 1 hidden, oldest 0d" }).click();
   await expect(page).toHaveURL(/\?area=security$/);
   await page.getByRole("button", { name: "Show #security in Now" }).click();
+  await expect(page.getByRole("button", { name: "Hide #security from Now" })).toBeVisible();
   await page.goto("/");
   await expect(nowRow(page, "bump openssl")).toBeVisible();
 });
