@@ -100,6 +100,8 @@ export interface Task {
   revision: number;
   created_at: string;
   updated_at: string;
+  /** Set only on the result of a write that an agent made over another claim; never stored. */
+  warning?: string;
   created_by: { user: string | null; agent: string | null };
 }
 
@@ -241,7 +243,7 @@ export const ClaimIdInput = z
   .max(100)
   .optional()
   .describe(
-    "Required when the task is claimed: the claim id your own claim_next returned. Without it (or with another claim's id) an agent's change is refused.",
+    "The claim id your own claim_next returned, when you hold the task's claim. Without it (or with another claim's id) an agent's change still goes through, but is recorded as made over that claim and comes back with a warning; a note alone needs none. Releasing a claim you don't hold is refused.",
   );
 
 export const NOTE_DESCRIPTION = `Rendered as Markdown (GitHub-flavoured; no images). Lead with the finding in a line or two; collapse long supporting material with ${COLLAPSE_HOW}.`;

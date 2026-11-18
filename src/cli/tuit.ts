@@ -314,7 +314,12 @@ async function householdNames(client: Client): Promise<Map<string, string>> {
 }
 
 /** One line confirming a mutation, with the server's own status phrase. */
-function confirm(ctx: Ctx, verb: string, v: { task: Task; status: TaskStatus }): void {
+function confirm(
+  ctx: Ctx,
+  verb: string,
+  v: { task: Task; status: TaskStatus; warning?: string },
+): void {
+  if (v.warning && !ctx.json) process.stderr.write(`Warning: ${v.warning}\n`);
   if (ctx.json) {
     printJson(v);
     return;

@@ -107,10 +107,19 @@ for work that can't affect the outside world (research, drafting). A lapsed clai
 quietly returns to the pool.
 
 A claim, from `claim_next` or a claimed `create_task`, comes back with an id (`task.claim.id`). While a task is claimed, an agent's change to it
-(checkpoint, hand_off, complete, close, update, attachments, release) must pass that id as
-`claim_id`, and is refused (403) without it or with a different claim's id. Several conversations
-can run as one agent name, so the name alone can't tell the conversation holding the work from one
-that merely sees it. People never need the id. The id is a concurrency token, not a secret: anyone
+(checkpoint, hand_off, complete, close, update, attachments, release) should pass that id as
+`claim_id`. Several conversations can run as one agent name, so the name alone can't tell the
+conversation holding the work from one that merely sees it. An agent that writes without the
+holder's id is often acting on a person's instruction, so:
+
+- a note alone (a checkpoint that changes nothing but the history) always goes through;
+- any other change goes through too, but its history records that it was made over the claim
+  (who wrote, whose claim), and the response carries a `warning`;
+- releasing a claim you don't hold (`release_claim`, or `release_claim: true` on a checkpoint) is
+  refused (403), and the refusal is logged as `claim refused: action=release ...` so it can be
+  counted.
+
+People never need the id. The id is a concurrency token, not a secret: anyone
 who can see the task can read it, and the check guards against mistakes, not against a hostile
 agent.
 

@@ -547,13 +547,14 @@ export class TaskService {
     id: string,
     expectedRevision: number | undefined,
     claimId: string | undefined,
+    now: Date,
   ): Promise<Task> {
     const t = await this.lockTaskUnchecked(c, p, id, expectedRevision);
-    this.checkClaimHeld(p, t, claimId);
+    await this.recordWriteOverClaim(c, p, t, claimId, now);
     return t;
   }
 
-  /** For releaseClaim alone, which handles a missing or stale claim id itself. */
+  /** Without the claim check, for writes that decide about the claim themselves. */
   private async lockTaskUnchecked(
     c: Queryable,
     p: Principal,
@@ -576,16 +577,52 @@ export class TaskService {
   }
 
   /**
-   * An agent may change a claimed task only by presenting that claim's id. Several conversations
-   * can run as one agent, so the agent name alone can't tell the holder from a bystander. People
-   * are never asked for it: they can always step in.
+   * The claim another worker holds, when an agent acts on a claimed task without that claim's id.
+   * Several conversations can run as one agent, so the agent name alone can't tell the holder
+   * from a bystander. People are never asked for it: they can always step in.
    */
-  private checkClaimHeld(p: Principal, t: Task, claimId: string | undefined): void {
-    if (!p.agent || !t.claim || t.claim.id === claimId) return;
+  private claimHeldByOther(p: Principal, t: Task, claimId: string | undefined): Task["claim"] {
+    if (!p.agent || !t.claim || t.claim.id === claimId) return null;
+    return t.claim;
+  }
+
+  /**
+   * An agent that doesn't hold the claim may still change the task (it is often acting on a
+   * person's instruction), but the change is recorded as made over the claim and the result
+   * carries a warning, so neither side mistakes it for the holder's own work.
+   */
+  private async recordWriteOverClaim(
+    c: Queryable,
+    p: Principal,
+    t: Task,
+    claimId: string | undefined,
+    now: Date,
+  ): Promise<void> {
+    const held = this.claimHeldByOther(p, t, claimId);
+    if (!held) return;
+    t.warning = `Task ${t.id} is claimed by agent:${held.agent} (claim ${held.id}), not by you. Your change went through and is recorded in its history as made over that claim. If you meant only to pass on a correction, a note on its own does that.`;
+    await addActivity(
+      c,
+      p,
+      t.id,
+      "system",
+      `Changed by agent:${p.agent} over agent:${held.agent}'s claim`,
+      now,
+      { data: { over_claim: held, ...(claimId ? { claim_id_given: claimId } : {}) } },
+    );
+  }
+
+  /**
+   * Releasing a claim is the one thing a non-holder agent may not do: a released claim lets
+   * another worker take the task while the holder is still on it. Refusals are logged so they can
+   * be counted.
+   */
+  private refuseRelease(p: Principal, t: Task, held: NonNullable<Task["claim"]>): never {
+    console.warn(
+      `claim refused: action=release task=${t.id} holder=agent:${held.agent} claim=${held.id} by=agent:${p.agent} user=${p.userId ?? ""}`,
+    );
     throw new ForbiddenError(
-      claimId
-        ? `Task ${t.id} is held by a different claim than ${claimId}. Your claim has ended; leave the task to whoever holds it now.`
-        : `Task ${t.id} is claimed by agent:${t.claim.agent}. Pass claim_id from your own claim_next result. If you didn't claim it in this conversation, another worker holds it: leave it alone.`,
+      `Task ${t.id} is claimed by agent:${held.agent}, and only that claim's holder (passing its claim_id) or a person can release it. To pass on a correction, add a note; other changes go through without the claim id, with a warning.`,
     );
   }
 
@@ -741,7 +778,7 @@ export class TaskService {
     const input = UpdateTaskInput.parse(raw);
     const actor = input.next_actor ? await this.resolveActor(input.next_actor, p) : undefined;
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id, now);
       const before = structuredClone(t);
       if (input.visibility !== undefined && input.visibility !== t.visibility) {
         if (t.owner !== p.userId) throw new ForbiddenError("Only the owner can change visibility");
@@ -824,7 +861,17 @@ export class TaskService {
     }
     const actor = input.next_actor ? await this.resolveActor(input.next_actor, p) : undefined;
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
+      const t = await this.lockTaskUnchecked(c, p, id, input.expected_revision);
+      const targetState = input.state ?? (input.waiting ? "waiting" : undefined);
+      const held = this.claimHeldByOther(p, t, input.claim_id);
+      if (held && input.release_claim) this.refuseRelease(p, t, held);
+      const noteOnly =
+        input.brief === undefined &&
+        input.next_action === undefined &&
+        targetState === undefined &&
+        !input.resurface_in_days &&
+        (actor === undefined || (intent === "progress" && sameJson(actor, t.next_actor)));
+      if (!noteOnly) await this.recordWriteOverClaim(c, p, t, input.claim_id, now);
       const wasClosed = CLOSED_STATES.includes(t.state);
       const stateBefore = t.state;
       const actorBefore = t.next_actor;
@@ -835,7 +882,6 @@ export class TaskService {
       // Merely retaining next_actor in a checkpoint must not produce another wake-up.
       const handedOff = actorChanged || (intent === "handoff" && actor !== undefined);
 
-      const targetState = input.state ?? (input.waiting ? "waiting" : undefined);
       if (targetState === "waiting") {
         const w = input.waiting;
         if (!w) throw new ValidationError("state 'waiting' needs a waiting condition");
@@ -926,7 +972,7 @@ export class TaskService {
   async complete(p: Principal, id: string, raw: unknown): Promise<Task> {
     const input = CompleteInput.parse(raw ?? {});
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id, now);
       const at = input.at ? (toMoment(input.at, now) as Moment) : null;
       const happened = at ? completionInstant(at) : now;
       if (at && isDate(at) && at.date === local(now).toISODate()) {
@@ -975,7 +1021,7 @@ export class TaskService {
       claim_id?: string;
     };
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id, now);
       if (!t.recurrence) throw new ValidationError("Only routines can be skipped");
       t.last_skip_at = now.toISOString();
       this.bump(t, now);
@@ -1005,7 +1051,7 @@ export class TaskService {
     const parsed = items.map((raw) => AttachInput.parse(raw));
     const urls = parsed.map((i) => attachmentUrl(i.url).toString());
     return this.mutate(p, opts.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, opts.expected_revision, opts.claim_id);
+      const t = await this.lockTask(c, p, id, opts.expected_revision, opts.claim_id, now);
       const added: Attachment[] = [];
       parsed.forEach((input, i) => {
         const url = urls[i] as string;
@@ -1042,7 +1088,7 @@ export class TaskService {
   async detach(p: Principal, id: string, raw: unknown): Promise<Task> {
     const input = DetachInput.parse(raw);
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id, now);
       const a = t.attachments.find((x) => x.id === input.attachment_id);
       if (!a) throw new NotFoundError(`Task ${id} has no attachment ${input.attachment_id}`);
       t.attachments = t.attachments.filter((x) => x.id !== a.id);
@@ -1059,7 +1105,7 @@ export class TaskService {
   async close(p: Principal, id: string, raw: unknown): Promise<Task> {
     const input = CloseInput.parse(raw);
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id, now);
       if (t.state === input.state) return t;
       await this.settleParts(c, p, t, input.open_parts, now);
       const from = t.state;
@@ -1104,7 +1150,7 @@ export class TaskService {
       claim_id?: string;
     };
     return this.mutate(p, input.idempotency_key, async (c, now) => {
-      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id);
+      const t = await this.lockTask(c, p, id, input.expected_revision, input.claim_id, now);
       if (t.state === "open") return t;
       const from = t.state;
       t.state = "open";
@@ -1244,12 +1290,9 @@ export class TaskService {
       const t = await this.lockTaskUnchecked(c, p, id, undefined);
       // A retried release that finds another claim has taken over leaves that claim alone.
       if (!t.claim || (claimId && t.claim.id !== claimId)) return t;
-      this.checkClaimHeld(p, t, claimId);
       const isClaimer = p.agent === t.claim.agent && p.userId === t.claim.user;
-      if (p.agent && !isClaimer) {
-        throw new ForbiddenError(
-          `agent:${t.claim.agent} holds this task; only it or a person can release it`,
-        );
+      if (p.agent && (!isClaimer || this.claimHeldByOther(p, t, claimId))) {
+        this.refuseRelease(p, t, t.claim);
       }
       const was = t.claim;
       t.claim = null;

@@ -192,18 +192,19 @@ test("an agent passes --claim to change the task it claimed", async () => {
   const agent = tuitAs(server, await server.mintToken("alex", "claude"));
   const claimed = JSON.parse((await agent("claim", "--task", id, "--json")).stdout);
 
-  const refused = await agent("note", id, "Found three plans", "--next", "me");
   const noted = await agent(
     "note",
     id,
     "Found three plans",
     "--next",
-    "me",
+    "agent:claude",
     "--claim",
     claimed.task.claim.id,
   );
+  const unclaimed = await agent("note", id, "Over to you", "--next", "me");
 
-  expect(refused.code).not.toBe(0);
-  expect(refused.stderr).toMatch(/Pass claim_id/);
   expect(noted.code).toBe(0);
+  expect(noted.stderr).not.toMatch(/Warning/);
+  expect(unclaimed.code).toBe(0);
+  expect(unclaimed.stderr).toMatch(/Warning: .*made over that claim/);
 });
