@@ -215,6 +215,11 @@ details.sheet > .body { padding: 0 16px 14px; }
 .verbs details[open] > summary { color: var(--accent); font-weight: 600; }
 .verbs > form > button { background: var(--card); color: var(--text); font-weight: 500; border-radius: var(--radius); }
 .presets { display: flex; flex-wrap: wrap; gap: 8px; }
+form.priority { display: flex; align-items: center; gap: 6px; }
+form.priority > span { flex: 0 0 auto; padding-right: 4px; }
+form.priority > button { flex: 1 1 0; }
+.verbs > form.priority { grid-column: 1 / -1; }
+form.priority > button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
 .presets button { flex: 1 1 40%; }
 .history { list-style: none; margin: 0; padding: 0; }
 .history li { padding: 10px 16px; border-top: 0.5px solid var(--line); }

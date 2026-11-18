@@ -84,6 +84,8 @@ export interface Task {
   open_parts?: number;
   /** The parent's title, where a view loaded it and the reader may see the parent. */
   parent_title?: string;
+  /** The parent's deadline, where a view loaded it and the reader may see the parent. */
+  parent_deadline?: Moment;
   requires: string[];
   prefers: string[];
   recurrence: Recurrence | null;
@@ -160,6 +162,14 @@ export function taskFromRow(r: any): Task {
     parent_id: r.parent_id ?? null,
     ...(r.open_parts ? { open_parts: r.open_parts } : {}),
     ...(r.parent_title != null ? { parent_title: r.parent_title } : {}),
+    ...(r.parent_deadline_date != null || r.parent_deadline_at != null
+      ? {
+          parent_deadline: momentFromColumns(
+            r.parent_deadline_date,
+            r.parent_deadline_at,
+          ) as Moment,
+        }
+      : {}),
     requires: r.requires,
     prefers: r.prefers,
     recurrence: r.recurrence,

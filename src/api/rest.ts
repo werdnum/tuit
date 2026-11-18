@@ -5,6 +5,7 @@ import { nowLimit } from "../domain/board.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../domain/errors.ts";
 import { ZONE } from "../domain/time.ts";
 import { ActorInput, ClaimIdInput, ClaimInput, MomentInput, NOTE_KINDS } from "../domain/types.ts";
+import { PriorityInput } from "../domain/views.ts";
 import type { AuthEnv } from "./auth.ts";
 
 const HandoffInput = z
@@ -180,6 +181,15 @@ export function restApi(app: App): Hono<AuthEnv> {
       return { id };
     }),
   );
+  api.post(
+    "/tasks/:id/priority",
+    mutation(async (id, input, c) => {
+      const { priority } = z.object({ priority: PriorityInput }).strict().parse(input);
+      await board.setPriority(c.get("principal"), id, priority);
+      return { id };
+    }),
+  );
+  // The iOS app still pins: pinning sets P0, unpinning a P0 task sets P1.
   api.post(
     "/tasks/:id/pin",
     mutation(async (id, input, c) => {

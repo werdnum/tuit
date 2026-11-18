@@ -350,8 +350,10 @@ step.
 - **Urgent**: every queue result carries an `urgent` list evaluated outside the visible limit. It
   obeys the queue's actor, text, area and visibility filters, but ignores availability, snooze,
   contexts and the limit.
-- **Ordering rules** (fixed set): `pinned`, `urgency` (urgent items, soonest first), `target`
-  (target reached, then the nearest target or deadline), `staleness` (routine gap ratio), `preferred_context`, `oldest`.
+- **Ordering rules** (fixed set): `priority` (P0, then P1, then P2), `urgency` (urgent items,
+  soonest first), `follow_up` (a lapsed claim or a follow-up that has arrived), `target` (target
+  reached, then the nearest target or deadline), `staleness` (routine gap ratio),
+  `preferred_context`, `oldest`. The default order is that list.
 
 **Now** is the built-in default queue for the signed-in person. It shows available open tasks whose
 next actor is them or anyone, due or stale routines, lapsed claims they own, and waits whose
@@ -360,14 +362,20 @@ someone else holds the next action, because a commitment stays theirs.
 
 - The shortlist is **sticky per day**: which tasks are on it is fixed when it is made, and
   completing items leaves them ticked at the bottom rather than sliding replacements in. Its order
-  is not fixed: open items follow the current ranking, so a pin or a deadline coming close moves
-  them up. It is made from the top 5.
+  is not fixed: open items follow the current ranking, so a priority change or a deadline coming
+  close moves them. It is made from the top 5, leaving out P2 tasks.
 - **Enough for now** hides the shortlist until tomorrow morning (4am local). Urgent items still show.
 - An item leaves the plan when it stops being eligible (handed away, snoozed, waiting), and is
   not replaced. Items finished today stay, ticked.
 - A deadline only ranks as a deadline once it is urgent. Until then it sorts by date alongside
-  targets, after recent handoffs and missed targets, so a December deadline does not lead in
-  October.
+  targets, after missed targets, so a December deadline does not lead in October.
+- A **missed target** leads its band for a week. A target missed more than 7 days ago sorts as if
+  the task had none, so a forgotten target can't hold the top for ever; Explain says so.
+- A **part with no deadline of its own** uses its parent's deadline for ordering and for urgency.
+  It is computed when the list is ranked, never written onto the part, so moving the parent's
+  deadline moves its parts. (Notifications about an approaching deadline still come from the
+  parent alone.)
+- A recent handoff does not rank. *New since this morning* is where a handoff shows up.
 - **New since this morning**: eligible tasks outside the plan that were captured, handed to the
   person, or became available after the plan was made. They show beneath the shortlist, so
   capture and handoffs get visible feedback without reshuffling the plan. "Enough for now" hides
@@ -391,17 +399,32 @@ someone else holds the next action, because a commitment stays theirs.
 
 ### Priority
 
-There are no priority numbers. Order comes from what is explainable: urgency, a recent handoff,
-dates (a missed target, then the nearest target or deadline), staleness, then age. The one manual
-lever is the **pin**, per person: a pinned task sorts first in every list, and pinning it puts it
-at the top of today's plan straight away. An agent
-asked "this matters more" pins it rather than inventing a deadline.
+Each person gives a task a priority of **P0, P1 or P2**; P1 is the default. Three levels only, on
+purpose: "pin it", "normal" and "sink it" were already the levers people reached for, and a finer
+scale invites re-ranking that no one keeps up.
+
+- **Bands, not a tiebreak.** Every P0 task sorts before every P1, and every P1 before every P2.
+  Urgency, follow-ups, dates, staleness, context and age sort only inside a band.
+- **The urgent list ignores priority.** A deadline within 48 hours (or passed), or an expiry within
+  24 hours, shows in the urgent list whatever the priority, so a P2 task with a real deadline still
+  surfaces.
+- **P0** puts the task at the top of today's plan straight away, as the pin used to.
+- **P2** tasks stay on Now, at the bottom of "everything else", and are never picked for the
+  day's plan or shown under *New since this morning* (setting P2 takes a task off today's list).
+  They don't need snoozing and don't resurface.
+- Priority is per person, like snooze, and changes no shared task field. A person sets it in the
+  UI (P0 / P1 / P2 on a row's menu and on the task page), the CLI (`tuit priority`) or the API.
+  An agent sets it (`set_priority`) only when the person says so, never on its own judgement, and
+  never invents a deadline to make something sort first.
+- Explain reports the band, and any date that orders the task differently from what its own fields
+  suggest: a parent's deadline it borrows, or a long-missed target it ignores.
+- The iOS app still sends a pin: pinning sets P0, and unpinning a P0 task sets P1.
 
 ## Deliberate simplifications
 
 - A single household per deployment. The roster lives in config.
-- Snooze and pin are per person. Everything else is shared task state.
-- Live updates compare server clock readings for personal changes (snooze, pin, today's list),
+- Snooze and priority are per person. Everything else is shared task state.
+- Live updates compare server clock readings for personal changes (snooze, priority, today's list),
   which leave nothing in the feed. That's exact with one server process, which is how Tuit is
   deployed. Across replicas with skewed clocks, a personal change could wait for the next
   refresh; a database-backed marker would fix that if Tuit ever runs more than one.

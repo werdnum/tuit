@@ -57,14 +57,14 @@ test("find_tasks lists compact rows, and full records on request", async () => {
   expect(full.tasks[0].brief).toBe("Forms are in the blue folder");
 });
 
-test("an agent pins what the person says matters, and it tops their list", async () => {
+test("an agent sets P0 on what the person says matters, and it tops their list", async () => {
   for (let i = 1; i <= 6; i++) await alex.post("/api/tasks", { title: `chore ${i}` });
   await alex.get("/api/now");
   const late = (await alex.post("/api/tasks", { title: "the one that matters" })).task.id;
 
-  const pinned = await claude.call("pin_task", { task_id: late });
+  const set = await claude.call("set_priority", { task_id: late, priority: "P0" });
 
-  expect(pinned.status.pinned).toBe(true);
+  expect(set.status.priority).toBe("P0");
   expect((await alex.get("/api/now")).plan[0].item.task.title).toBe("the one that matters");
 });
 

@@ -6,7 +6,14 @@ import { NOW_PAGE_SIZE, type NowView, type Queue } from "../domain/board.ts";
 import type { TaskRef, UserInfo } from "../domain/tasks.ts";
 import { local, type Moment } from "../domain/time.ts";
 import type { ActivityEntry, Principal, Task } from "../domain/types.ts";
-import type { Explanation, QueueItem, QueueResult, TaskStatus } from "../domain/views.ts";
+import {
+  type Explanation,
+  PRIORITIES,
+  type Priority,
+  type QueueItem,
+  type QueueResult,
+  type TaskStatus,
+} from "../domain/views.ts";
 import type { Device } from "../notify/channels.ts";
 import type { LogEntry, NotifySettings } from "../notify/notifier.ts";
 import { CATEGORIES, CATEGORY_LABELS, describeRule } from "../notify/rules.ts";
@@ -78,8 +85,16 @@ function itemRow(
   </li>`;
 }
 
+/** P0 / P1 / P2 for this person, the current one pressed. */
+function priorityForm(action: string, backTo: string, current: Priority): Html {
+  return html`<form method="post" action="${action}/priority" class="priority" aria-label="Priority" data-priority="${current}">${back(backTo)}<span class="small muted">Priority</span>${PRIORITIES.map(
+    (v) =>
+      html`<button name="priority" value="${v}" aria-pressed="${v === current ? "true" : "false"}" aria-label="Priority ${v}">${v}</button>`,
+  )}</form>`;
+}
+
 /**
- * The everyday verbs for a row on Now, so a task can be snoozed, pinned or filed without
+ * The everyday verbs for a row on Now, so a task can be snoozed, prioritised or filed without
  * opening it. Anything that needs more than a tap (waiting, hand off, notes) stays on its page.
  */
 function rowMenu(item: QueueItem, opts: { backTo: string; now: Date; listId: string }): Html {
@@ -94,8 +109,8 @@ function rowMenu(item: QueueItem, opts: { backTo: string; now: Date; listId: str
         ${b}
         ${snoozePresets(opts.now).map((p) => html`<button name="until" value="${p.at}" aria-label="Snooze: ${p.label}">${p.label}</button>`)}
       </form>
+      ${priorityForm(action, opts.backTo, item.priority)}
       <div class="menu-verbs">
-        <form method="post" action="${action}/pin">${b}<input type="hidden" name="pinned" value="${item.pinned ? "0" : "1"}"><button>${item.pinned ? "Unpin" : "Pin to top"}</button></form>
         ${
           t.recurrence
             ? html`<form method="post" action="${action}/skip">${b}<button>Skip this time</button></form>`
@@ -468,7 +483,7 @@ export function detailPage(
   const verbs = closed
     ? ""
     : html`<div class="verbs">
-        <form method="post" action="${self}/pin">${back(self)}<input type="hidden" name="pinned" value="${s.pinned ? "0" : "1"}"><button>${s.pinned ? "Unpin" : "Pin to top"}</button></form>
+        ${priorityForm(self, self, s.priority)}
         ${doneEarlier(routine ? "Did it earlier…" : "Done earlier…")}
         ${
           routine
@@ -609,7 +624,7 @@ export function detailPage(
     top: html`${backLink("/", "Now")}<a class="iconlink small" href="${self}/inspect">Inspect</a>`,
     body: html`
       <h1>${t.title}</h1>
-      <div>${stateBadge(t)} ${areaBadge(t)} ${privateBadge(t)} ${s.pinned ? html`<span class="badge" data-pinned>pinned</span>` : ""}</div>
+      <div>${stateBadge(t)} ${areaBadge(t)} ${privateBadge(t)} ${s.priority !== "P1" ? html`<span class="badge" data-priority-badge>${s.priority}</span>` : ""}</div>
       ${parent ? html`<p class="small muted" data-part-of>Part of <a href="/tasks/${parent.id}">${parent.title}</a></p>` : ""}
       ${statusLine}
       ${nextLine}
@@ -832,6 +847,7 @@ function json(v: unknown): Html {
 function explanationHtml(e: Explanation): Html {
   return html`<p><span class="badge ${e.verdict === "excluded" ? "" : "done"}">${e.verdict.replace("_", " ")}</span> ${e.summary}</p>
     <ul class="checks">${e.checks.map((c) => html`<li class="${c.ok ? "" : "fail"}">${c.check}: ${c.detail}</li>`)}</ul>
+    <ul class="checks" aria-label="Ranking">${e.ranking.map((r) => html`<li>${r.rule}: ${r.detail}</li>`)}</ul>
     <p class="small muted">Order: ${e.order.join(" → ")}</p>`;
 }
 
@@ -840,7 +856,7 @@ export function inspectPage(
   d: {
     task: Task;
     status: TaskStatus;
-    attention: { snoozed_until: string | null; pinned: boolean };
+    attention: { snoozed_until: string | null; priority: Priority };
     activity: ActivityEntry[];
     membership: { queue: string; id: string | null; explanation: Explanation }[];
   },

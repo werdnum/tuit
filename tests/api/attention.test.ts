@@ -41,7 +41,7 @@ describe("Now", () => {
     expect(after.more_count).toBe(0);
   });
 
-  test("a distant deadline doesn't jump ahead of handoffs and missed targets", async () => {
+  test("a distant deadline doesn't jump ahead of missed targets, and a handoff doesn't rank", async () => {
     await add(alex, "plain chore");
     await add(alex, "buy Christmas presents", { deadline: "2026-12-14" });
     await add(alex, "reply to the tax office", { target: "2026-10-01" });
@@ -51,10 +51,10 @@ describe("Now", () => {
 
     expect(planTitles(await alex.get("/api/now"))).toEqual([
       "renew the rego",
-      "check the invoice",
       "reply to the tax office",
       "buy Christmas presents",
       "plain chore",
+      "check the invoice",
     ]);
   });
 
@@ -166,7 +166,8 @@ describe("Now", () => {
 
     const now = await sam.get("/api/now");
     expect(now.new_items[0].task.title).toBe("choose paint colour for the hall");
-    expect(now.new_items[0].why).toBe("handed to you just now");
+    // A handoff shows as new; it doesn't rank or explain itself as one.
+    expect(now.new_items[0].why).toBe("next: Sam");
   });
 
   test("a commitment I own stays in my urgent list while someone else holds it", async () => {

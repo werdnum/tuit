@@ -9,7 +9,7 @@ import { nowLimit } from "../domain/board.ts";
 import { ConflictError, DomainError, NotFoundError, ValidationError } from "../domain/errors.ts";
 import { visibleSql } from "../domain/tasks.ts";
 import { type Principal, splitAreaTag, type Task } from "../domain/types.ts";
-import type { Explanation } from "../domain/views.ts";
+import { type Explanation, PriorityInput } from "../domain/views.ts";
 import { CATEGORIES, defaultRules } from "../notify/rules.ts";
 import { actorText, momentEditText, QUIET_KINDS, whenText } from "./format.ts";
 import { type Flash, MANIFEST } from "./layout.ts";
@@ -409,8 +409,8 @@ export function webRoutes(app: App): Hono<AuthEnv> {
     ),
   );
   r.post(
-    "/tasks/:id/pin",
-    taskAction((p, id, form) => board.pin(p, id, form.pinned !== "0")),
+    "/tasks/:id/priority",
+    taskAction((p, id, form) => board.setPriority(p, id, PriorityInput.parse(form.priority))),
   );
   r.post(
     "/tasks/:id/snooze",
