@@ -567,3 +567,31 @@ test("a declared webhook on a task that turned private doesn't stop the server s
   });
   await expect(receiver.waitFor(1, 1500)).rejects.toThrow(/only 0/);
 }, 60_000);
+
+test("a client subscribing to the same thing as a declared webhook gets its own subscription", async () => {
+  await server.setClock(null);
+  await declare(
+    [
+      {
+        for: "alex",
+        agent: "muse",
+        event: "inbox.changed",
+        url: receiver.url,
+        secret_env: "TICKLE_SECRET",
+      },
+    ],
+    { TICKLE_SECRET: newSecret() },
+  );
+  const muse = await agent("alex", "muse");
+  const sub = await muse.ok("events/subscribe", {
+    name: "inbox.changed",
+    arguments: {},
+    delivery: { mode: "webhook", url: receiver.url, secret: newSecret() },
+    cursor: null,
+  });
+  await alex.post("/api/tasks", { title: "Order the firewood", next_actor: "agent:muse" });
+  const got = await receiver.waitFor(2);
+  const ids = new Set(got.map((r) => r.headers["x-mcp-subscription-id"]));
+  expect(ids.size).toBe(2);
+  expect(ids.has(sub.id)).toBe(true);
+}, 60_000);

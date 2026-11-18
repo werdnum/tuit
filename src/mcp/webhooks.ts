@@ -401,7 +401,10 @@ export class Webhooks {
         canWrite: false,
         key: DECLARED,
       };
-      const id = subscriptionId(principal, w.url, t.name, args.data);
+      // Keyed apart from client subscriptions, so a client subscribing to the same thing gets
+      // its own row instead of taking this one over.
+      const key = canonicalJson([DECLARED, w.user, w.agent, w.url, t.name, args.data]);
+      const id = `sub_${createHash("sha256").update(key).digest("base64url").slice(0, 32)}`;
       return { id, principal, type: t, args: args.data, url: w.url, secret: w.secret };
     });
     const ids = new Set<string>();
