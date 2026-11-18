@@ -547,3 +547,23 @@ test("a declared webhook for an event the server doesn't have stops it starting"
     }),
   ).rejects.toThrow(/no event type "nothing.changed"/);
 }, 60_000);
+
+test("a declared webhook on a task that turned private doesn't stop the server starting", async () => {
+  await server.setClock(null);
+  const { task } = await alex.post("/api/tasks", { title: "Plan the surprise party" });
+  const entry = {
+    for: "sam",
+    event: "task.changed",
+    arguments: { task_id: task.id },
+    url: receiver.url,
+    secret_env: "TICKLE_SECRET",
+  };
+  await declare([entry], { TICKLE_SECRET: newSecret() });
+  await alex.patch(`/api/tasks/${task.id}`, { visibility: "private" });
+  await declare([entry]);
+  await alex.post(`/api/tasks/${task.id}/checkpoint`, {
+    note: "Booked the hall",
+    next_actor: "me",
+  });
+  await expect(receiver.waitFor(1, 1500)).rejects.toThrow(/only 0/);
+}, 60_000);

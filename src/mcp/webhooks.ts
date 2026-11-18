@@ -422,7 +422,14 @@ export class Webhooks {
     const { db, clock } = this.app;
     const now = clock.now();
     for (const d of this.declared) {
-      await resolveWatch(this.app, d.principal, d.type, d.args);
+      try {
+        await resolveWatch(this.app, d.principal, d.type, d.args);
+      } catch (err) {
+        // A watched task that turned private is skipped at delivery, as for any subscription;
+        // it shouldn't keep the server from starting.
+        if (!(err instanceof McpError && err.code === EventErrors.Forbidden)) throw err;
+        console.warn(`TUIT_WEBHOOKS ${d.type.name} to ${d.url}: ${err.message}`);
+      }
       await db.query(
         `INSERT INTO webhook_subscriptions
            (id, user_id, agent, credential, name, arguments, url, secret, cursor, expires_at,
