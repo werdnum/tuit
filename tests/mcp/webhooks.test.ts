@@ -485,3 +485,113 @@ test("same-principal inbox webhooks and polls agree without waking task or feed 
     }
   }
 });
+
+/** Restart the server with these TUIT_WEBHOOKS entries, each signed with its own secret env. */
+async function declare(entries: Record<string, unknown>[], secrets: Record<string, string> = {}) {
+  server.env.TUIT_WEBHOOKS = JSON.stringify(entries);
+  Object.assign(server.env, secrets);
+  await server.restart();
+}
+
+test("a declared webhook delivers without subscribing, rotates its secret, and ends when removed", async () => {
+  // The restarted server starts before the test clock is pinned again.
+  await server.setClock(null);
+  const first = newSecret();
+  const entry = {
+    for: "alex",
+    agent: "muse",
+    event: "inbox.changed",
+    url: receiver.url,
+    secret_env: "TICKLE_SECRET",
+  };
+  await declare([entry], { TICKLE_SECRET: first });
+
+  const { task: a } = await alex.post("/api/tasks", { title: "Book the dentist" });
+  await alex.post(`/api/tasks/${a.id}/handoff`, { to: "agent:muse" });
+  const [delivered] = await receiver.waitFor(1);
+  expect(receiver.received.filter((r) => r.json.type === "verification")).toHaveLength(0);
+  expect(verifySignature(delivered as Received, first)).toBe(true);
+  expect(delivered?.json).toMatchObject({
+    name: "inbox.changed",
+    data: { category: "handoff", task: { id: a.id } },
+  });
+
+  // A new secret keeps the subscription and its place; both signatures overlap for a while.
+  const second = newSecret();
+  await declare([entry], { TICKLE_SECRET: second });
+  await alex.post("/api/tasks", { title: "Renew the passport", next_actor: "agent:muse" });
+  const got = await receiver.waitFor(2);
+  expect(got).toHaveLength(2);
+  const rotated = got[1] as Received;
+  expect(verifySignature(rotated, second)).toBe(true);
+  expect(verifySignature(rotated, first)).toBe(true);
+  expect(rotated.headers["x-mcp-subscription-id"]).toBe(
+    delivered?.headers["x-mcp-subscription-id"],
+  );
+
+  await declare([]);
+  await alex.post("/api/tasks", { title: "Clean the gutters", next_actor: "agent:muse" });
+  await expect(receiver.waitFor(3, 1500)).rejects.toThrow(/only 2/);
+}, 60_000);
+
+test("a declared webhook for an event the server doesn't have stops it starting", async () => {
+  await expect(
+    TestServer.start({
+      env: {
+        TUIT_WEBHOOK_ALLOW_PRIVATE_NETWORKS: "1",
+        TICKLE_SECRET: newSecret(),
+        TUIT_WEBHOOKS: JSON.stringify([
+          { for: "alex", event: "nothing.changed", url: receiver.url, secret_env: "TICKLE_SECRET" },
+        ]),
+      },
+    }),
+  ).rejects.toThrow(/no event type "nothing.changed"/);
+}, 60_000);
+
+test("a declared webhook on a task that turned private doesn't stop the server starting", async () => {
+  await server.setClock(null);
+  const { task } = await alex.post("/api/tasks", { title: "Plan the surprise party" });
+  const entry = {
+    for: "sam",
+    event: "task.changed",
+    arguments: { task_id: task.id },
+    url: receiver.url,
+    secret_env: "TICKLE_SECRET",
+  };
+  await declare([entry], { TICKLE_SECRET: newSecret() });
+  await alex.patch(`/api/tasks/${task.id}`, { visibility: "private" });
+  await declare([entry]);
+  await alex.post(`/api/tasks/${task.id}/checkpoint`, {
+    note: "Booked the hall",
+    next_actor: "me",
+  });
+  await expect(receiver.waitFor(1, 1500)).rejects.toThrow(/only 0/);
+}, 60_000);
+
+test("a client subscribing to the same thing as a declared webhook gets its own subscription", async () => {
+  await server.setClock(null);
+  await declare(
+    [
+      {
+        for: "alex",
+        agent: "muse",
+        event: "inbox.changed",
+        url: receiver.url,
+        secret_env: "TICKLE_SECRET",
+      },
+    ],
+    { TICKLE_SECRET: newSecret() },
+  );
+  const muse = await agent("alex", "muse");
+  const sub = await muse.ok("events/subscribe", {
+    name: "inbox.changed",
+    arguments: {},
+    delivery: { mode: "webhook", url: receiver.url, secret: newSecret() },
+    cursor: null,
+  });
+  await alex.post("/api/tasks", { title: "Order the firewood", next_actor: "agent:muse" });
+  const got = await receiver.waitFor(2);
+  const ids = new Set(got.map((r) => r.headers["x-mcp-subscription-id"]));
+  expect(ids.size).toBe(2);
+  expect(ids.has(sub.id)).toBe(true);
+}, 60_000);

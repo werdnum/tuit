@@ -8,6 +8,7 @@ const db = new Database(config.databaseUrl);
 await db.migrate();
 await seedUsers(db, config);
 const { app, http } = buildApp(config, db);
+await app.webhooks.declare();
 app.live.start();
 // Every change to the feed wakes the notifier, through the same LISTEN connection as live pages.
 app.live.subscribe("", (kind) => {
