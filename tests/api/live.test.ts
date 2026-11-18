@@ -136,7 +136,7 @@ test("a personal change between a page's render and its stream opening still rea
   const { task } = await alex.post("/api/tasks", { title: "Descale the kettle" });
   const cursor = await lastSeq(alex);
   const renderedBefore = Date.now() - 1;
-  await alex.post(`/api/tasks/${task.id}/pin`, { pinned: true });
+  await alex.post(`/api/tasks/${task.id}/priority`, { priority: "P0" });
   const renderedAfter = Date.now() + 1;
 
   const stale = await open("alex", cursor, renderedBefore);
@@ -146,7 +146,7 @@ test("a personal change between a page's render and its stream opening still rea
   const ev = await stale.next();
   expect(ev.event).toBe("change");
   expect(JSON.parse(ev.data).at).toBeGreaterThan(renderedBefore);
-  // The page rendered after the pin hears nothing until the next real change.
+  // The page rendered after the priority change hears nothing until the next real change.
   expect(JSON.parse((await fresh.next()).data)).toEqual({ cursor: Number(await lastSeq(alex)) });
 });
 

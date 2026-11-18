@@ -34,17 +34,16 @@ test("capturing with a #tag files it in an area, and the area chip narrows Now",
   );
 });
 
-test("pinning a task from its page puts it at the top of Now", async ({
-  page,
-  signIn,
-  alexApi,
-}) => {
+test("P0 from a task's page puts it at the top of Now", async ({ page, signIn, alexApi }) => {
   for (let i = 1; i <= 4; i++) await alexApi.post("/api/tasks", { title: `chore ${i}` });
   await signIn(page, "alex");
   await nowRow(page, "chore 3").getByRole("link").click();
 
-  await page.getByRole("button", { name: "Pin to top" }).click();
-  await expect(page.getByRole("button", { name: "Unpin" })).toBeVisible();
+  await page.getByRole("button", { name: "Priority P0" }).click();
+  await expect(page.getByRole("button", { name: "Priority P0" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await page.goto("/");
 
   await expect(page.locator("main li[data-task]").first()).toContainText("chore 3");

@@ -31,7 +31,7 @@ import {
   type Task,
   UpdateTaskInput,
 } from "../domain/types.ts";
-import { inAreas, QueueConfig, type QueueItem } from "../domain/views.ts";
+import { inAreas, PriorityInput, QueueConfig, type QueueItem } from "../domain/views.ts";
 import { isMe } from "../notify/rules.ts";
 import {
   CHANGES_URI,
@@ -60,7 +60,7 @@ export const TOOL_NAMES = [
   "snooze_task",
   "attach_link",
   "remove_attachment",
-  "pin_task",
+  "set_priority",
   "set_area",
   "claim_next",
   "release_claim",
@@ -99,7 +99,7 @@ Model
 - Routines (recurrence after_completion / since_done) are one persistent task: complete_task records a completion and it rests; skip_routine passes without resetting "last done".
 - area = which part of life a task belongs to ("home", "tuit", "cluster"): one optional word per task, not a hierarchy. Reuse an existing area (now lists them) rather than inventing near-duplicates. A title captured as "#tuit fix the feed" sets it. An area can be hidden by default (set_area): its tasks stay out of the person's Now and unnamed queues, never out of your own inbox or claim_next.
 - parts: a task can be broken into parts (create_task with parent_id). The parent is the outcome and stays out of Now while any part is open, then comes back for someone to decide whether it's done; closing it with open parts needs open_parts. One level only.
-- Order comes from dates (deadline, target) and pins, not priority numbers. When the person says something matters more, pin_task it; don't invent a deadline to make it sort first.
+- Priority is per person: P0, P1 (default) or P2. Order is banded: every P0 task sorts before every P1, and P1 before P2; dates sort only inside a band. Urgent items (a deadline within 48 hours) show whatever their priority. Set priority (set_priority) only when the person says so, never on your own judgement, and don't invent a deadline to make something sort first.
 
 How to work
 - checkpoint is how you record progress: one call appends a note AND sets brief / next_action / next_actor / state atomically. next_actor is required: name who acts next (yourself as agent:${p.agent ?? "<name>"} to keep it). Update the brief so the next reader (human or another agent in a later session) needs nothing else.
@@ -458,12 +458,12 @@ export async function buildMcpServer(
   );
 
   tool(
-    "pin_task",
-    "Pin a task so it comes first in the person's lists and moves to the top of today's plan (pinned: false unpins). Per person; changes no task fields. Use it when the person says something matters more.",
-    z.object({ task_id: taskId, pinned: z.boolean().default(true) }).strict(),
+    "set_priority",
+    "Set the person's priority for a task: P0 (sorts before everything else and joins the top of today's plan), P1 (the default) or P2 (sorts after everything else and is never picked for the day's plan; still shows when urgent). Per person; changes no task fields. Only when the person tells you to, never on your own judgement of what matters.",
+    z.object({ task_id: taskId, priority: PriorityInput }).strict(),
     WRITE,
-    async ({ task_id, pinned }) => {
-      await board.pin(p, task_id, pinned);
+    async ({ task_id, priority }) => {
+      await board.setPriority(p, task_id, priority);
       return view(task_id);
     },
   );
@@ -554,7 +554,7 @@ export async function buildMcpServer(
 
   tool(
     "explain",
-    'Why a task is or isn\'t in Now (default) or a saved queue: verdict (shown / urgent / beyond_limit / excluded), a summary, and every check applied (an area_hidden check means "excluded: area hidden by default").',
+    "Why a task is or isn't in Now (default) or a saved queue: verdict (shown / urgent / beyond_limit / excluded), a summary, and every check applied (an area_hidden check means \"excluded: area hidden by default\"), and ranking: its priority band and any date that orders it differently (a parent's deadline it borrows, a long-missed target it ignores).",
     z.object({ task_id: taskId, queue_id: z.string().optional() }).strict(),
     READ,
     async ({ task_id, queue_id }) => board.explain(p, task_id, queue_id),

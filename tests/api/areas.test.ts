@@ -100,36 +100,37 @@ describe("areas", () => {
   });
 });
 
-describe("pinning", () => {
-  test("pinning moves a task to the top of today's list and says why", async () => {
+describe("P0", () => {
+  test("P0 moves a task to the top of today's list and says why", async () => {
     for (let i = 1; i <= 6; i++) await add(alex, `chore ${i}`);
     await alex.get("/api/now");
     const id = await add(alex, "the one that matters");
 
-    await alex.post(`/api/tasks/${id}/pin`, { pinned: true });
+    await alex.post(`/api/tasks/${id}/priority`, { priority: "P0" });
 
     const now = await alex.get("/api/now");
     expect(now.plan[0].item.task.title).toBe("the one that matters");
-    expect(now.plan[0].item.why).toBe("pinned");
+    expect(now.plan[0].item.why).toBe("P0");
+    expect(now.plan[0].item.priority).toBe("P0");
     expect(titles(now.new_items)).toEqual([]);
   });
 
-  test("pinning a task finished today doesn't put it back on today's list", async () => {
+  test("P0 on a task finished today doesn't put it back on today's list", async () => {
     for (let i = 1; i <= 3; i++) await add(alex, `chore ${i}`);
     const id = await add(alex, "already sorted");
     await alex.get("/api/now");
     await alex.post(`/api/tasks/${id}/complete`);
     const before = planTitles(await alex.get("/api/now"));
 
-    await alex.post(`/api/tasks/${id}/pin`, { pinned: true });
+    await alex.post(`/api/tasks/${id}/priority`, { priority: "P0" });
 
     expect(planTitles(await alex.get("/api/now"))).toEqual(before);
   });
 
-  test("a pinned task sorts first when the next day's list is made", async () => {
+  test("a P0 task sorts first when the next day's list is made", async () => {
     for (let i = 1; i <= 6; i++) await add(alex, `chore ${i}`);
     const id = await add(alex, "the one that matters");
-    await alex.post(`/api/tasks/${id}/pin`, { pinned: true });
+    await alex.post(`/api/tasks/${id}/priority`, { priority: "P0" });
 
     await server.setClock("2026-10-06T09:00:00+11:00");
 

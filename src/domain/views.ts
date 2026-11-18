@@ -8,6 +8,7 @@ import {
   describeMoment,
   describeUntil,
   local,
+  type Moment,
   momentEnd,
   momentStart,
   ZONE,
@@ -17,10 +18,28 @@ import type { Principal, Task } from "./types.ts";
 export const URGENT_DEADLINE_HOURS = 48;
 export const URGENT_EXPIRY_HOURS = 24;
 
+/**
+ * A target missed by more than this many days stops ranking: the task sorts as if it had none,
+ * so a forgotten target can't hold the top of the list for ever.
+ */
+export const STALE_TARGET_DAYS = 7;
+
+/**
+ * Per-person priority. Three levels only, P1 by default. Order is banded: every P0 task sorts
+ * before every P1, and P1 before P2; dates and the rest sort only inside a band.
+ */
+export const PRIORITIES = ["P0", "P1", "P2"] as const;
+export type Priority = (typeof PRIORITIES)[number];
+export const DEFAULT_PRIORITY: Priority = "P1";
+export const PriorityInput = z.enum(PRIORITIES);
+export const priorityFromRank = (n: number | null | undefined): Priority =>
+  PRIORITIES[n ?? 1] ?? DEFAULT_PRIORITY;
+export const priorityRank = (p: Priority): number => PRIORITIES.indexOf(p);
+
 export const ORDER_RULES = [
-  "pinned",
+  "priority",
   "urgency",
-  "recent_handoff",
+  "follow_up",
   "target",
   "staleness",
   "preferred_context",
@@ -71,7 +90,7 @@ export type QueueConfig = z.infer<typeof QueueConfig>;
 
 export interface Attention {
   snoozed_until: Date | null;
-  pinned: boolean;
+  priority: Priority;
 }
 
 export interface Assessment {
@@ -81,7 +100,13 @@ export interface Assessment {
   /** Why it isn't available, if it isn't. */
   held: string | null;
   snoozed_until: Date | null;
-  pinned: boolean;
+  priority: Priority;
+  /** The deadline that orders it and makes it urgent: its own, or else its parent's. */
+  deadline: Moment | null;
+  deadline_from_parent: boolean;
+  /** Its target, unless that was missed more than STALE_TARGET_DAYS ago. */
+  target: Moment | null;
+  target_stale: boolean;
   urgent: { kind: "deadline" | "expiry"; at: Date; label: string } | null;
   follow_up_due: boolean;
   claim_lapsed: boolean;
@@ -125,9 +150,18 @@ export function assess(t: Task, now: Date, att: Attention | undefined): Assessme
   if (t.state === "waiting") held = "waiting";
   if (!active) held = t.state;
 
+  // A part with no deadline of its own is ordered and made urgent by its parent's. It is
+  // computed, never written onto the part.
+  const deadline = t.deadline ?? t.parent_deadline ?? null;
+  const deadline_from_parent = !t.deadline && !!deadline;
+  const deadlineWord = deadline_from_parent ? "parent's deadline" : "deadline";
+  const target_stale =
+    !!t.target && momentStart(t.target).getTime() < now.getTime() - STALE_TARGET_DAYS * 86_400_000;
+  const target = target_stale ? null : t.target;
+
   let urgent: Assessment["urgent"] = null;
-  if (active && t.deadline) {
-    const end = momentEnd(t.deadline);
+  if (active && deadline) {
+    const end = momentEnd(deadline);
     const hours = (end.getTime() - now.getTime()) / 3_600_000;
     if (hours <= URGENT_DEADLINE_HOURS) {
       urgent = {
@@ -135,8 +169,8 @@ export function assess(t: Task, now: Date, att: Attention | undefined): Assessme
         at: end,
         label:
           hours < 0
-            ? `deadline passed ${describeAgo(end, now)}`
-            : `deadline ${describeMoment(t.deadline, now)}`,
+            ? `${deadlineWord} passed ${describeAgo(end, now)}`
+            : `${deadlineWord} ${describeMoment(deadline, now)}`,
       };
     }
   }
@@ -169,7 +203,7 @@ export function assess(t: Task, now: Date, att: Attention | undefined): Assessme
   } else if (t.state === "waiting") {
     label = `waiting${t.waiting?.for ? ` for ${t.waiting.for}` : ""}`;
   } else if (routine) label = routine.label;
-  else if (t.deadline) label = `deadline ${describeMoment(t.deadline, now)}`;
+  else if (deadline) label = `${deadlineWord} ${describeMoment(deadline, now)}`;
   else if (t.target) label = `aiming for ${describeMoment(t.target, now)}`;
   else if (t.expires) label = `until ${describeMoment(t.expires, now)}`;
 
@@ -178,7 +212,11 @@ export function assess(t: Task, now: Date, att: Attention | undefined): Assessme
     available: t.state === "open" && held === null,
     held,
     snoozed_until: snoozed,
-    pinned: att?.pinned ?? false,
+    priority: att?.priority ?? DEFAULT_PRIORITY,
+    deadline,
+    deadline_from_parent,
+    target,
+    target_stale,
     urgent,
     follow_up_due,
     claim_lapsed,
@@ -360,38 +398,27 @@ function preferenceScore(t: Task, cfg: QueueConfig, now: Date): number {
     : 2;
 }
 
-function recentHandoff(a: Assessment, viewer: Principal, now: Date): boolean {
-  const t = a.task;
-  const handed = t.actor_since !== t.created_at || t.created_by.user !== viewer.userId;
-  return (
-    t.next_actor.kind === "user" &&
-    t.next_actor.user === viewer.userId &&
-    handed &&
-    daysBetween(new Date(t.actor_since), now) <= 3
-  );
-}
-
 export function compareBy(
   rules: OrderRule[],
   cfg: QueueConfig,
-  viewer: Principal,
   now: Date,
 ): (x: Assessment, y: Assessment) => number {
   const key = (a: Assessment, rule: OrderRule): number => {
     const t = a.task;
     switch (rule) {
-      case "pinned":
-        return a.pinned ? 0 : 1;
+      case "priority":
+        return priorityRank(a.priority);
       case "urgency":
         return a.urgent ? a.urgent.at.getTime() : Number.MAX_SAFE_INTEGER;
-      case "recent_handoff":
-        return recentHandoff(a, viewer, now) || a.claim_lapsed || a.follow_up_due ? 0 : 1;
+      case "follow_up":
+        return a.claim_lapsed || a.follow_up_due ? 0 : 1;
       case "target": {
         // A reached target comes first; otherwise the nearest date, target or a deadline too far
-        // off to be urgent, so a distant deadline can't jump ahead of handoffs and missed targets.
-        const target = t.target ? momentStart(t.target).getTime() : Number.MAX_SAFE_INTEGER;
+        // off to be urgent, so a distant deadline can't jump ahead of missed targets. A target
+        // missed long ago counts as none (assess drops it).
+        const target = a.target ? momentStart(a.target).getTime() : Number.MAX_SAFE_INTEGER;
         if (target <= now.getTime()) return target - 1e15;
-        return Math.min(target, t.deadline ? momentEnd(t.deadline).getTime() : target);
+        return Math.min(target, a.deadline ? momentEnd(a.deadline).getTime() : target);
       }
       case "staleness":
         return a.routine ? -a.routine.ratio : 0;
@@ -411,15 +438,13 @@ export function compareBy(
 }
 
 /** Why an item made the list, in one phrase, following the first ordering rule that fired. */
-export function whyShown(a: Assessment, viewer: Principal, now: Date, users: UserInfo[]): string {
+export function whyShown(a: Assessment, now: Date, users: UserInfo[]): string {
   const t = a.task;
-  if (a.pinned) return "pinned";
+  if (a.priority === "P0") return "P0";
   if (a.urgent) return a.urgent.label;
   if (a.claim_lapsed) return a.label;
   if (a.follow_up_due) return a.label;
-  if (recentHandoff(a, viewer, now))
-    return `handed to you ${describeAgo(new Date(t.actor_since), now)}`;
-  if (t.target && momentStart(t.target) <= now) return `target ${describeMoment(t.target, now)}`;
+  if (a.target && momentStart(a.target) <= now) return `target ${describeMoment(a.target, now)}`;
   if (a.routine) return a.routine.label;
   if (t.next_actor.kind === "anyone") return "anyone can do this";
   return a.label || `next: ${actorLabel(t.next_actor, users)}`;
@@ -432,6 +457,8 @@ export interface QueueItem {
   urgent: boolean;
   stale: boolean;
   snoozed_until: string | null;
+  priority: Priority;
+  /** priority === "P0", for clients that still read the pin (the iOS app). */
   pinned: boolean;
 }
 
@@ -443,15 +470,16 @@ export interface QueueResult {
   urgent: QueueItem[];
 }
 
-export function toItem(a: Assessment, viewer: Principal, now: Date, users: UserInfo[]): QueueItem {
+export function toItem(a: Assessment, now: Date, users: UserInfo[]): QueueItem {
   return {
     task: a.task,
-    why: whyShown(a, viewer, now, users),
+    why: whyShown(a, now, users),
     label: a.label,
     urgent: !!a.urgent,
     stale: !!a.routine?.stale && a.available,
     snoozed_until: a.snoozed_until ? a.snoozed_until.toISOString() : null,
-    pinned: a.pinned,
+    priority: a.priority,
+    pinned: a.priority === "P0",
   };
 }
 
@@ -463,7 +491,7 @@ export function evaluateQueue(
   users: UserInfo[],
   hidden: ReadonlySet<string>,
 ): QueueResult {
-  const cmp = compareBy(cfg.order, cfg, viewer, now);
+  const cmp = compareBy(cfg.order, cfg, now);
   const matched = assessments
     .filter((a) => queueChecks(cfg, a, viewer, now, hidden).every((c) => c.ok))
     .sort(cmp);
@@ -472,11 +500,11 @@ export function evaluateQueue(
   const urgent = assessments
     .filter((a) => a.urgent && !shownIds.has(a.task.id))
     .filter((a) => scopeChecks(cfg, a, viewer).every((c) => c.ok))
-    .sort(compareBy(["urgency"], cfg, viewer, now));
+    .sort(compareBy(["urgency"], cfg, now));
   return {
-    items: shown.map((a) => toItem(a, viewer, now, users)),
+    items: shown.map((a) => toItem(a, now, users)),
     hidden_count: matched.length - shown.length,
-    urgent: urgent.map((a) => toItem(a, viewer, now, users)),
+    urgent: urgent.map((a) => toItem(a, now, users)),
   };
 }
 
@@ -487,6 +515,32 @@ export interface Explanation {
   position: number | null;
   checks: Check[];
   order: OrderRule[];
+  /** What sets its place in the order, beyond the checks: priority band, borrowed or dropped dates. */
+  ranking: { rule: string; detail: string }[];
+}
+
+const PRIORITY_DETAIL: Record<Priority, string> = {
+  P0: "P0: sorts above every P1 and P2 task",
+  P1: "P1 (the default): sorts after P0 tasks and before P2",
+  P2: "P2: sorts after every P0 and P1 task, and is never picked for the day's plan",
+};
+
+/** The ordering facts explain reports alongside the checks. */
+export function rankingOf(a: Assessment, now: Date): Explanation["ranking"] {
+  const out: Explanation["ranking"] = [{ rule: "priority", detail: PRIORITY_DETAIL[a.priority] }];
+  if (a.deadline_from_parent && a.deadline) {
+    out.push({
+      rule: "deadline",
+      detail: `no deadline of its own; ordered and made urgent by its parent's deadline, ${describeMoment(a.deadline, now)}`,
+    });
+  }
+  if (a.target_stale && a.task.target) {
+    out.push({
+      rule: "target",
+      detail: `target ${describeMoment(a.task.target, now)} was missed more than ${STALE_TARGET_DAYS} days ago, so it sorts as if it had none`,
+    });
+  }
+  return out;
 }
 
 export function explainTask(
@@ -503,6 +557,7 @@ export function explainTask(
   const id = target.task.id;
   const pos = result.items.findIndex((i) => i.task.id === id);
   const failed = checks.filter((c) => !c.ok);
+  const ranking = rankingOf(target, now);
   if (pos >= 0) {
     return {
       task_id: id,
@@ -511,6 +566,7 @@ export function explainTask(
       position: pos + 1,
       checks,
       order: cfg.order,
+      ranking,
     };
   }
   if (result.urgent.some((i) => i.task.id === id)) {
@@ -521,12 +577,13 @@ export function explainTask(
       position: null,
       checks,
       order: cfg.order,
+      ranking,
     };
   }
   if (failed.length === 0) {
     const all = assessments
       .filter((a) => queueChecks(cfg, a, viewer, now, hidden).every((c) => c.ok))
-      .sort(compareBy(cfg.order, cfg, viewer, now));
+      .sort(compareBy(cfg.order, cfg, now));
     const p = all.findIndex((a) => a.task.id === id) + 1;
     return {
       task_id: id,
@@ -535,6 +592,7 @@ export function explainTask(
       position: p,
       checks,
       order: cfg.order,
+      ranking,
     };
   }
   return {
@@ -544,6 +602,7 @@ export function explainTask(
     position: null,
     checks,
     order: cfg.order,
+    ranking,
   };
 }
 
@@ -562,6 +621,8 @@ export interface TaskStatus {
   claim_lapsed: boolean;
   routine: { due_at: string; stale: boolean; label: string } | null;
   snoozed_until: string | null;
+  priority: Priority;
+  /** priority === "P0", for clients that still read the pin (the iOS app). */
   pinned: boolean;
 }
 
@@ -578,6 +639,7 @@ export function statusOf(a: Assessment): TaskStatus {
       ? { due_at: a.routine.due_at.toISOString(), stale: a.routine.stale, label: a.routine.label }
       : null,
     snoozed_until: a.snoozed_until ? a.snoozed_until.toISOString() : null,
-    pinned: a.pinned,
+    priority: a.priority,
+    pinned: a.priority === "P0",
   };
 }

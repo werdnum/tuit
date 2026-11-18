@@ -6,11 +6,12 @@ import {
   addEvent,
   newId,
   openPartsSql,
+  parentSql,
   type TaskService,
   type UserInfo,
   visibleSql,
 } from "./tasks.ts";
-import { local, localDate } from "./time.ts";
+import { local, localDate, momentFromColumns } from "./time.ts";
 import { normalizeArea, type Principal, type Task, taskFromRow } from "./types.ts";
 import {
   type Assessment,
@@ -18,13 +19,16 @@ import {
   areaFilter,
   assess,
   compareBy,
+  DEFAULT_PRIORITY,
   type Explanation,
   evaluateQueue,
   explainTask,
   hiddenByArea,
   inAreas,
   NO_HIDDEN_AREAS,
+  type Priority,
   parseQueueConfig,
+  priorityFromRank,
   type QueueConfig,
   type QueueItem,
   type QueueResult,
@@ -166,10 +170,8 @@ export class Board {
 
   async assessments(p: Principal, now: Date): Promise<Assessment[]> {
     const r = await this.db.query(
-      `SELECT t.*, a.snoozed_until AS att_snoozed_until, a.pinned AS att_pinned,
-         ${openPartsSql("t")},
-         (SELECT pt.title FROM tasks pt
-          WHERE pt.id = t.parent_id AND ${visibleSql("pt", 1)}) AS parent_title
+      `SELECT t.*, a.snoozed_until AS att_snoozed_until, a.priority AS att_priority,
+         ${openPartsSql("t")}, ${parentSql("t", 1)}
        FROM tasks t LEFT JOIN attention a ON a.task_id = t.id AND a.user_id = $1::text
        WHERE t.state IN ('open', 'waiting') AND ${visibleSql("t", 1)}`,
       [p.userId],
@@ -177,7 +179,7 @@ export class Board {
     return r.rows.map((row) => {
       const att: Attention = {
         snoozed_until: row.att_snoozed_until,
-        pinned: row.att_pinned ?? false,
+        priority: priorityFromRank(row.att_priority),
       };
       return assess(taskFromRow(row), now, att);
     });
@@ -248,10 +250,20 @@ export class Board {
       (k) => k.state === "open" || k.state === "waiting",
     ).length;
     if (openParts) t.open_parts = openParts;
+    if (t.parent_id && !t.deadline) {
+      const r = await this.db.query(
+        `SELECT deadline_date, deadline_at FROM tasks pt WHERE id = $2 AND ${visibleSql("pt", 1)}`,
+        [p.userId, t.parent_id],
+      );
+      const d = r.rows[0]
+        ? momentFromColumns(r.rows[0].deadline_date, r.rows[0].deadline_at)
+        : null;
+      if (d) t.parent_deadline = d;
+    }
     const att = await this.tasks.attention(p, taskId);
     const a = assess(t, this.clock.now(), {
       snoozed_until: att.snoozed_until ? new Date(att.snoozed_until) : null,
-      pinned: att.pinned,
+      priority: att.priority,
     });
     return { task: t, status: statusOf(a) };
   }
@@ -320,12 +332,13 @@ export class Board {
     const today = planDay(now);
     const eligible = all
       .filter((a) => onNow(a, p, now))
-      .sort(compareBy(NOW_CONFIG.order, NOW_CONFIG, p, now));
+      .sort(compareBy(NOW_CONFIG.order, NOW_CONFIG, now));
     const byId = new Map(eligible.map((a) => [a.task.id, a]));
     const isHidden = (t: Task) => hiddenByArea(NOW_CONFIG, t, hidden);
+    // P2 tasks stay on Now, at the bottom, but are never picked for the day's plan.
     const planCandidates = () =>
       eligible
-        .filter((a) => !isHidden(a.task))
+        .filter((a) => !isHidden(a.task) && a.priority !== "P2")
         .slice(0, NOW_PLAN_SIZE)
         .map((a) => a.task.id);
 
@@ -373,15 +386,15 @@ export class Board {
       }
     }
     // The plan fixes which tasks are on today's list, not their order: open ones follow the
-    // current ranking, so a pin or a deadline coming close moves them, and ticked ones sink.
+    // current ranking, so a priority or a deadline coming close moves them, and ticked ones sink.
     const planView: NowView["plan"] = [
       ...planIds
         .flatMap((id) => byId.get(id) ?? [])
-        .sort(compareBy(NOW_CONFIG.order, NOW_CONFIG, p, now))
-        .map((a) => ({ item: toItem(a, p, now, users), done: false })),
+        .sort(compareBy(NOW_CONFIG.order, NOW_CONFIG, now))
+        .map((a) => ({ item: toItem(a, now, users), done: false })),
       ...planIds
         .flatMap((id) => finished.get(id) ?? [])
-        .map((t) => ({ item: toItem(assess(t, now, undefined), p, now, users), done: true })),
+        .map((t) => ({ item: toItem(assess(t, now, undefined), now, users), done: true })),
     ];
     const inPlan = new Set(planIds);
     const rest = eligible.filter((a) => !inPlan.has(a.task.id));
@@ -402,7 +415,7 @@ export class Board {
         const mine = t.next_actor.kind === "user" && t.next_actor.user === p.userId;
         return mine || t.next_actor.kind === "anyone" || t.owner === p.userId || !p.userId;
       })
-      .sort(compareBy(["urgency"], NOW_CONFIG, p, now));
+      .sort(compareBy(["urgency"], NOW_CONFIG, now));
 
     const waiting = all.filter(
       (a) =>
@@ -471,16 +484,16 @@ export class Board {
       hidden_by_default: areas.filter((a) => hidden.has(a)),
       hidden_areas: hiddenAreas,
       plan: planView.filter((x) => inArea(x.item.task)),
-      new_items: fresh.filter((a) => inArea(a.task)).map((a) => toItem(a, p, now, users)),
+      new_items: fresh.filter((a) => inArea(a.task)).map((a) => toItem(a, now, users)),
       also: rest
         // Urgent ones already show in the urgent list, which is built from everything.
         .filter((a) => !freshIds.has(a.task.id) && !a.urgent && inArea(a.task))
-        .map((a) => toItem(a, p, now, users)),
+        .map((a) => toItem(a, now, users)),
       more_count: 0,
       // Urgent always shows, hidden area or not.
       urgent: urgent
         .filter((a) => area === null || inAreas(a.task, [area]))
-        .map((a) => toItem(a, p, now, users)),
+        .map((a) => toItem(a, now, users)),
       enough_until:
         plan?.enough_until && plan.enough_until > now ? plan.enough_until.toISOString() : null,
       waiting_count: waiting,
@@ -514,24 +527,44 @@ export class Board {
   }
 
   /**
-   * Pin (or unpin) a task for this person. Pinning is an explicit "this one first", so it also
-   * puts the task on today's list if one has been made, where it then sorts first.
+   * Set this person's priority for a task. P0 is an explicit "this one first", so it also puts
+   * the task on today's list if one has been made, where it then sorts first. P2 is never on the
+   * day's plan, so it leaves today's list.
    */
-  async pin(p: Principal, id: string, pinned: boolean): Promise<void> {
+  async setPriority(p: Principal, id: string, priority: Priority): Promise<void> {
     const now = this.clock.now();
     const day = planDay(now);
     // Only a task Now would show goes to the top: one finished today would come back ticked.
     const eligible =
-      pinned && (await this.assessments(p, now)).some((a) => a.task.id === id && onNow(a, p, now));
-    await this.tasks.pin(p, id, pinned, async (c, userId) => {
-      if (!eligible) return;
-      await c.query(
-        `UPDATE day_plans SET task_ids = array_prepend($3::text, array_remove(task_ids, $3::text)),
-           seen_ids = array_append(array_remove(seen_ids, $3::text), $3::text)
-         WHERE user_id = $1 AND local_date = $2`,
-        [userId, day, id],
-      );
+      priority === "P0" &&
+      (await this.assessments(p, now)).some((a) => a.task.id === id && onNow(a, p, now));
+    await this.tasks.setPriority(p, id, priority, async (c, userId) => {
+      if (eligible) {
+        await c.query(
+          `UPDATE day_plans SET task_ids = array_prepend($3::text, array_remove(task_ids, $3::text)),
+             seen_ids = array_append(array_remove(seen_ids, $3::text), $3::text)
+           WHERE user_id = $1 AND local_date = $2`,
+          [userId, day, id],
+        );
+      } else if (priority === "P2") {
+        await c.query(
+          `UPDATE day_plans SET task_ids = array_remove(task_ids, $3::text)
+           WHERE user_id = $1 AND local_date = $2`,
+          [userId, day, id],
+        );
+      }
     });
+  }
+
+  /**
+   * The pin, as the iOS app still sends it: pinning sets P0, and unpinning a P0 task sets P1
+   * (unpinning anything else leaves its priority alone).
+   */
+  async pin(p: Principal, id: string, pinned: boolean): Promise<void> {
+    if (pinned) return this.setPriority(p, id, "P0");
+    if ((await this.tasks.attention(p, id)).priority === "P0") {
+      await this.setPriority(p, id, DEFAULT_PRIORITY);
+    }
   }
 
   // ---- Queues ----

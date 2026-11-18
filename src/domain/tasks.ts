@@ -39,7 +39,15 @@ import {
   taskFromRow,
   UpdateTaskInput,
 } from "./types.ts";
-import { areaFilter, assess, inAreas } from "./views.ts";
+import {
+  areaFilter,
+  assess,
+  DEFAULT_PRIORITY,
+  inAreas,
+  type Priority,
+  priorityFromRank,
+  priorityRank,
+} from "./views.ts";
 
 export function newId(): string {
   const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -58,6 +66,18 @@ export function newId(): string {
 export function openPartsSql(alias: string): string {
   return `(SELECT count(*) FROM tasks k
     WHERE k.parent_id = ${alias}.id AND k.state IN ('open', 'waiting'))::int AS open_parts`;
+}
+
+/**
+ * The parent's title and deadline, as select-list columns, when the principal may see the
+ * parent. `$n` must bind principal.userId. A part with no deadline of its own is ordered by its
+ * parent's, so wherever Now or a queue ranks rows, select this too.
+ */
+export function parentSql(alias: string, param: number): string {
+  const parent = (col: string) =>
+    `(SELECT pt.${col} FROM tasks pt WHERE pt.id = ${alias}.parent_id AND ${visibleSql("pt", param)})`;
+  return `${parent("title")} AS parent_title, ${parent("deadline_date")} AS parent_deadline_date,
+    ${parent("deadline_at")} AS parent_deadline_at`;
 }
 
 export function visibleSql(alias: string, param: number): string {
@@ -680,16 +700,16 @@ export class TaskService {
   async attention(
     p: Principal,
     taskId: string,
-  ): Promise<{ snoozed_until: string | null; pinned: boolean }> {
-    if (!p.userId) return { snoozed_until: null, pinned: false };
-    const r = await this.db.query<{ snoozed_until: Date | null; pinned: boolean }>(
-      "SELECT snoozed_until, pinned FROM attention WHERE user_id = $1 AND task_id = $2",
+  ): Promise<{ snoozed_until: string | null; priority: Priority }> {
+    if (!p.userId) return { snoozed_until: null, priority: DEFAULT_PRIORITY };
+    const r = await this.db.query<{ snoozed_until: Date | null; priority: number }>(
+      "SELECT snoozed_until, priority FROM attention WHERE user_id = $1 AND task_id = $2",
       [p.userId, taskId],
     );
     const row = r.rows[0];
     return {
       snoozed_until: row?.snoozed_until ? row.snoozed_until.toISOString() : null,
-      pinned: row?.pinned ?? false,
+      priority: priorityFromRank(row?.priority),
     };
   }
 
@@ -1190,11 +1210,14 @@ export class TaskService {
     return at ? at.toISOString() : null;
   }
 
-  /** `alongside` runs in the same transaction, so anything it changes is live with the pin. */
-  async pin(
+  /**
+   * Set this person's priority for a task. `alongside` runs in the same transaction, so anything
+   * it changes is live with the priority.
+   */
+  async setPriority(
     p: Principal,
     id: string,
-    pinned: boolean,
+    priority: Priority,
     alongside?: (c: Queryable, userId: string) => Promise<void>,
   ): Promise<void> {
     const userId = this.requireWriter(p);
@@ -1202,9 +1225,9 @@ export class TaskService {
     // One transaction, so the notification goes out exactly when the change commits.
     await this.db.tx(async (c) => {
       await c.query(
-        `INSERT INTO attention (user_id, task_id, pinned) VALUES ($1, $2, $3)
-       ON CONFLICT (user_id, task_id) DO UPDATE SET pinned = EXCLUDED.pinned`,
-        [userId, id, pinned],
+        `INSERT INTO attention (user_id, task_id, priority) VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, task_id) DO UPDATE SET priority = EXCLUDED.priority`,
+        [userId, id, priorityRank(priority)],
       );
       await alongside?.(c, userId);
       await notifyLive(c, userId);

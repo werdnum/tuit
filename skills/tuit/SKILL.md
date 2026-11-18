@@ -120,7 +120,8 @@ like `sat`, `tomorrow 9am` and `2026-11-04` are read in the household's time zon
 
 - **Areas** group tasks (`home`, `cluster`, `tuit`). Reuse one `tuit now` already shows rather
   than inventing a near-duplicate.
-- **Priority is a pin** (`tuit pin <id>`), never a made-up deadline.
+- **Priority is P0, P1 (default) or P2** (`tuit priority <id> P0`), set only when the person says
+  so, never a made-up deadline.
 - **Files:** Tuit stores links, not files. Put the file somewhere the household can open it and
   `tuit attach` the link.
 - **Briefs and notes are Markdown** (GitHub-flavoured, no images). Long material goes in a note,

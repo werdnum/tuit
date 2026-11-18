@@ -91,8 +91,9 @@ Revoking a token in Settings takes effect immediately.
   parent stays out of Now until its parts are closed, then comes back to be confirmed done.
   `get_task` lists `parts` and `part_of`. Closing a parent with open parts needs `open_parts`
   (`done`, `expire` or `detach`). One level only; don't use parts where an area would do.
-- **Priority is a pin, not a number.** When the person says something matters more, call
-  `pin_task`. Don't set a fake deadline or target to make it sort first.
+- **Priority is P0, P1 (default) or P2, per person.** Every P0 task sorts before every P1, and P1
+  before P2. Set it with `set_priority` only when the person tells you to, never on your own
+  judgement. Don't set a fake deadline or target to make something sort first.
 - **Dates and instants are different.** "sat" is a calendar date; "sat 9am" is an exact instant in
   Australia/Sydney. Pass the one you mean.
 - **Recording that it was done earlier:** use `complete_task` with `at` ("yesterday", "thu",

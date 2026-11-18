@@ -431,14 +431,13 @@ async function printTask(
   const s = v.status;
   const row = (k: string, val: string) => out(`${c.dim(k.padEnd(10))}${val}`);
   out(
-    `${c.bold(t.title)}  ${stateBadge(t.state)}${t.area ? ` #${t.area}` : ""}${t.visibility === "private" ? " [private]" : ""}${s.pinned ? " [pinned]" : ""}`,
+    `${c.bold(t.title)}  ${stateBadge(t.state)}${t.area ? ` #${t.area}` : ""}${t.visibility === "private" ? " [private]" : ""}${s.priority !== "P1" ? ` [${s.priority}]` : ""}`,
   );
   row("id", `${t.id}  (rev ${t.revision})`);
   const flags = [
     s.urgent ? c.red(s.urgent) : s.label,
     s.held && s.held !== t.state ? s.held : "",
     s.snoozed_until ? `snoozed until ${fmtInstant(s.snoozed_until, false)}` : "",
-    s.pinned ? "pinned" : "",
   ].filter(Boolean);
   if (flags.length) row("status", flags.join(" · "));
   if (t.close_reason) row("reason", t.close_reason);
@@ -536,7 +535,7 @@ async function taskMutation(
   confirm(ctx, verb, v);
 }
 
-/** Snooze/pin/release take no idempotency key; they set state, so a retry is harmless. */
+/** Snooze/priority/release take no idempotency key; they set state, so a retry is harmless. */
 async function plainTaskPost(ctx: Ctx, verb: string, sub: string, body: unknown): Promise<void> {
   const client = ctx.client();
   const id = await resolveTask(client, need(ctx.args, 0, "task id"));
@@ -789,15 +788,23 @@ const commands: Record<string, Command> = {
     summary: "Bring a snoozed task back",
     run: (ctx) => plainTaskPost(ctx, "Unsnoozed:", "snooze", { until: null }),
   },
+  priority: {
+    usage: "tuit priority <id> P0|P1|P2",
+    summary: "Set your priority: P0 sorts first, P1 is the default, P2 sorts last",
+    run: (ctx) => {
+      const level = need(ctx.args, 1, "priority (P0, P1 or P2)").toUpperCase();
+      return plainTaskPost(ctx, `${level}:`, "priority", { priority: level });
+    },
+  },
   pin: {
     usage: "tuit pin <id>",
-    summary: "Pin to the top of your lists",
-    run: (ctx) => plainTaskPost(ctx, "Pinned:", "pin", { pinned: true }),
+    summary: "Set P0 (same as tuit priority <id> P0)",
+    run: (ctx) => plainTaskPost(ctx, "P0:", "priority", { priority: "P0" }),
   },
   unpin: {
     usage: "tuit unpin <id>",
-    summary: "Unpin",
-    run: (ctx) => plainTaskPost(ctx, "Unpinned:", "pin", { pinned: false }),
+    summary: "Back to P1 (same as tuit priority <id> P1)",
+    run: (ctx) => plainTaskPost(ctx, "P1:", "priority", { priority: "P1" }),
   },
   drop: {
     usage: "tuit drop <id> [--reason T] [--parts done|expire|detach]",
@@ -1009,6 +1016,7 @@ const commands: Record<string, Command> = {
       for (const ch of e.checks) {
         out(`  ${ch.ok ? c.green("✓") : c.red("✗")} ${ch.check.padEnd(15)} ${ch.detail}`);
       }
+      for (const r of e.ranking) out(`  ${c.dim("·")} ${r.rule.padEnd(15)} ${r.detail}`);
       out(c.dim(`  order: ${e.order.join(" > ")}`));
     },
   },

@@ -4,7 +4,7 @@ import { expect, nowRow, test } from "./fixtures.ts";
 const openMenu = (page: Page, title: string) =>
   nowRow(page, title).getByLabel(`Actions: ${title}`).click();
 
-test("a row's menu on Now snoozes, pins, files and drops a task without opening it", async ({
+test("a row's menu on Now snoozes, prioritises, files and drops a task without opening it", async ({
   page,
   signIn,
   alexApi,
@@ -16,7 +16,7 @@ test("a row's menu on Now snoozes, pins, files and drops a task without opening 
   await signIn(page, "alex");
 
   await openMenu(page, "chore 3");
-  await nowRow(page, "chore 3").getByRole("button", { name: "Pin to top" }).click();
+  await nowRow(page, "chore 3").getByRole("button", { name: "Priority P0" }).click();
   await expect(page.locator("main li[data-task]").first()).toContainText("chore 3");
   await expect(page).toHaveURL(/\/$/);
 
@@ -49,11 +49,11 @@ test("only one row's menu is open at a time, and the tick still completes", asyn
 
   await openMenu(page, "call the bank");
   await expect(
-    nowRow(page, "call the bank").getByRole("button", { name: "Pin to top" }),
+    nowRow(page, "call the bank").getByRole("button", { name: "Priority P2" }),
   ).toBeVisible();
   await openMenu(page, "book the dentist");
   await expect(
-    nowRow(page, "call the bank").getByRole("button", { name: "Pin to top" }),
+    nowRow(page, "call the bank").getByRole("button", { name: "Priority P2" }),
   ).toBeHidden();
 
   await nowRow(page, "call the bank").getByRole("button", { name: "Done: call the bank" }).click();

@@ -71,7 +71,7 @@ test("the tool surface is small and task-oriented", async () => {
       "hand_off",
       "list_queues",
       "now",
-      "pin_task",
+      "set_priority",
       "preview_queue",
       "release_claim",
       "remove_attachment",

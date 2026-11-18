@@ -11,9 +11,9 @@ deserves attention now, and whose turn it is. It spends its complexity on what "
   rather than sliding replacements in, items handed to you during the day appear under *New since
   this morning*, and "Enough for now" is a real option. After a month away there's still no
   backlog: expired things are gone, commitments are surfaced, and the list is short. Each row's
-  ⋯ menu snoozes, pins, skips a routine, files it under an area, or drops it without opening it.
-- **Areas and pins**: file a task under one area (`#tuit fix the feed`) and narrow Now to it; pin
-  what matters most to the top. No projects, no priority numbers.
+  ⋯ menu snoozes, sets a priority, skips a routine, files it under an area, or drops it without opening it.
+- **Areas and priority**: file a task under one area (`#tuit fix the feed`) and narrow Now to it;
+  mark what matters most P0 and what can sink P2 (P1 is the default). No projects, no finer scale.
 - **Task detail**: the outcome, a short editable brief (Markdown, with collapsible sections), one
   next action, and whose turn it is. History is append-only; agent entries are marked. Files are
   attached as links (paste one, or pick or upload from Google Drive), so Tuit never stores them.
@@ -118,9 +118,10 @@ and webhook transport checks.
 - sign-in (OIDC) and household/private visibility enforced across every surface;
 - title-only capture, with an optional `#area` tag;
 - areas: one flat area per task, area chips on Now, and area filters on queues and notifications;
-- pinning (web, iOS, MCP, CLI), which also moves a task to the top of today's list;
+- priority P0 / P1 / P2 (web, MCP, CLI; the iOS app pins, which sets P0): P0 also moves a task to
+  the top of today's list, and P2 keeps it off the list;
 - Now with a sticky daily list, *New since this morning*, "enough for now", urgent items outside
-  every limit, an "away" summary, and a per-row menu (snooze, pin, skip, area, no longer
+  every limit, an "away" summary, and a per-row menu (snooze, priority, skip, area, no longer
   relevant);
 - attachments as links, from the web (including Google's Drive picker when configured), iOS, MCP
   and the CLI;
