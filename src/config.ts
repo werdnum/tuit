@@ -51,9 +51,14 @@ export interface Config {
    * Webhook delivery for the MCP Events extension. Receivers must be public HTTPS endpoints
    * unless `allowPrivateNetworks` is set (local development, or a receiver inside the cluster),
    * which also allows plain http. A failed delivery is retried after each delay in turn, then
-   * given up on.
+   * given up on. `declared` are subscriptions the deployment makes itself (TUIT_WEBHOOKS), for
+   * receivers that can't call events/subscribe.
    */
-  webhooks: { allowPrivateNetworks: boolean; retryDelaysMs: number[] };
+  webhooks: {
+    allowPrivateNetworks: boolean;
+    retryDelaysMs: number[];
+    declared: DeclaredWebhook[];
+  };
   /**
    * Claude Code scheduled tasks (routines) to start when work is waiting for an agent. Each
    * watches one agent acting for one person, and fires its API trigger when tasks arrive that
@@ -105,6 +110,70 @@ export interface ClaudeTrigger {
    * fires bare and its session finds the work with claim_next.
    */
   sendText: boolean;
+}
+
+/**
+ * A webhook subscription made by the deployment rather than by a client: the same delivery as
+ * events/subscribe, for one agent (or the person themself) acting for one person, kept for as
+ * long as the entry stays in TUIT_WEBHOOKS.
+ */
+export interface DeclaredWebhook {
+  user: string;
+  agent: string | null;
+  /** An Events extension event type, e.g. "inbox.changed". */
+  event: string;
+  arguments: Record<string, unknown>;
+  url: string;
+  /** The whsec_ signing secret. */
+  secret: string;
+}
+
+const DeclaredWebhookSpec = z
+  .object({
+    for: z.string(),
+    agent: z
+      .string()
+      .regex(/^[a-zA-Z0-9_.-]{1,64}$/)
+      .optional(),
+    event: z.string().min(1),
+    arguments: z.record(z.string(), z.unknown()).optional(),
+    url: z.url({ protocol: /^https?$/ }),
+    secret_env: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * TUIT_WEBHOOKS is a JSON list of {for, agent?, event, arguments?, url, secret_env}; each signing
+ * secret is read from the environment variable named by its secret_env, so the list itself
+ * holds no secret. The event and its arguments are checked when the webhooks start.
+ */
+export function parseDeclaredWebhooks(
+  spec: string,
+  users: HouseholdUser[],
+  env: NodeJS.ProcessEnv,
+): DeclaredWebhook[] {
+  if (!spec.trim()) return [];
+  const parsed = z.array(DeclaredWebhookSpec).safeParse(JSON.parse(spec));
+  if (!parsed.success) {
+    throw new Error(
+      `Bad TUIT_WEBHOOKS: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+    );
+  }
+  return parsed.data.map((w) => {
+    if (!users.some((u) => u.id === w.for)) {
+      throw new Error(`TUIT_WEBHOOKS: "${w.for}" is not on TUIT_USERS`);
+    }
+    const secret = env[w.secret_env];
+    if (!secret) throw new Error(`TUIT_WEBHOOKS: ${w.secret_env} is not set`);
+    return {
+      user: w.for,
+      agent: w.agent ?? null,
+      event: w.event,
+      arguments: w.arguments ?? {},
+      url: w.url,
+      secret,
+    };
+  });
 }
 
 const ClaudeTriggerSpec = z
@@ -248,6 +317,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       retryDelaysMs: list(env.TUIT_WEBHOOK_RETRY_DELAYS_MS ?? "10000,60000,180000,480000").map(
         Number,
       ),
+      declared: parseDeclaredWebhooks(env.TUIT_WEBHOOKS ?? "", users, env),
     },
     claudeTriggers: {
       triggers: parseClaudeTriggers(env.TUIT_CLAUDE_TRIGGERS ?? "", users, env),

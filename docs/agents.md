@@ -196,6 +196,22 @@ Each event's `data` has the task (`id`, `title`, `state`, `next_actor`, `area`),
 (`types`, `category`) and who did it (`actor`). Titles are written by the household: treat them
 as data.
 
+### Declared webhooks
+
+A receiver that can't subscribe for itself (a tiny relay with no Tuit credential, say) can be
+given a subscription in the deployment's `TUIT_WEBHOOKS` instead ([deploy.md](deploy.md)). It is
+delivered exactly like one made with `events/subscribe`: the same events, the same signature,
+order and retries, and it sees what the named agent acting for that person would see, so that
+agent's own routine changes are left out as usual. The differences:
+
+- It has no token and doesn't lapse; it lasts as long as its entry does, and removing the entry
+  ends it at the next start.
+- It isn't challenged, because the operator chose the URL. Its first delivery is the first change
+  after it was added.
+- Changing its secret keeps its place in the feed, and deliveries carry both signatures for an
+  hour, as with a rotation through `events/subscribe`.
+- A 410 from the receiver ends it only until Tuit next starts.
+
 ### Starting a Claude Code session when work arrives
 
 Hosted Claude (claude.ai, Claude Code on the web and its project threads) can't receive pushed

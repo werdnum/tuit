@@ -341,6 +341,20 @@ const deliveryStatus = (row: SubscriptionRow) => ({
   ...(row.failed_since ? { failedSince: row.failed_since.toISOString() } : {}),
 });
 
+/** The credential recorded on the deployment's own subscriptions (TUIT_WEBHOOKS). */
+const DECLARED = "config";
+/** A declared subscription doesn't lapse: it ends when its entry leaves TUIT_WEBHOOKS. */
+const NEVER = new Date("9999-12-31T00:00:00Z");
+
+interface Declared {
+  id: string;
+  principal: Principal;
+  type: EventType;
+  args: Record<string, unknown>;
+  url: string;
+  secret: string;
+}
+
 const samePrincipal = "user_id IS NOT DISTINCT FROM $2 AND agent IS NOT DISTINCT FROM $3";
 
 /**
@@ -357,6 +371,7 @@ export class Webhooks {
   private readonly attempts = new Map<string, number>();
   /** Subscriptions waiting out a backoff before their next attempt. */
   private readonly waiting = new Map<string, NodeJS.Timeout>();
+  private readonly declared: Declared[];
   private kicking: Promise<void> | null = null;
   private again = false;
   private closed = false;
@@ -365,6 +380,85 @@ export class Webhooks {
     this.app = app;
     this.transport = transport;
     this.retryDelaysMs = app.config.webhooks.retryDelaysMs;
+    this.declared = app.config.webhooks.declared.map((w) => {
+      const where = `TUIT_WEBHOOKS ${w.event} to ${w.url}`;
+      const t = EVENT_TYPES.find((e) => e.name === w.event);
+      if (!t) throw new Error(`${where}: no event type "${w.event}"`);
+      const args = t.args.safeParse(w.arguments);
+      if (!args.success) {
+        throw new Error(
+          `${where}: ${args.error.issues.map((i) => `arguments.${i.path.join(".")}: ${i.message}`).join("; ")}`,
+        );
+      }
+      const refused = transport.refuse(w.url);
+      if (refused) throw new Error(`${where}: ${refused}`);
+      if (!secretKey(w.secret)) {
+        throw new Error(`${where}: the secret must be whsec_ followed by base64 of 24 to 64 bytes`);
+      }
+      const principal: Principal = {
+        userId: w.user,
+        agent: w.agent,
+        canWrite: false,
+        key: DECLARED,
+      };
+      const id = subscriptionId(principal, w.url, t.name, args.data);
+      return { id, principal, type: t, args: args.data, url: w.url, secret: w.secret };
+    });
+    const ids = new Set<string>();
+    for (const d of this.declared) {
+      if (ids.has(d.id))
+        throw new Error(`TUIT_WEBHOOKS: ${d.type.name} to ${d.url} is listed twice`);
+      ids.add(d.id);
+    }
+  }
+
+  /**
+   * Make the deployment's own subscriptions match TUIT_WEBHOOKS: add new entries (starting from
+   * now), carry a changed secret with the usual rotation overlap, and end entries that are gone.
+   * They aren't challenged, since the operator chose the URL, and a receiver's 410 ends one only
+   * until the next start.
+   */
+  async declare(): Promise<void> {
+    const { db, clock } = this.app;
+    const now = clock.now();
+    for (const d of this.declared) {
+      await resolveWatch(this.app, d.principal, d.type, d.args);
+      await db.query(
+        `INSERT INTO webhook_subscriptions
+           (id, user_id, agent, credential, name, arguments, url, secret, cursor, expires_at,
+            verified_at, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+         ON CONFLICT (id) DO UPDATE SET
+           credential = EXCLUDED.credential,
+           secret = EXCLUDED.secret,
+           previous_secret = CASE WHEN webhook_subscriptions.secret <> EXCLUDED.secret
+                                  THEN webhook_subscriptions.secret
+                                  ELSE webhook_subscriptions.previous_secret END,
+           previous_secret_until = CASE WHEN webhook_subscriptions.secret <> EXCLUDED.secret
+                                        THEN $12::timestamptz
+                                        ELSE webhook_subscriptions.previous_secret_until END,
+           expires_at = EXCLUDED.expires_at`,
+        [
+          d.id,
+          d.principal.userId,
+          d.principal.agent,
+          DECLARED,
+          d.type.name,
+          JSON.stringify(d.args),
+          d.url,
+          d.secret,
+          await latestCursor(db, d.principal),
+          NEVER,
+          now,
+          new Date(now.getTime() + ROTATION_OVERLAP_MS),
+        ],
+      );
+    }
+    const gone = await db.query<{ id: string }>(
+      "DELETE FROM webhook_subscriptions WHERE credential = $1 AND NOT (id = ANY($2)) RETURNING id",
+      [DECLARED, this.declared.map((d) => d.id)],
+    );
+    for (const { id } of gone.rows) this.clearBackoff(id);
   }
 
   async subscribe(p: Principal, params: unknown) {
