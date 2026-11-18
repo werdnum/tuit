@@ -106,10 +106,17 @@ export function restApi(app: App): Hono<AuthEnv> {
   });
 
   const mutation =
-    (fn: (id: string, input: unknown, c: Context<AuthEnv>) => Promise<{ id: string }>) =>
+    (
+      fn: (
+        id: string,
+        input: unknown,
+        c: Context<AuthEnv>,
+      ) => Promise<{ id: string; warning?: string }>,
+    ) =>
     async (c: Context<AuthEnv>) => {
       const t = await fn(c.req.param("id") as string, await body(c), c);
-      return c.json(await board.view(c.get("principal"), t.id));
+      const v = await board.view(c.get("principal"), t.id);
+      return c.json(t.warning ? { ...v, warning: t.warning } : v);
     };
 
   api.patch(
@@ -192,7 +199,8 @@ export function restApi(app: App): Hono<AuthEnv> {
       ...input,
       attachment_id: c.req.param("attachmentId"),
     });
-    return c.json(await board.view(p, t.id));
+    const v = await board.view(p, t.id);
+    return c.json(t.warning ? { ...v, warning: t.warning } : v);
   });
   api.get("/tasks/:id/explain", async (c) =>
     c.json(

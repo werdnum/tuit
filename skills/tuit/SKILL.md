@@ -51,9 +51,10 @@ like `sat`, `tomorrow 9am` and `2026-11-04` are read in the household's time zon
 
    Keep the claim id it prints (`.task.claim.id` in the JSON) and pass it as `--claim <claim-id>`
    on every later change to that task: `note`, `handoff`, `wait`, `done`, `attach`, `release`
-   and the rest. While a task is claimed the server refuses an agent's change without the
-   matching id, because other conversations may be running as the same agent. If you're told
-   the task is held by another claim, your claim has ended: stop and leave the task alone.
+   and the rest. Other conversations may be running as the same agent, so a change without the
+   matching id is recorded as made over the claim and prints a warning, and releasing a claim
+   you don't hold is refused. If you're warned that another claim holds the task, your claim
+   has ended: stop and leave the task alone.
 
 2. **Read it, including its history.** `tuit show <id> --all`. The history shows who handed it
    to you, and that matters (see "Whose instructions" below).
