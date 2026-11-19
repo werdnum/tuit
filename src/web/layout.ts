@@ -32,6 +32,8 @@ const CSS = `
   --agent: #6b4fbb;
   --agent-soft: rgba(107, 79, 187, 0.12);
   --tabbar: rgba(249, 249, 251, 0.92);
+  --seg-track: rgba(118, 118, 128, 0.12);
+  --seg-thumb: #ffffff;
   --radius: 14px;
   --tap: 44px;
 }
@@ -51,6 +53,8 @@ const CSS = `
     --agent: #b9a6ff;
     --agent-soft: rgba(185, 166, 255, 0.16);
     --tabbar: rgba(22, 22, 24, 0.92);
+    --seg-track: rgba(118, 118, 128, 0.24);
+    --seg-thumb: #636366;
   }
 }
 * { box-sizing: border-box; }
@@ -209,17 +213,24 @@ details.sheet > .body { padding: 0 16px 14px; }
 .verbs > details, .verbs > form { margin: 0; }
 .verbs > details[open] { grid-column: 1 / -1; }
 .verbs > form > button, .verbs > details > summary { width: 100%; }
+.verbs > form:not(.priority) > button, .verbs > details:not([open]) > summary { height: 100%; }
 .verbs details.sheet { margin: 0; }
 .verbs details.sheet > summary { justify-content: center; background: var(--card); border-radius: var(--radius); font-weight: 500; color: var(--text); }
 .verbs details.sheet > summary::after { content: none; }
 .verbs details[open] > summary { color: var(--accent); font-weight: 600; }
 .verbs > form > button { background: var(--card); color: var(--text); font-weight: 500; border-radius: var(--radius); }
 .presets { display: flex; flex-wrap: wrap; gap: 8px; }
-form.priority { display: flex; align-items: center; gap: 6px; }
-form.priority > span { flex: 0 0 auto; padding-right: 4px; }
-form.priority > button { flex: 1 1 0; }
-.verbs > form.priority { grid-column: 1 / -1; }
-form.priority > button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+form.priority { display: grid; gap: 4px; }
+form.priority > span { margin: 0 4px; }
+.verbs > form.priority { grid-column: 1 / -1; margin: 2px 0 4px; }
+.seg { display: flex; padding: 2px; gap: 2px; border-radius: 10px; background: var(--seg-track); }
+.seg > button, .rowmenu .seg > button { flex: 1 1 0; min-height: 36px; padding: 4px 8px; border-radius: 8px; background: transparent;
+  color: var(--text); font-size: 15px; font-weight: 500; gap: 5px; }
+.seg > button > b { font-weight: 600; }
+.seg > button > span { color: var(--muted); font-size: 13px; }
+.seg > button[aria-pressed="true"] { background: var(--seg-thumb); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04); }
+.seg > button[aria-pressed="true"] > span { color: inherit; opacity: 0.7; }
+.seg > button[data-p="P0"][aria-pressed="true"] > b { color: var(--urgent); }
 .presets button { flex: 1 1 40%; }
 .history { list-style: none; margin: 0; padding: 0; }
 .history li { padding: 10px 16px; border-top: 0.5px solid var(--line); }

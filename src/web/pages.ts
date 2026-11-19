@@ -84,12 +84,14 @@ function itemRow(
   </li>`;
 }
 
-/** P0 / P1 / P2 for this person, the current one pressed. */
+const PRIORITY_HINTS: Record<Priority, string> = { P0: "Top", P1: "Normal", P2: "Low" };
+
+/** P0 / P1 / P2 for this person as a segmented control, the current one selected. */
 function priorityForm(action: string, backTo: string, current: Priority): Html {
-  return html`<form method="post" action="${action}/priority" class="priority" aria-label="Priority" data-priority="${current}">${back(backTo)}<span class="small muted">Priority</span>${PRIORITIES.map(
+  return html`<form method="post" action="${action}/priority" class="priority" aria-label="Priority" data-priority="${current}">${back(backTo)}<span class="small muted">Priority</span><div class="seg">${PRIORITIES.map(
     (v) =>
-      html`<button name="priority" value="${v}" aria-pressed="${v === current ? "true" : "false"}" aria-label="Priority ${v}">${v}</button>`,
-  )}</form>`;
+      html`<button name="priority" value="${v}" data-p="${v}" aria-pressed="${v === current ? "true" : "false"}" aria-label="Priority ${v}"><b>${v}</b><span>${PRIORITY_HINTS[v]}</span></button>`,
+  )}</div></form>`;
 }
 
 /**
