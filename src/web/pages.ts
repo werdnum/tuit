@@ -5,15 +5,14 @@ import type { Config } from "../config.ts";
 import { NOW_PAGE_SIZE, type NowView, type Queue } from "../domain/board.ts";
 import type { TaskRef, UserInfo } from "../domain/tasks.ts";
 import { local, type Moment } from "../domain/time.ts";
-import type { ActivityEntry, Principal, Task } from "../domain/types.ts";
 import {
-  type Explanation,
+  type ActivityEntry,
   PRIORITIES,
+  type Principal,
   type Priority,
-  type QueueItem,
-  type QueueResult,
-  type TaskStatus,
-} from "../domain/views.ts";
+  type Task,
+} from "../domain/types.ts";
+import type { Explanation, QueueItem, QueueResult, TaskStatus } from "../domain/views.ts";
 import type { Device } from "../notify/channels.ts";
 import type { LogEntry, NotifySettings } from "../notify/notifier.ts";
 import { CATEGORIES, CATEGORY_LABELS, describeRule } from "../notify/rules.ts";

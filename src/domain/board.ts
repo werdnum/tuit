@@ -12,23 +12,28 @@ import {
   visibleSql,
 } from "./tasks.ts";
 import { local, localDate, momentFromColumns } from "./time.ts";
-import { normalizeArea, type Principal, type Task, taskFromRow } from "./types.ts";
+import {
+  DEFAULT_PRIORITY,
+  normalizeArea,
+  type Principal,
+  type Priority,
+  priorityFromRank,
+  type Task,
+  taskFromRow,
+} from "./types.ts";
 import {
   type Assessment,
   type Attention,
   areaFilter,
   assess,
   compareBy,
-  DEFAULT_PRIORITY,
   type Explanation,
   evaluateQueue,
   explainTask,
   hiddenByArea,
   inAreas,
   NO_HIDDEN_AREAS,
-  type Priority,
   parseQueueConfig,
-  priorityFromRank,
   type QueueConfig,
   type QueueItem,
   type QueueResult,

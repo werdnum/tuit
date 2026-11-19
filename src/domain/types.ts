@@ -4,6 +4,18 @@ import type { Moment } from "./time.ts";
 import { momentFromColumns } from "./time.ts";
 
 /**
+ * Per-person priority. Three levels only, P1 by default. Order is banded: every P0 task sorts
+ * before every P1, and P1 before P2; dates and the rest sort only inside a band.
+ */
+export const PRIORITIES = ["P0", "P1", "P2"] as const;
+export type Priority = (typeof PRIORITIES)[number];
+export const DEFAULT_PRIORITY: Priority = "P1";
+export const PriorityInput = z.enum(PRIORITIES);
+export const priorityFromRank = (n: number | null | undefined): Priority =>
+  PRIORITIES[n ?? 1] ?? DEFAULT_PRIORITY;
+export const priorityRank = (p: Priority): number => PRIORITIES.indexOf(p);
+
+/**
  * Who is calling. Derived only from a verified session or token, never from client input.
  * `userId` is null for a household display token, which sees household items only.
  */

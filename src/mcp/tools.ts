@@ -28,10 +28,11 @@ import {
   MomentInput,
   NOTE_DESCRIPTION,
   type Principal,
+  PriorityInput,
   type Task,
   UpdateTaskInput,
 } from "../domain/types.ts";
-import { inAreas, PriorityInput, QueueConfig, type QueueItem } from "../domain/views.ts";
+import { inAreas, QueueConfig, type QueueItem } from "../domain/views.ts";
 import { isMe } from "../notify/rules.ts";
 import {
   CHANGES_URI,

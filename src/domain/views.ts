@@ -13,7 +13,13 @@ import {
   momentStart,
   ZONE,
 } from "./time.ts";
-import type { Principal, Task } from "./types.ts";
+import {
+  DEFAULT_PRIORITY,
+  type Principal,
+  type Priority,
+  priorityRank,
+  type Task,
+} from "./types.ts";
 
 export const URGENT_DEADLINE_HOURS = 48;
 export const URGENT_EXPIRY_HOURS = 24;
@@ -23,18 +29,6 @@ export const URGENT_EXPIRY_HOURS = 24;
  * so a forgotten target can't hold the top of the list for ever.
  */
 export const STALE_TARGET_DAYS = 7;
-
-/**
- * Per-person priority. Three levels only, P1 by default. Order is banded: every P0 task sorts
- * before every P1, and P1 before P2; dates and the rest sort only inside a band.
- */
-export const PRIORITIES = ["P0", "P1", "P2"] as const;
-export type Priority = (typeof PRIORITIES)[number];
-export const DEFAULT_PRIORITY: Priority = "P1";
-export const PriorityInput = z.enum(PRIORITIES);
-export const priorityFromRank = (n: number | null | undefined): Priority =>
-  PRIORITIES[n ?? 1] ?? DEFAULT_PRIORITY;
-export const priorityRank = (p: Priority): number => PRIORITIES.indexOf(p);
 
 export const ORDER_RULES = [
   "priority",

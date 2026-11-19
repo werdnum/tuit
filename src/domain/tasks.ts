@@ -29,25 +29,21 @@ import {
   CloseInput,
   CompleteInput,
   CreateTaskInput,
+  DEFAULT_PRIORITY,
   DetachInput,
   MAX_ATTACHMENTS,
   normalizeArea,
   type OffsetRule,
   type Principal,
+  type Priority,
+  priorityFromRank,
+  priorityRank,
   splitAreaTag,
   type Task,
   taskFromRow,
   UpdateTaskInput,
 } from "./types.ts";
-import {
-  areaFilter,
-  assess,
-  DEFAULT_PRIORITY,
-  inAreas,
-  type Priority,
-  priorityFromRank,
-  priorityRank,
-} from "./views.ts";
+import { areaFilter, assess, inAreas } from "./views.ts";
 
 export function newId(): string {
   const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";

@@ -4,8 +4,14 @@ import type { App } from "../app.ts";
 import { nowLimit } from "../domain/board.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../domain/errors.ts";
 import { ZONE } from "../domain/time.ts";
-import { ActorInput, ClaimIdInput, ClaimInput, MomentInput, NOTE_KINDS } from "../domain/types.ts";
-import { PriorityInput } from "../domain/views.ts";
+import {
+  ActorInput,
+  ClaimIdInput,
+  ClaimInput,
+  MomentInput,
+  NOTE_KINDS,
+  PriorityInput,
+} from "../domain/types.ts";
 import type { AuthEnv } from "./auth.ts";
 
 const HandoffInput = z
