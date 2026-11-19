@@ -195,3 +195,113 @@ describe("ordering", () => {
     expect((await alex.get(`/api/tasks/${part}`)).status.urgent).toMatch(/parent's deadline/);
   });
 });
+
+describe("claiming", () => {
+  const forClaude = { next_actor: "agent:claude" };
+  let minute = 0;
+  // One minute apart, so arrival order is defined.
+  const handed = async (title: string) => {
+    minute += 1;
+    await server.setClock(new Date(Date.parse("2026-10-05T14:00:00+11:00") + minute * 60_000));
+    return add(alex, title, forClaude);
+  };
+
+  test("an agent takes P0 work first, then P1, then P2, oldest first within each", async () => {
+    const claude = await server.api("alex", "claude");
+    const low = await handed("tidy the CI cache");
+    await handed("bump certifi");
+    await handed("bump urllib3");
+    const alert = await handed("node aachen is down");
+    await setPriority(alex, low, "P2");
+    await setPriority(alex, alert, "P0");
+
+    const order: string[] = [];
+    for (;;) {
+      const r = await claude.post("/api/claim", { side_effects: false });
+      if (!r.task) break;
+      order.push(r.task.title);
+    }
+
+    expect(order).toEqual([
+      "node aachen is down",
+      "bump certifi",
+      "bump urllib3",
+      "tidy the CI cache",
+    ]);
+  });
+
+  test("the order is the priority of the person the agent acts for", async () => {
+    const claude = await server.api("alex", "claude");
+    await handed("bump certifi");
+    const theirs = await handed("rotate the router password");
+    await setPriority(sam, theirs, "P0");
+
+    expect((await claude.post("/api/claim", {})).task.title).toBe("bump certifi");
+  });
+
+  test("priorities limits a claim to those levels, with no priority counting as P1", async () => {
+    const claude = await server.api("alex", "claude");
+    await handed("bump certifi");
+    const low = await handed("tidy the CI cache");
+    await setPriority(alex, low, "P2");
+
+    expect((await claude.post("/api/claim", { priorities: ["P0"] })).task).toBeNull();
+
+    const alert = await handed("node aachen is down");
+    await setPriority(alex, alert, "P0");
+    expect((await claude.post("/api/claim", { priorities: ["P0"] })).task.title).toBe(
+      "node aachen is down",
+    );
+    expect((await claude.post("/api/claim", { priorities: ["P1"] })).task.title).toBe(
+      "bump certifi",
+    );
+    expect((await claude.post("/api/claim", { priorities: ["P0", "P1"] })).task).toBeNull();
+    expect((await claude.post("/api/claim", { priorities: ["P2"] })).task.title).toBe(
+      "tidy the CI cache",
+    );
+  });
+
+  test("a task demoted out of the requested levels is no longer claimed from them", async () => {
+    const claude = await server.api("alex", "claude");
+    const alert = await handed("node aachen is down");
+    await setPriority(alex, alert, "P0");
+    await setPriority(alex, alert, "P1");
+
+    expect((await claude.post("/api/claim", { priorities: ["P0"] })).task).toBeNull();
+    expect(
+      (await claude.post("/api/claim", { task_id: alert, priorities: ["P0"] })).task,
+    ).toBeNull();
+    expect((await claude.post("/api/claim", { task_id: alert })).task.id).toBe(alert);
+  });
+
+  test("an unknown priority is refused", async () => {
+    const claude = await server.api("alex", "claude");
+    const r = await claude.call("POST", "/api/claim", { priorities: ["P3"] });
+    expect(r.status).toBe(400);
+  });
+});
+
+describe("creating with a priority", () => {
+  test("the creator's priority is set as the task is created", async () => {
+    const r = await alex.post("/api/tasks", { title: "node aachen is down", priority: "P0" });
+
+    expect(r.status.priority).toBe("P0");
+    expect((await alex.get(`/api/tasks/${r.task.id}`)).status.priority).toBe("P0");
+    expect((await sam.get(`/api/tasks/${r.task.id}`)).status.priority).toBe("P1");
+  });
+
+  test("an agent creating a task gives it the priority of the person it acts for", async () => {
+    const producer = await server.api("alex", "alertmanager");
+    const claude = await server.api("alex", "claude");
+    await add(alex, "bump certifi", { next_actor: "agent:claude" });
+    await producer.post("/api/tasks", {
+      title: "node aachen is down",
+      next_actor: "agent:claude",
+      priority: "P0",
+    });
+
+    expect((await claude.post("/api/claim", { priorities: ["P0"] })).task.title).toBe(
+      "node aachen is down",
+    );
+  });
+});

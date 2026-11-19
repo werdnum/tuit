@@ -579,7 +579,7 @@ const commands: Record<string, Command> = {
     usage:
       "tuit add <title...> [--deadline X] [--target X] [--expires X] [--available X] [--private]\n" +
       "         [--to ACTOR] [--brief T] [--action T] [--every N | --since-done N] [--last-done X]\n" +
-      "         [--area A]   (or end the title with #area)   [--part-of ID]",
+      "         [--area A]   (or end the title with #area)   [--part-of ID] [--priority P0|P1|P2]",
     summary: "Capture a task (title is all you need)",
     options: {
       deadline: { type: "string" },
@@ -595,6 +595,7 @@ const commands: Record<string, Command> = {
       "last-done": { type: "string" },
       area: { type: "string" },
       "part-of": { type: "string" },
+      priority: { type: "string" },
     },
     async run(ctx) {
       const v = ctx.values;
@@ -628,6 +629,7 @@ const commands: Record<string, Command> = {
           last_done: str(v, "last-done"),
           area: str(v, "area"),
           parent_id: str(v, "part-of"),
+          priority: str(v, "priority")?.toUpperCase(),
         }),
       );
       confirm(ctx, "Added", created);
@@ -1021,16 +1023,21 @@ const commands: Record<string, Command> = {
     },
   },
   claim: {
-    usage: "tuit claim [--lease MIN] [--side-effects] [--task ID]",
+    usage: "tuit claim [--lease MIN] [--side-effects] [--task ID] [--priority P0[,P1]]",
     summary: "Atomically take the next task handed to this agent, with a lease",
     options: {
       lease: { type: "string" },
       "side-effects": { type: "boolean" },
       task: { type: "string" },
+      priority: { type: "string" },
     },
     async run(ctx) {
       const client = ctx.client();
       const t = str(ctx.values, "task");
+      const priorities = str(ctx.values, "priority")
+        ?.split(",")
+        .map((x) => x.trim().toUpperCase())
+        .filter(Boolean);
       // Not retried: the server takes no idempotency key for claims, so a blind retry could
       // take a second task.
       const r = await client.request<{ task: Task | null; status?: TaskStatus }>(
@@ -1040,6 +1047,7 @@ const commands: Record<string, Command> = {
           lease_minutes: intOpt(ctx.values, "lease"),
           side_effects: ctx.values["side-effects"] ? true : undefined,
           task_id: t ? await resolveTask(client, t) : undefined,
+          priorities,
         }),
       );
       if (ctx.json) return printJson(r);

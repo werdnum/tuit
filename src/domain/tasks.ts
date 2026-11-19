@@ -29,25 +29,21 @@ import {
   CloseInput,
   CompleteInput,
   CreateTaskInput,
+  DEFAULT_PRIORITY,
   DetachInput,
   MAX_ATTACHMENTS,
   normalizeArea,
   type OffsetRule,
   type Principal,
+  type Priority,
+  priorityFromRank,
+  priorityRank,
   splitAreaTag,
   type Task,
   taskFromRow,
   UpdateTaskInput,
 } from "./types.ts";
-import {
-  areaFilter,
-  assess,
-  DEFAULT_PRIORITY,
-  inAreas,
-  type Priority,
-  priorityFromRank,
-  priorityRank,
-} from "./views.ts";
+import { areaFilter, assess, inAreas } from "./views.ts";
 
 export function newId(): string {
   const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -82,6 +78,16 @@ export function parentSql(alias: string, param: number): string {
 
 export function visibleSql(alias: string, param: number): string {
   return `(${alias}.visibility = 'household' OR ${alias}.owner_id = $${param}::text)`;
+}
+
+/**
+ * SQL select item `claim_priority`: the rank of the priority the person an agent acts for
+ * (bound as `$n`) gave task alias `t`, P1 when they gave none. Agents claim in this order. A
+ * subquery rather than a join, so a FOR UPDATE alongside it locks only the task row.
+ */
+export function claimPrioritySql(alias: string, param: number): string {
+  return `COALESCE((SELECT a.priority FROM attention a
+    WHERE a.user_id = $${param}::text AND a.task_id = ${alias}.id), ${priorityRank(DEFAULT_PRIORITY)}) AS claim_priority`;
 }
 
 /** Enough of another task to name and link it. */
@@ -719,6 +725,9 @@ export class TaskService {
     const actor = input.next_actor
       ? await this.resolveActor(input.next_actor, p)
       : ({ kind: "user", user: userId } as Actor);
+    if (input.priority !== undefined && !p.userId) {
+      throw new ValidationError("priority needs a household member to hold it");
+    }
     if (input.claim && !(p.agent && actor.kind === "agent" && actor.agent === p.agent)) {
       throw new ValidationError(
         "claim only applies when an agent creates a task with itself as next_actor",
@@ -774,6 +783,13 @@ export class TaskService {
       }
       if (parent) await this.checkParts(c, p, t, { parentChanged: true });
       await insertTask(c, t);
+      if (input.priority !== undefined && input.priority !== DEFAULT_PRIORITY) {
+        await c.query("INSERT INTO attention (user_id, task_id, priority) VALUES ($1, $2, $3)", [
+          userId,
+          t.id,
+          priorityRank(input.priority),
+        ]);
+      }
       await addActivity(c, p, t.id, "created", "", now);
       if (parent) await this.notePartAdded(c, p, parent, t, now);
       if (t.last_done_at) {
@@ -1263,31 +1279,33 @@ export class TaskService {
       await c.query("SELECT pg_advisory_xact_lock_shared(4242002)");
       const eligible = `state = 'open' AND actor_kind = 'agent' AND actor_agent = $1
         AND claim_id IS NULL AND ${visibleSql("t", 2)}`;
+      const priority = claimPrioritySql("t", 2);
+      const wanted = input.priorities?.map(priorityRank);
+      const fitting = (row: pg.QueryResultRow | undefined): Task | null => {
+        if (!row || (wanted && !wanted.includes(row.claim_priority))) return null;
+        const x = taskFromRow(row);
+        const fits =
+          assess(x, now, undefined).available && (!input.areas || inAreas(x, input.areas));
+        return fits ? x : null;
+      };
       const r = await c.query(
-        `SELECT t.*, ${openPartsSql("t")} FROM tasks t WHERE ${eligible} ${input.task_id ? "AND id = $3" : ""}
-         ORDER BY actor_since, id`,
+        `SELECT t.*, ${openPartsSql("t")}, ${priority} FROM tasks t WHERE ${eligible} ${input.task_id ? "AND id = $3" : ""}
+         ORDER BY claim_priority, actor_since, id`,
         input.task_id ? [p.agent, p.userId, input.task_id] : [p.agent, p.userId],
       );
-      const candidates = r.rows
-        .map(taskFromRow)
-        .filter((x) => assess(x, now, undefined).available)
-        .filter((x) => !input.areas || inAreas(x, input.areas));
+      const candidates = r.rows.map(fitting).filter((x) => x !== null);
       // Lock one row at a time: locking every candidate would make a concurrent claimer skip
       // them all and come back empty while work remains.
       let t: Task | undefined;
       for (const cand of candidates) {
         const locked = await c.query(
-          `SELECT t.*, ${openPartsSql("t")} FROM tasks t WHERE id = $3 AND ${eligible} FOR UPDATE SKIP LOCKED`,
+          `SELECT t.*, ${openPartsSql("t")}, ${priority} FROM tasks t WHERE id = $3 AND ${eligible} FOR UPDATE SKIP LOCKED`,
           [p.agent, p.userId, cand.id],
         );
-        // The area, dates or parts may have changed since the unlocked read. Adding a part
-        // locks its parent, so a part still being added makes this skip the parent.
-        const row = locked.rows[0] ? taskFromRow(locked.rows[0]) : null;
-        if (
-          row &&
-          assess(row, now, undefined).available &&
-          (!input.areas || inAreas(row, input.areas))
-        ) {
+        // The area, dates, parts or priority may have changed since the unlocked read. Adding a
+        // part locks its parent, so a part still being added makes this skip the parent.
+        const row = fitting(locked.rows[0]);
+        if (row) {
           t = row;
           break;
         }

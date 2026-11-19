@@ -208,3 +208,16 @@ test("an agent passes --claim to change the task it claimed", async () => {
   expect(unclaimed.code).toBe(0);
   expect(unclaimed.stderr).toMatch(/Warning: .*made over that claim/);
 });
+
+test("add --priority sets it as the task is made, and claim --priority takes only those", async () => {
+  await addId("Bump certifi", "--to", "agent:claude");
+  const alert = await addId("Node aachen is down", "--to", "agent:claude", "--priority", "p0");
+  const agent = tuitAs(server, await server.mintToken("alex", "claude"));
+
+  const claimed = JSON.parse((await agent("claim", "--priority", "P0", "--json")).stdout);
+  const none = JSON.parse((await agent("claim", "--priority", "P0", "--json")).stdout);
+
+  expect(claimed.task.id).toBe(alert);
+  expect(claimed.status.priority).toBe("P0");
+  expect(none.task).toBeNull();
+});
