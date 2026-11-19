@@ -352,6 +352,9 @@ export const CreateTaskInput = TaskFieldsInput.extend({
     .describe(
       "Agents only, with next_actor your own agent: create it already claimed by you (lease and side_effects as for claim_next), for work you start on now in this conversation. It doesn't wake your own inbox. Keep the returned task.claim.id and pass it as claim_id on every later change.",
     ),
+  priority: PriorityInput.optional().describe(
+    "The priority for it of the person you act for (P1 if left out), set as it is created. As with set_priority, only on that person's say-so.",
+  ),
   idempotency_key: z.string().max(200).optional(),
 }).strict();
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
@@ -469,6 +472,14 @@ export const ClaimInput = z
     side_effects: z.boolean().optional(),
     task_id: z.string().optional(),
     areas: z.array(AreaInput).min(1).max(20).optional(),
+    priorities: z
+      .array(PriorityInput)
+      .min(1)
+      .max(PRIORITIES.length)
+      .optional()
+      .describe(
+        'Only tasks the person you act for has at one of these priorities (unset counts as P1), e.g. ["P0"] for a lane kept free for P0 work.',
+      ),
     idempotency_key: z.string().max(200).optional(),
   })
   .strict();

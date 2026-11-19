@@ -93,7 +93,9 @@ Revoking a token in Settings takes effect immediately.
   (`done`, `expire` or `detach`). One level only; don't use parts where an area would do.
 - **Priority is P0, P1 (default) or P2, per person.** Every P0 task sorts before every P1, and P1
   before P2. Set it with `set_priority` only when the person tells you to, never on your own
-  judgement. Don't set a fake deadline or target to make something sort first.
+  judgement. Don't set a fake deadline or target to make something sort first. A producer that
+  knows the priority when it captures the task (an alert relay, say) passes `priority` to
+  `create_task` / `POST /api/tasks`, so the task never exists at the default P1 first.
 - **Dates and instants are different.** "sat" is a calendar date; "sat 9am" is an exact instant in
   Australia/Sydney. Pass the one you mean.
 - **Recording that it was done earlier:** use `complete_task` with `at` ("yesterday", "thu",
@@ -104,7 +106,10 @@ Revoking a token in Settings takes effect immediately.
 ### Dispatch (multiple workers)
 
 Appearing in a queue grants nothing. To work on something, call `claim_next`, which atomically
-takes the oldest available task handed to your agent name, with a lease. Claims assume side effects by default: if your lease lapses, the task is **not** retried
+takes the available task handed to your agent name that ranks highest for the person you act
+for (P0, then P1, then P2, oldest first within each), with a lease. `priorities` (for example
+`["P0"]`) takes only from those levels, which lets a worker keep a slot free for P0 work when its
+other slots are busy; a task with no priority set counts as P1. Claims assume side effects by default: if your lease lapses, the task is **not** retried
 automatically. It surfaces to its owner as "check before retrying". Pass `side_effects: false` only
 for work that can't affect the outside world (research, drafting). A lapsed claim of that kind
 quietly returns to the pool.

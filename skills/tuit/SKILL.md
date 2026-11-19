@@ -41,7 +41,7 @@ like `sat`, `tomorrow 9am` and `2026-11-04` are read in the household's time zon
 
    ```bash
    tuit claim --task <id> --lease 240 --json   # a task you were told about
-   tuit claim --lease 240 --json               # or the oldest one handed to you
+   tuit claim --lease 240 --json               # or the next one handed to you (P0 first, then oldest)
    ```
 
    `"task": null` means there is nothing for you (or someone else claimed it first). Stop

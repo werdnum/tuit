@@ -174,8 +174,11 @@ feed shows the human-meaningful kinds; system entries remain visible in the insp
   actor explicitly, even if that is itself. A human may leave it unchanged. So an agent cannot
   record "waiting for Alex" without the task landing in Alex's Now. `hand_off` is a checkpoint
   that changes the next actor.
-- **claim** is for multiple workers. It atomically takes the oldest eligible task whose next actor
-  is the calling agent, with a lease. When claiming, the agent declares whether the work has
+- **claim** is for multiple workers. It atomically takes the eligible task whose next actor is
+  the calling agent that ranks highest by the priority of the person the agent acts for (P0, then
+  P1, then P2; oldest first within each), with a lease. It can be limited to some areas and to
+  some priorities, so a worker can reserve a slot for P0 work. Both filters are checked again once
+  the row is locked, since either can change between the read and the lock. When claiming, the agent declares whether the work has
   external side effects (sending email, booking). A lapsed claim without side effects silently
   returns to the pool. A lapsed claim **with** side effects is never auto-retried: it surfaces to
   the owner as "claim lapsed, check before retrying", and a human releases it. While a task is
@@ -413,7 +416,9 @@ scale invites re-ranking that no one keeps up.
   day's plan or shown under *New since this morning* (setting P2 takes a task off today's list).
   They don't need snoozing and don't resurface.
 - Priority is per person, like snooze, and changes no shared task field. A person sets it in the
-  UI (P0 / P1 / P2 on a row's menu and on the task page), the CLI (`tuit priority`) or the API.
+  UI (P0 / P1 / P2 on a row's menu and on the task page), the CLI (`tuit priority`) or the API,
+  or gives it when creating the task (`priority` on create, in the same transaction, so the change
+  feed never shows the task at P1 first).
   An agent sets it (`set_priority`) only when the person says so, never on its own judgement, and
   never invents a deadline to make something sort first.
 - Explain reports the band, and any date that orders the task differently from what its own fields
