@@ -391,8 +391,15 @@ someone else holds the next action, because a commitment stays theirs.
 - **Narrowing to an area** filters what Now shows (the plan, new items and urgent ones in that
   area), and "everything else" becomes the area's other eligible tasks. It never changes the day's plan, which
   is always made from everything not hidden, so switching between areas can't reshuffle the list.
+  Because Now still shows only what needs the signed-in person, narrowed Now also reports
+  `area_other_count` — active tasks in that area assigned to others or agents, waiting, snoozed or
+  resting — and links directly to `/tasks?area=<area>` to browse them all.
+- **Tasks (`/tasks`, also `/search`)** is the browse-and-search view of everything visible to the
+  person, regardless of whose turn it is, snooze, resting, or hidden-by-default areas. It filters by
+  state (`Active`, `Open`, `Waiting`, `Closed`, `All`), area (including `No area`), and text.
 - **Areas hidden by default** stay out of Now and out of every queue that doesn't name them in
-  `areas`; naming the area (narrowing Now to it, or a queue that lists it) shows them as usual.
+  `areas`; naming the area (narrowing Now to it, or a queue that lists it) shows them as usual, and
+  general browsing (`/tasks` and `/queues/open`) always includes them.
   Their tasks never join the day's plan. Urgent ones still show in the urgent list, because urgent
   items always show. Unnarrowed Now carries one line per hidden area with tasks that would
   otherwise be there ("#security: 14 hidden, oldest 41d", the age being how long the oldest has

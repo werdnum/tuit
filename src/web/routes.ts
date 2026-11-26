@@ -2,20 +2,23 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { html } from "hono/html";
 import { ZodError, z } from "zod";
 import { type AuthEnv, safeNext } from "../api/auth.ts";
 import type { App } from "../app.ts";
-import { nowLimit } from "../domain/board.ts";
+import { NOW_PAGE_SIZE, nowLimit, parseBrowseState } from "../domain/board.ts";
 import { ConflictError, DomainError, NotFoundError, ValidationError } from "../domain/errors.ts";
 import { visibleSql } from "../domain/tasks.ts";
 import { type Principal, PriorityInput, splitAreaTag, type Task } from "../domain/types.ts";
 import type { Explanation } from "../domain/views.ts";
 import { CATEGORIES, defaultRules } from "../notify/rules.ts";
-import { actorText, momentEditText, QUIET_KINDS, whenText } from "./format.ts";
+import { momentEditText, QUIET_KINDS, whenText } from "./format.ts";
 import { type Flash, MANIFEST } from "./layout.ts";
 import { liveStream } from "./live.ts";
 import { taskIdCandidates } from "./markdown.ts";
 import {
+  areaChips,
+  browseRow,
   type Ctx,
   DEFAULT_QUEUE_CONFIG,
   detailPage,
@@ -27,8 +30,8 @@ import {
   nowPage,
   queuePage,
   queuesPage,
-  searchPage,
   settingsPage,
+  tasksPage,
   viewPage,
 } from "./pages.ts";
 
@@ -612,24 +615,25 @@ export function webRoutes(app: App): Hono<AuthEnv> {
     "/queues/waiting",
     view(async (c, ctx) => {
       const me = ctx.me.userId;
-      const result = await board.previewQueue(ctx.me, {
-        actor: "all",
-        include_waiting: true,
-        include_resting: true,
-        visible_limit: 200,
+      const result = await board.browse(ctx.me, {
+        state: "waiting",
+        limit: Number.POSITIVE_INFINITY,
       });
-      const items = [...result.items, ...result.urgent].filter(
+      const items = result.items.filter(
         (i) =>
-          i.task.state === "waiting" &&
-          ((i.task.next_actor.kind === "user" && i.task.next_actor.user === me) ||
-            i.task.owner === me),
+          (i.task.next_actor.kind === "user" && i.task.next_actor.user === me) ||
+          i.task.owner === me,
       );
       return c.html(
         viewPage(ctx, {
           title: "Waiting",
           blurb:
             "Things waiting on a reply, a date or another task, where it's your turn or yours overall.",
-          items: items.map((i) => ({ task: i.task, why: i.label || i.why })),
+          items: items.map((i) => ({
+            task: i.task,
+            why: i.assessment?.label || "waiting",
+            urgent: !!i.assessment?.urgent,
+          })),
         }),
       );
     }),
@@ -637,24 +641,31 @@ export function webRoutes(app: App): Hono<AuthEnv> {
   r.get(
     "/queues/open",
     view(async (c, ctx) => {
-      const result = await board.previewQueue(ctx.me, {
-        actor: "all",
-        include_waiting: true,
-        include_resting: true,
-        visible_limit: 200,
-        order: ["urgency", "target", "oldest"],
-      });
+      const limit = nowLimit(c.req.query("limit"));
+      const area = c.req.query("area") || null;
+      const result = await board.browse(ctx.me, { state: "active", area, limit });
+      const shownLimit = limit && limit > NOW_PAGE_SIZE ? limit : null;
+      const href = (a: string | null, nextLimit?: number | null) => {
+        const params = new URLSearchParams();
+        if (a) params.set("area", a);
+        if (nextLimit) params.set("limit", Number.isFinite(nextLimit) ? String(nextLimit) : "all");
+        const qs = params.toString();
+        return qs ? `/queues/open?${qs}` : "/queues/open";
+      };
+      const last = result.items[result.items.length - 1];
+      const more =
+        result.more_count > 0
+          ? html`<p class="center"><a class="btn quiet" href="${href(result.area, (shownLimit ?? NOW_PAGE_SIZE) + NOW_PAGE_SIZE)}${last ? `#t-${last.task.id}` : ""}" data-show-more>Show ${Math.min(result.more_count, NOW_PAGE_SIZE)} more (${result.more_count} left)</a></p>`
+          : undefined;
       return c.html(
         viewPage(ctx, {
           title: "Everything open",
           blurb: "Every open or waiting task you can see, whoever's turn it is.",
-          items: [...result.urgent, ...result.items].map((i) => ({
-            task: i.task,
-            why: [i.label, `next: ${actorText(i.task.next_actor, ctx.users, ctx.me)}`]
-              .filter(Boolean)
-              .join(" · "),
-          })),
+          items: result.items.map((i) => browseRow(ctx, i)),
           badge: true,
+          area: result.area === null,
+          chips: areaChips(result.areas, result.area, result.has_no_area, (a) => href(a)),
+          more,
         }),
       );
     }),
@@ -793,16 +804,27 @@ export function webRoutes(app: App): Hono<AuthEnv> {
     }),
   );
 
-  // ---- Search
+  // ---- Tasks (browse & search)
 
-  r.get(
-    "/search",
+  const browseView = (basePath: "/tasks" | "/search") =>
     view(async (c, ctx) => {
       const q = (c.req.query("q") ?? "").trim();
-      const results = q ? await tasks.search(ctx.me, q, { includeClosed: true }) : null;
-      return c.html(searchPage(ctx, q, results));
-    }),
-  );
+      const parsedState = parseBrowseState(c.req.query("state"));
+      const area = (c.req.query("area") ?? "").trim() || null;
+      const limit = nowLimit(c.req.query("limit"));
+      const result = await board.browse(ctx.me, { q, state: parsedState, area, limit });
+      return c.html(
+        tasksPage(ctx, {
+          basePath,
+          result,
+          explicitState: parsedState !== undefined,
+          limit,
+        }),
+      );
+    });
+
+  r.get("/tasks", browseView("/tasks"));
+  r.get("/search", browseView("/search"));
 
   // ---- Settings
 

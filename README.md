@@ -134,6 +134,9 @@ and webhook transport checks.
 - an inspect view;
 - atomic checkpoint, idempotency keys, revision checks, and claims with side-effect-aware leases;
 - the change feed, and live updates in the web UI driven by it (no refreshing to see changes);
+- a Tasks tab (`/tasks`, also `/search`) in the web UI: browse and search everything you can see
+  regardless of whose turn it is or hidden-by-default areas, filterable by state and area, linked
+  from narrowed Now and task area badges;
 - a Feed tab in the web UI: everyone's recent history across the tasks you can see, newest first,
   filterable to other people's changes or one area;
 - notifications to browsers (Web Push) and the iPhone app (APNs), with per-person rules (what kind

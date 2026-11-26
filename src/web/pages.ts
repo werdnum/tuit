@@ -2,9 +2,16 @@ import { html, raw } from "hono/html";
 import type { DateTime } from "luxon";
 import type { TokenInfo } from "../api/auth.ts";
 import type { Config } from "../config.ts";
-import { NOW_PAGE_SIZE, type NowView, type Queue } from "../domain/board.ts";
+import {
+  type BrowseItem,
+  type BrowseResult,
+  type BrowseState,
+  NOW_PAGE_SIZE,
+  type NowView,
+  type Queue,
+} from "../domain/board.ts";
 import type { TaskRef, UserInfo } from "../domain/tasks.ts";
-import { local, type Moment } from "../domain/time.ts";
+import { describeMoment, local, type Moment } from "../domain/time.ts";
 import {
   type ActivityEntry,
   PRIORITIES,
@@ -21,6 +28,7 @@ import {
   actorText,
   agoText,
   areaBadge,
+  areaBadgeLink,
   authorHtml,
   momentEditText,
   momentHtml,
@@ -315,7 +323,13 @@ export function nowPage(ctx: Ctx, v: NowView, limit?: number): Html {
         nothing
           ? html`<div class="empty" data-empty>
               <div class="big">${v.area ? `Nothing in ${areaName(v.area)} needs you right now.` : "Nothing needs you right now."}</div>
-              <div>Anything you add above will wait here until it matters.</div>
+              ${
+                v.area && v.area_other_count > 0
+                  ? html`<div>${v.area_other_count} other active ${v.area_other_count === 1 ? "task" : "tasks"} in ${areaName(v.area)} (with others, waiting or resting).</div>
+                      <p><a class="btn" href="/tasks?area=${encodeURIComponent(v.area)}" data-browse-area>Browse all in ${areaName(v.area)} →</a></p>`
+                  : html`<div>Anything you add above will wait here until it matters.</div>
+                      ${v.area ? html`<p><a class="btn quiet" href="/tasks?area=${encodeURIComponent(v.area)}" data-browse-area>Browse all in ${areaName(v.area)} →</a></p>` : ""}`
+              }
             </div>`
           : ""
       }
@@ -326,6 +340,15 @@ export function nowPage(ctx: Ctx, v: NowView, limit?: number): Html {
             : ""
         }
       </div>`;
+
+  const browseAreaLink =
+    v.area && (!nothing || enough)
+      ? html`<p class="center"><a class="btn quiet" href="/tasks?area=${encodeURIComponent(v.area)}" data-browse-area>${
+          v.area_other_count > 0
+            ? `${v.area_other_count} more in ${areaName(v.area)} (with others, waiting or resting) — browse all →`
+            : `Browse all in ${areaName(v.area)} →`
+        }</a></p>`
+      : "";
 
   const today = local(ctx.now).toFormat("cccc d LLLL");
   return page({
@@ -340,6 +363,7 @@ export function nowPage(ctx: Ctx, v: NowView, limit?: number): Html {
       ${v.away ? awayBanner(v.away, ctx) : ""}
       ${urgentStrip(urgent, self, undefined, menu)}
       ${shortlist}
+      ${browseAreaLink}
       ${hiddenLines}
       ${hideSwitch}
       ${areaNames}
@@ -625,7 +649,7 @@ export function detailPage(
     top: html`${backLink("/", "Now")}<a class="iconlink small" href="${self}/inspect">Inspect</a>`,
     body: html`
       <h1>${t.title}</h1>
-      <div>${stateBadge(t)} ${areaBadge(t)} ${privateBadge(t)} ${s.priority !== "P1" ? html`<span class="badge" data-priority-badge>${s.priority}</span>` : ""}</div>
+      <div>${stateBadge(t)} ${areaBadgeLink(t)} ${privateBadge(t)} ${s.priority !== "P1" ? html`<span class="badge" data-priority-badge>${s.priority}</span>` : ""}</div>
       ${parent ? html`<p class="small muted" data-part-of>Part of <a href="/tasks/${parent.id}">${parent.title}</a></p>` : ""}
       ${statusLine}
       ${nextLine}
@@ -1064,7 +1088,15 @@ export function queuePage(
 
 export function viewPage(
   ctx: Ctx,
-  d: { title: string; blurb: string; items: { task: Task; why: string }[]; badge?: boolean },
+  d: {
+    title: string;
+    blurb: string;
+    items: { task: Task; why: string; urgent?: boolean }[];
+    badge?: boolean;
+    area?: boolean;
+    chips?: Html;
+    more?: Html;
+  },
 ): Html {
   return page({
     title: d.title,
@@ -1073,14 +1105,24 @@ export function viewPage(
     live: ctx.live,
     top: backLink("/queues", "Queues"),
     body: html`<h1>${d.title}</h1><p class="muted small">${d.blurb}</p>
+      ${d.chips ?? ""}
       ${
         d.items.length
           ? list(
-              d.items.map((i) => itemRow(i, { backTo: "", tick: false, badge: d.badge })),
+              d.items.map((i) =>
+                itemRow(i, {
+                  backTo: "",
+                  tick: false,
+                  badge: d.badge,
+                  area: d.area,
+                  anchor: true,
+                }),
+              ),
               d.title,
             )
           : html`<div class="empty">Nothing here.</div>`
-      }`,
+      }
+      ${d.more ?? ""}`,
   });
 }
 
@@ -1169,37 +1211,161 @@ export function feedPage(
   });
 }
 
-// ---------------------------------------------------------------- Search
+// ---------------------------------------------------------------- Tasks (browse & search)
 
-export function searchPage(ctx: Ctx, q: string, results: Task[] | null): Html {
+const STATE_CHIPS: { id: BrowseState; label: string }[] = [
+  { id: "active", label: "Active" },
+  { id: "open", label: "Open" },
+  { id: "waiting", label: "Waiting" },
+  { id: "closed", label: "Closed" },
+  { id: "all", label: "All" },
+];
+
+const EMPTY_STATE_LABEL: Record<BrowseState, string> = {
+  active: "active",
+  open: "open",
+  waiting: "waiting",
+  closed: "closed",
+  done: "done",
+  expired: "expired",
+  shelved: "shelved",
+  all: "",
+};
+
+/** Format one task row for browse/search lists: status or held reason plus whose turn it is. */
+export function browseRow(
+  ctx: Ctx,
+  item: BrowseItem,
+): { task: Task; why: string; urgent: boolean } {
+  const t = item.task;
+  const a = item.assessment;
+  if (!a) {
+    return {
+      task: t,
+      why: [t.closed_at ? whenText(t.closed_at, ctx.now) : "", t.close_reason]
+        .filter(Boolean)
+        .join(" · "),
+      urgent: false,
+    };
+  }
+  const who = actorText(t.next_actor, ctx.users, ctx.me);
+  const status =
+    a.label ||
+    a.held ||
+    (t.claim ? `claimed by agent:${t.claim.agent}` : "") ||
+    (a.snoozed_until
+      ? `snoozed until ${describeMoment({ at: a.snoozed_until.toISOString() }, ctx.now)}`
+      : "");
+  const why = status
+    ? `${status} · next: ${who}`
+    : t.next_action
+      ? `next: ${who} — ${t.next_action}`
+      : `next: ${who}`;
+  return { task: t, why, urgent: !!a.urgent };
+}
+
+export function areaChips(
+  areas: string[],
+  selected: string | null,
+  hasNoArea: boolean,
+  hrefFor: (area: string | null) => string,
+): Html {
+  const named = [...new Set([...areas, ...(selected && selected !== "none" ? [selected] : [])])];
+  if (named.length === 0 && selected === null) return html``;
+  const showNone = hasNoArea || selected === "none";
+  return html`<nav class="chips" aria-label="Areas" data-areas>
+    <a href="${hrefFor(null)}" aria-current="${selected === null}">All areas</a>
+    ${named.map((a) => html`<a href="${hrefFor(a)}" aria-current="${selected === a}">#${a}</a>`)}
+    ${showNone ? html`<a href="${hrefFor("none")}" aria-current="${selected === "none"}">No area</a>` : ""}
+  </nav>`;
+}
+
+export function tasksPage(
+  ctx: Ctx,
+  d: {
+    basePath: "/tasks" | "/search";
+    result: BrowseResult;
+    explicitState: boolean;
+    limit?: number;
+  },
+): Html {
+  const r = d.result;
+  const areaLabel = (a: string) => (a === "none" ? "no area" : `#${a}`);
+  const shownLimit = d.limit && d.limit > NOW_PAGE_SIZE ? d.limit : null;
+  const hrefFor = (opts: {
+    q?: string;
+    state?: BrowseState;
+    explicitState?: boolean;
+    area?: string | null;
+    limit?: number | null;
+  }) => {
+    const q = opts.q !== undefined ? opts.q : r.q;
+    const state = opts.state ?? r.state;
+    const explicit = opts.explicitState ?? d.explicitState;
+    const area = opts.area !== undefined ? opts.area : r.area;
+    const limit = opts.limit !== undefined ? opts.limit : null;
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (explicit) params.set("state", state);
+    if (area) params.set("area", area);
+    if (limit) params.set("limit", Number.isFinite(limit) ? String(limit) : "all");
+    const qs = params.toString();
+    return qs ? `${d.basePath}?${qs}` : d.basePath;
+  };
+  const self = hrefFor({ limit: shownLimit });
+  const stateChips = STATE_CHIPS.some((c) => c.id === r.state)
+    ? STATE_CHIPS
+    : [...STATE_CHIPS, { id: r.state, label: r.state[0]?.toUpperCase() + r.state.slice(1) }];
+  const lastShown = r.items[r.items.length - 1];
+  const moreHref = `${hrefFor({ limit: (shownLimit ?? NOW_PAGE_SIZE) + NOW_PAGE_SIZE })}${lastShown ? `#t-${lastShown.task.id}` : ""}`;
+  const inSuffix = r.area ? ` in ${areaLabel(r.area)}` : "";
+  const heading = r.q
+    ? `${r.total} found${inSuffix}`
+    : `${r.total} ${r.total === 1 ? "task" : "tasks"}${inSuffix}`;
+  const emptyWord = EMPTY_STATE_LABEL[r.state];
+
   return page({
-    title: q ? `Search: ${q}` : "Search",
-    tab: "search",
+    title: r.q ? `Search: ${r.q}` : r.area ? `Tasks · ${areaLabel(r.area)}` : "Tasks",
+    tab: "tasks",
     flash: ctx.flash,
     live: ctx.live,
-    top: topTitle("Search"),
+    top: topTitle("Tasks", "Everything you can see"),
     body: html`
-      <form method="get" action="/search" class="capture" role="search">
-        <input type="search" name="q" value="${q}" placeholder="Titles, briefs, notes…" aria-label="Search" autocapitalize="off" enterkeyhint="search">
+      <form method="get" action="${d.basePath}" class="capture" role="search">
+        ${r.area ? html`<input type="hidden" name="area" value="${r.area}">` : ""}
+        ${d.explicitState ? html`<input type="hidden" name="state" value="${r.state}">` : ""}
+        <input type="search" name="q" value="${r.q}" placeholder="${r.area ? `Search in ${areaLabel(r.area)}…` : "Titles, briefs, notes…"}" aria-label="Search" autocapitalize="off" enterkeyhint="search">
         <button>Search</button>
       </form>
+      <nav class="chips" aria-label="State" data-state>
+        ${stateChips.map(
+          (c) =>
+            html`<a href="${hrefFor({ state: c.id, explicitState: true })}" aria-current="${r.state === c.id}">${c.label}</a>`,
+        )}
+      </nav>
+      ${areaChips(r.areas, r.area, r.has_no_area, (a) => hrefFor({ area: a }))}
       ${
-        results === null
-          ? html`<p class="muted small center">Finds open and closed tasks, including expired and shelved ones.</p>`
-          : results.length
-            ? html`<h2>${results.length} found</h2>${list(
-                results.map((t) =>
-                  itemRow(
-                    {
-                      task: t,
-                      why: t.close_reason || (t.next_action ? `Next: ${t.next_action}` : ""),
-                    },
-                    { backTo: "", tick: false, badge: true },
-                  ),
-                ),
-                "Results",
-              )}`
-            : html`<div class="empty">Nothing matches "${q}".</div>`
+        r.items.length
+          ? html`<h2>${heading}</h2>${list(
+              r.items.map((item) =>
+                itemRow(browseRow(ctx, item), {
+                  backTo: self,
+                  tick: false,
+                  badge: true,
+                  area: r.area === null,
+                  anchor: true,
+                }),
+              ),
+              r.q ? "Results" : "Tasks",
+            )}`
+          : r.q
+            ? html`<div class="empty">Nothing matches "${r.q}".</div>`
+            : html`<div class="empty">No${emptyWord ? ` ${emptyWord}` : ""} tasks${inSuffix}.</div>`
+      }
+      ${
+        r.more_count > 0
+          ? html`<p class="center"><a class="btn quiet" href="${moreHref}" data-show-more>Show ${Math.min(r.more_count, NOW_PAGE_SIZE)} more (${r.more_count} left)</a></p>`
+          : ""
       }
     `,
   });

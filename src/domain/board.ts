@@ -94,12 +94,51 @@ export interface HiddenAreaSummary {
   oldest_since: string;
 }
 
+export const BROWSE_STATES = [
+  "active",
+  "open",
+  "waiting",
+  "closed",
+  "done",
+  "expired",
+  "shelved",
+  "all",
+] as const;
+export type BrowseState = (typeof BROWSE_STATES)[number];
+
+export function parseBrowseState(raw: string | undefined): BrowseState | undefined {
+  return raw && (BROWSE_STATES as readonly string[]).includes(raw)
+    ? (raw as BrowseState)
+    : undefined;
+}
+
+export interface BrowseItem {
+  task: Task;
+  assessment: Assessment | null;
+}
+
+export interface BrowseResult {
+  state: BrowseState;
+  area: string | null;
+  q: string;
+  items: BrowseItem[];
+  total: number;
+  more_count: number;
+  areas: string[];
+  has_no_area: boolean;
+}
+
 export interface NowView {
   date: string;
   /** The area this view is narrowed to, if any. */
   area: string | null;
   /** Whether that area is hidden by default (so it shows only when named, as now). */
   area_hidden: boolean;
+  /**
+   * Active tasks visible to the person in the narrowed area that aren't on their Now
+   * (with others or agents, waiting, snoozed, resting, claimed, or held by open parts).
+   */
+  area_other_count: number;
   /** Areas with active tasks the person can see, for filtering. */
   areas: string[];
   /** Which of `areas` are hidden by default: their tasks show only when the area is named. */
@@ -482,24 +521,37 @@ export class Board {
         if (since[0]) hiddenAreas.push({ area: h, count: since.length, oldest_since: since[0] });
       }
     }
+    const planInArea = planView.filter((x) => inArea(x.item.task));
+    const freshInArea = fresh.filter((a) => inArea(a.task));
+    const alsoInArea = rest.filter((a) => !freshIds.has(a.task.id) && !a.urgent && inArea(a.task));
+    const urgentInArea = urgent.filter((a) => area === null || inAreas(a.task, [area]));
+    let areaOtherCount = 0;
+    if (area !== null) {
+      const shownInArea = new Set([
+        ...planInArea.filter((x) => !x.done).map((x) => x.item.task.id),
+        ...freshInArea.map((a) => a.task.id),
+        ...alsoInArea.map((a) => a.task.id),
+        ...urgentInArea.map((a) => a.task.id),
+      ]);
+      areaOtherCount = all.filter(
+        (a) => inAreas(a.task, [area]) && !shownInArea.has(a.task.id),
+      ).length;
+    }
     return {
       date: today,
       area,
       area_hidden: area !== null && hidden.has(area),
+      area_other_count: areaOtherCount,
       areas,
       hidden_by_default: areas.filter((a) => hidden.has(a)),
       hidden_areas: hiddenAreas,
-      plan: planView.filter((x) => inArea(x.item.task)),
-      new_items: fresh.filter((a) => inArea(a.task)).map((a) => toItem(a, now, users)),
-      also: rest
-        // Urgent ones already show in the urgent list, which is built from everything.
-        .filter((a) => !freshIds.has(a.task.id) && !a.urgent && inArea(a.task))
-        .map((a) => toItem(a, now, users)),
+      plan: planInArea,
+      new_items: freshInArea.map((a) => toItem(a, now, users)),
+      // Urgent ones already show in the urgent list, which is built from everything.
+      also: alsoInArea.map((a) => toItem(a, now, users)),
       more_count: 0,
       // Urgent always shows, hidden area or not.
-      urgent: urgent
-        .filter((a) => area === null || inAreas(a.task, [area]))
-        .map((a) => toItem(a, now, users)),
+      urgent: urgentInArea.map((a) => toItem(a, now, users)),
       enough_until:
         plan?.enough_until && plan.enough_until > now ? plan.enough_until.toISOString() : null,
       waiting_count: waiting,
@@ -693,6 +745,92 @@ export class Board {
       await this.users(),
       await this.hiddenAreas(),
     );
+  }
+
+  /**
+   * Everything visible to the person — regardless of whose turn it is, snooze, resting or
+   * hidden-by-default areas — optionally filtered by state, area, and search text.
+   */
+  async browse(
+    p: Principal,
+    opts: { q?: string; state?: BrowseState; area?: string | null; limit?: number } = {},
+  ): Promise<BrowseResult> {
+    await this.beforeAccess();
+    const now = this.clock.now();
+    const q = (opts.q ?? "").trim();
+    const state: BrowseState = opts.state ?? (q ? "all" : "active");
+    const area = opts.area ? areaFilter(opts.area) : null;
+    const limit = Math.max(1, opts.limit ?? NOW_PAGE_SIZE);
+
+    const statesFor = (s: BrowseState): string[] | undefined => {
+      if (s === "active") return ["open", "waiting"];
+      if (s === "closed") return ["done", "expired", "shelved"];
+      if (s === "all") return undefined;
+      return [s];
+    };
+    const isActiveOnly = state === "active" || state === "open" || state === "waiting";
+    const isClosedOnly =
+      state === "closed" || state === "done" || state === "expired" || state === "shelved";
+    const targetStates = statesFor(state);
+    const areaInfo = await this.tasks.areas(p, isActiveOnly ? ["open", "waiting"] : undefined);
+
+    const browseCfg = parseQueueConfig({ actor: "all" });
+    const cmpActive = compareBy(["urgency", "priority", "target", "oldest"], browseCfg, now);
+    const cmpClosed = (a: Task, b: Task) =>
+      (b.closed_at ?? b.updated_at).localeCompare(a.closed_at ?? a.updated_at);
+
+    let items: BrowseItem[];
+    let total: number;
+    if (q) {
+      const matched = await this.tasks.search(p, q, {
+        states: targetStates,
+        area: area ?? undefined,
+        limit: Number.POSITIVE_INFINITY,
+      });
+      total = matched.length;
+      const page = matched.slice(0, limit);
+      const hasActive = page.some((t) => t.state === "open" || t.state === "waiting");
+      const activeById = hasActive
+        ? new Map((await this.assessments(p, now)).map((a) => [a.task.id, a]))
+        : new Map<string, Assessment>();
+      items = page.map((t) => ({ task: t, assessment: activeById.get(t.id) ?? null }));
+    } else if (isActiveOnly) {
+      const wanted = new Set(targetStates);
+      const allItems = (await this.assessments(p, now))
+        .filter((a) => wanted.has(a.task.state) && (area === null || inAreas(a.task, [area])))
+        .sort(cmpActive)
+        .map((a) => ({ task: a.task, assessment: a }));
+      total = allItems.length;
+      items = allItems.slice(0, limit);
+    } else if (isClosedOnly) {
+      const closed = await this.tasks.list(p, targetStates, { area: area ?? undefined });
+      closed.sort(cmpClosed);
+      total = closed.length;
+      items = closed.slice(0, limit).map((task) => ({ task, assessment: null }));
+    } else {
+      const active = (await this.assessments(p, now))
+        .filter((a) => area === null || inAreas(a.task, [area]))
+        .sort(cmpActive)
+        .map((a) => ({ task: a.task, assessment: a }));
+      const closed = await this.tasks.list(p, ["done", "expired", "shelved"], {
+        area: area ?? undefined,
+      });
+      closed.sort(cmpClosed);
+      const allItems = [...active, ...closed.map((task) => ({ task, assessment: null }))];
+      total = allItems.length;
+      items = allItems.slice(0, limit);
+    }
+
+    return {
+      state,
+      area,
+      q,
+      items,
+      total,
+      more_count: Math.max(0, total - items.length),
+      areas: areaInfo.areas,
+      has_no_area: areaInfo.hasNoArea,
+    };
   }
 
   /** Queues (enabled ones, plus Now) where this task currently appears, for the inspect view. */

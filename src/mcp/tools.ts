@@ -32,7 +32,7 @@ import {
   type Task,
   UpdateTaskInput,
 } from "../domain/types.ts";
-import { inAreas, QueueConfig, type QueueItem } from "../domain/views.ts";
+import { QueueConfig, type QueueItem } from "../domain/views.ts";
 import { isMe } from "../notify/rules.ts";
 import {
   CHANGES_URI,
@@ -315,11 +315,9 @@ export async function buildMcpServer(
     READ,
     async ({ text, state, area, limit, detail }) => {
       const states = state === "active" ? ["open", "waiting"] : state;
-      let list = text
-        ? await tasks.search(p, text, { includeClosed: state !== "active", limit: 200, area })
-        : await tasks.list(p, states ?? ["open", "waiting"]);
-      if (text && Array.isArray(state)) list = list.filter((t) => state.includes(t.state));
-      if (area) list = list.filter((t) => inAreas(t, [area]));
+      const list = text
+        ? await tasks.search(p, text, { states, limit, area })
+        : await tasks.list(p, states ?? ["open", "waiting"], { area });
       return { tasks: list.slice(0, limit).map(detail ? brief : row) };
     },
   );

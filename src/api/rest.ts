@@ -91,10 +91,18 @@ export function restApi(app: App): Hono<AuthEnv> {
     const p = c.get("principal");
     const q = c.req.query("q");
     const state = c.req.query("state");
-    const states = state ? state.split(",") : undefined;
+    const area = c.req.query("area") || undefined;
+    const states =
+      state === "active"
+        ? ["open", "waiting"]
+        : state === "closed"
+          ? ["done", "expired", "shelved"]
+          : state === "all" || !state
+            ? undefined
+            : state.split(",");
     const list = q
-      ? await tasks.search(p, q, { includeClosed: state !== "active" })
-      : await tasks.list(p, state === "active" ? ["open", "waiting"] : states);
+      ? await tasks.search(p, q, { states, area })
+      : await tasks.list(p, states, { area });
     return c.json({ tasks: list });
   });
 
