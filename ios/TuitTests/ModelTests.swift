@@ -89,3 +89,90 @@ let taskJSON = #"""
     let older = #"{"user":{"id":"alex","name":"Alex"},"agent":null,"can_write":true,"household":[{"id":"alex","name":"Alex"}]}"#
     #expect(try API.decoder.decode(Me.self, from: Data(older.utf8)).agents == nil)
 }
+
+@Test func decodesNowAreaOtherCountAndToleratesOlderServers() throws {
+    let older = try API.decoder.decode(NowView.self, from: Data(nowJSON.utf8))
+    #expect(older.areaOtherCount == nil)
+    #expect(older.otherCountInArea == 0)
+
+    let narrowed = #"""
+    {"date":"2026-09-30","area":"cluster","area_hidden":true,"area_other_count":3,"areas":["cluster","home"],"plan":[],"new_items":[],"also":[],"more_count":0,"urgent":[],"enough_until":null,"waiting_count":0,"resting_count":0,"away":null}
+    """#
+    let now = try API.decoder.decode(NowView.self, from: Data(narrowed.utf8))
+    #expect(now.area == "cluster")
+    #expect(now.areaHidden == true)
+    #expect(now.otherCountInArea == 3)
+}
+
+@Test func decodesBrowseViewWithActiveAndClosedItems() throws {
+    let view = try API.decoder.decode(TaskView.self, from: Data(taskJSON.utf8))
+    var done = view.task
+    done.id = "done1234"
+    done.state = "done"
+    done.closedAt = "2026-09-30T01:00:00Z"
+    let payload = BrowseView(
+        state: "all",
+        area: "home",
+        q: "vet",
+        items: [
+            BrowseItem(task: view.task, status: view.status),
+            BrowseItem(task: done, status: nil),
+        ],
+        total: 5,
+        moreCount: 3,
+        areas: ["home", "security"],
+        hasNoArea: true
+    )
+    let encoded = try API.encoder.encode(payload)
+    let decoded = try API.decoder.decode(BrowseView.self, from: encoded)
+    #expect(decoded.state == "all")
+    #expect(decoded.area == "home")
+    #expect(decoded.total == 5)
+    #expect(decoded.moreCount == 3)
+    #expect(decoded.areas == ["home", "security"])
+    #expect(decoded.hasNoArea == true)
+    #expect(decoded.items.count == 2)
+    #expect(decoded.items[0].status?.urgent == "deadline tomorrow")
+    #expect(decoded.items[1].status == nil)
+}
+
+@Test func taskListFiltersByStateAndAreaIncludingNone() throws {
+    let base = try API.decoder.decode(TaskView.self, from: Data(taskJSON.utf8)).task
+    var openHome = base
+    openHome.id = "open-home"
+    openHome.state = "open"
+    openHome.area = "home"
+    var doneSec = base
+    doneSec.id = "done-sec"
+    doneSec.state = "done"
+    doneSec.area = "security"
+    var untagged = base
+    untagged.id = "untagged"
+    untagged.state = "open"
+    untagged.area = nil
+
+    let list = TaskList(tasks: [base, openHome, doneSec, untagged])
+    #expect(list.inState("active").map(\.id) == [base.id, "open-home", "untagged"])
+    #expect(list.inState("closed").map(\.id) == ["done-sec"])
+    #expect(list.inState("all").count == 4)
+    #expect(list.matching(state: "open", area: "#Home").map(\.id) == ["open-home"])
+    #expect(list.matching(state: "active", area: "none").map(\.id) == ["untagged"])
+    #expect(list.matching(state: "closed", area: "security").map(\.id) == ["done-sec"])
+}
+
+@Test @MainActor func appNavigationBrowseTasksResetsFilterAndSwitchesTab() {
+    let nav = AppNavigation()
+    nav.tasksPath = ["old-task"]
+    nav.tasksExplicitState = .closed
+    nav.tasksQuery = "old search"
+    let beforeTick = nav.tasksBrowseTick
+
+    nav.browseTasks(area: "#Security")
+
+    #expect(nav.tab == "tasks")
+    #expect(nav.tasksArea == "security")
+    #expect(nav.tasksExplicitState == nil)
+    #expect(nav.tasksQuery.isEmpty)
+    #expect(nav.tasksPath.isEmpty)
+    #expect(nav.tasksBrowseTick == beforeTick + 1)
+}

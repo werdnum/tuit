@@ -145,6 +145,77 @@ struct OfflineTests {
         #expect(matches.tasks.map(\.id) == [view.task.id])
         let wrongState = try API.decoder.decode(TaskList.self, from: #require(store.cached("/tasks", query: ["state": "done"])))
         #expect(wrongState.tasks.isEmpty)
+        let byArea = try API.decoder.decode(TaskList.self, from: #require(store.cached("/tasks", query: ["area": "#Home", "state": "active"])))
+        #expect(byArea.tasks.map(\.id) == [view.task.id])
+        let wrongArea = try API.decoder.decode(TaskList.self, from: #require(store.cached("/tasks", query: ["area": "none"])))
+        #expect(wrongArea.tasks.isEmpty)
+    }
+
+    @Test func offlineBrowseSynthesizesAreasStatesPagingAndStatus() throws {
+        let store = store()
+        defer { store.clear() }
+        let waitingView = try API.decoder.decode(TaskView.self, from: response)
+        var secOpen = waitingView.task
+        secOpen.id = "sec-open"
+        secOpen.title = "Bump openssl"
+        secOpen.state = "open"
+        secOpen.area = "security"
+        secOpen.waiting = nil
+        var secClosed = secOpen
+        secClosed.id = "sec-closed"
+        secClosed.title = "Patch curl"
+        secClosed.state = "done"
+        secClosed.closedAt = "2026-09-30T02:00:00Z"
+        var untagged = secOpen
+        untagged.id = "untagged"
+        untagged.title = "Untagged errand"
+        untagged.area = nil
+
+        try store.save(try API.encoder.encode(TaskList(tasks: [waitingView.task, secOpen, secClosed, untagged])), path: "/tasks")
+        try store.save(response, path: "/tasks/\(waitingView.task.id)")
+
+        let active = try API.decoder.decode(BrowseView.self, from: #require(store.cached("/browse")))
+        #expect(active.state == "active")
+        #expect(active.total == 3)
+        #expect(active.moreCount == 0)
+        #expect(active.areas == ["home", "security"])
+        #expect(active.hasNoArea == true)
+        #expect(active.items.first { $0.id == waitingView.task.id }?.status?.urgent == "deadline tomorrow")
+
+        let paged = try API.decoder.decode(BrowseView.self, from: #require(store.cached("/browse", query: ["limit": "2"])))
+        #expect(paged.items.count == 2)
+        #expect(paged.total == 3)
+        #expect(paged.moreCount == 1)
+
+        let closedSec = try API.decoder.decode(BrowseView.self, from: #require(store.cached("/browse", query: ["area": "#Security", "state": "closed"])))
+        #expect(closedSec.items.map(\.id) == ["sec-closed"])
+        #expect(closedSec.items.first?.status == nil)
+
+        let noArea = try API.decoder.decode(BrowseView.self, from: #require(store.cached("/browse", query: ["area": "none", "state": "active"])))
+        #expect(noArea.items.map(\.id) == ["untagged"])
+
+        let searchDefault = try API.decoder.decode(BrowseView.self, from: #require(store.cached("/browse", query: ["q": "curl"])))
+        #expect(searchDefault.state == "all")
+        #expect(searchDefault.items.map(\.id) == ["sec-closed"])
+
+        let searchByNote = try API.decoder.decode(BrowseView.self, from: #require(store.cached("/browse", query: ["q": "NO ANSWER", "state": "waiting"])))
+        #expect(searchByNote.items.map(\.id) == [waitingView.task.id])
+    }
+
+    @Test func refreshedTaskListDropsStaleBrowseSnapshots() throws {
+        let store = store()
+        defer { store.clear() }
+        let view = try API.decoder.decode(TaskView.self, from: response)
+        let browse = BrowseView(
+            state: "active", area: "home", q: "",
+            items: [BrowseItem(task: view.task, status: view.status)],
+            total: 1, moreCount: 0, areas: ["home"], hasNoArea: false
+        )
+        try store.save(try API.encoder.encode(browse), path: "/browse", query: ["area": "home"])
+        try store.save(try API.encoder.encode(TaskList(tasks: [])), path: "/tasks")
+        let fresh = try API.decoder.decode(BrowseView.self, from: #require(store.cached("/browse", query: ["area": "home"])))
+        #expect(fresh.items.isEmpty)
+        #expect(fresh.total == 0)
     }
 
     @Test func lostResponseKeepsExactBodyAndReplaysOnce() async throws {
@@ -336,5 +407,17 @@ struct OfflineAPITests {
             let _: TaskView = try await api.get("/tasks/never-seen")
             Issue.record("Invented offline result")
         } catch APIError.transport(let message) { #expect(message.contains("saved")) }
+    }
+
+    @Test func notFoundOnBrowsePreservesSavedSnapshots() async throws {
+        let (api, store) = setup()
+        defer { store.clear(); OfflineProtocol.reply = nil }
+        try store.save(Data(taskJSON.utf8), path: "/tasks/id")
+        OfflineProtocol.reply = { _ in (404, Data(#"{"error":"not_found","message":"Not found"}"#.utf8)) }
+        do {
+            let _: BrowseView = try await api.get("/browse")
+            Issue.record("Expected notFound")
+        } catch APIError.notFound { }
+        #expect(store.cached("/tasks/id") != nil)
     }
 }

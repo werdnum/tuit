@@ -1,14 +1,50 @@
+import Observation
 import SwiftUI
+
+/// Shared tab and Tasks browse navigation state, so narrowed Now and task area badges
+/// can jump straight to Tasks filtered to an area.
+@Observable
+final class AppNavigation {
+    var tab = "now"
+    var nowPath: [String] = {
+        #if DEBUG
+        // For screenshots: `simctl launch` with TUIT_OPEN=<task id>.
+        if let id = ProcessInfo.processInfo.environment["TUIT_OPEN"] { return [id] }
+        #endif
+        return []
+    }()
+    var tasksPath: [String] = []
+    var tasksArea: String? = nil
+    /// Explicit state tapped by the user; nil means active when browsing and all when searching.
+    var tasksExplicitState: BrowseState? = nil
+    var tasksQuery = ""
+    /// Bumped when jumping to Tasks so TasksScreen resets paging and reloads.
+    var tasksBrowseTick = 0
+
+    func browseTasks(area: String?) {
+        tasksArea = area.flatMap { raw -> String? in
+            let normalized = normalizeAreaFilter(raw)
+            return normalized.isEmpty ? nil : normalized
+        }
+        tasksExplicitState = nil
+        tasksQuery = ""
+        tasksPath = []
+        tasksBrowseTick += 1
+        tab = "tasks"
+    }
+}
 
 @main
 struct TuitApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = Session()
+    @State private var navigation = AppNavigation()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(session)
+                .environment(navigation)
                 .tint(Color("AccentColor"))
         }
     }
@@ -16,42 +52,41 @@ struct TuitApp: App {
 
 struct RootView: View {
     @Environment(Session.self) private var session
+    @Environment(AppNavigation.self) private var navigation
     @Environment(\.scenePhase) private var phase
     @State private var push = PushRegistration.shared
-    @State private var tab = "now"
-    @State private var nowPath: [String] = {
-        #if DEBUG
-        // For screenshots: `simctl launch` with TUIT_OPEN=<task id>.
-        if let id = ProcessInfo.processInfo.environment["TUIT_OPEN"] { return [id] }
-        #endif
-        return []
-    }()
 
     var body: some View {
+        @Bindable var navigation = navigation
         if session.isSignedIn {
-            TabView(selection: $tab) {
-                NavigationStack(path: $nowPath) { NowScreen() }
+            TabView(selection: $navigation.tab) {
+                NavigationStack(path: $navigation.nowPath) { NowScreen() }
                     .tabItem { Label("Now", systemImage: "sun.max") }
                     .tag("now")
-                NavigationStack { TasksScreen() }
-                    .tabItem { Label("Tasks", systemImage: "magnifyingglass") }
+                NavigationStack(path: $navigation.tasksPath) { TasksScreen() }
+                    .tabItem { Label("Tasks", systemImage: "list.bullet") }
                     .tag("tasks")
                 NavigationStack { SettingsScreen() }
                     .tabItem { Label("Settings", systemImage: "gearshape") }
                     .tag("settings")
             }
-            // tuit://tasks/<id> opens a task, e.g. from a notification an agent sent.
+            // tuit://tasks/<id> opens a task; tuit://tasks?area=<area> browses that area.
             .onOpenURL { url in
-                guard url.host() == "tasks", let id = url.pathComponents.dropFirst().first else { return }
-                tab = "now"
-                nowPath = [id]
+                guard url.host() == "tasks" else { return }
+                if let id = url.pathComponents.dropFirst().first, !id.isEmpty {
+                    navigation.tab = "now"
+                    navigation.nowPath = [id]
+                } else if let area = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "area" })?.value, !area.isEmpty {
+                    navigation.browseTasks(area: area)
+                }
             }
             // A tapped notification opens its task.
             .onChange(of: push.openTask, initial: true) { _, id in
                 guard let id else { return }
                 push.openTask = nil
-                tab = "now"
-                nowPath = [id]
+                navigation.tab = "now"
+                navigation.nowPath = [id]
             }
             .task {
                 push.api = { [session] in session.api }

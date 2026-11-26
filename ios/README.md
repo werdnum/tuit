@@ -4,16 +4,18 @@ A native SwiftUI client over the same REST API as the web app and CLI (`/api`). 
 interpret anything itself: urgency, labels, recurrence and visibility all come from the server.
 
 - **Now**: urgent items, today's sticky list (finished items stay ticked), "new since this
-  morning", area chips, show more, and "enough for now". Swipe right to finish, left to snooze
-  until tomorrow or pin.
+  morning", area chips (with a direct link from any narrowed area to all its tasks in Tasks),
+  show more, and "enough for now". Swipe right to finish, left to snooze until tomorrow or pin.
 - **Capture**: title-only, with `#area` at either end. Also "Add to Tuit" in Siri, Shortcuts
   and the Action button.
-- **Task**: brief (Markdown), next action, whose turn, waiting, dates, links and history. You
-  can mark it done or done earlier, skip a routine, add a note, hand off, set waiting-for or
-  stop waiting, snooze, pin, edit, attach a link, mark it no longer relevant, shelve or reopen.
-  Every change sends `expected_revision`, so a concurrent edit shows up as a conflict instead
-  of being overwritten.
-- **Tasks**: search, or browse by state.
+- **Task**: brief (Markdown), next action, whose turn, waiting, dates, links and history. Tap
+  its `#area` badge to browse all tasks in that area. You can mark it done or done earlier, skip
+  a routine, add a note, hand off, set waiting-for or stop waiting, snooze, pin, edit, attach a
+  link, mark it no longer relevant, shelve or reopen. Every change sends `expected_revision`, so a
+  concurrent edit shows up as a conflict instead of being overwritten.
+- **Tasks**: browse and search everything you can see regardless of whose turn it is or
+  hidden-by-default areas, with state chips (`Active`, `Open`, `Waiting`, `Closed`, `All`), area
+  chips (`All areas`, `#area`, `No area`), status/held details, and 50-item paging.
 - **Sharing**: tap Share in a task, or long-press a task in Now or Tasks and choose
   Share task. This opens the iOS share sheet with the task's web link; recipients still need
   access to the task, and sharing doesn't change its visibility.

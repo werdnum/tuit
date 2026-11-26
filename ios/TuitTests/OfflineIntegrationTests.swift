@@ -122,4 +122,40 @@ struct OfflineIntegrationTests {
         let current: TaskView = try await remote.get("/tasks/\(created.task.id)")
         #expect(current.task.title == "Someone else's edit")
     }
+
+    @Test func browseEndpointAndNarrowedNowWorkAgainstRealServer() async throws {
+        guard let config = try await config() else { return }
+        try await mode("online")
+        let api = API(base: URL(string: config.base)!, credentials: .debug(config.token))
+        let area = "browseint\(UUID().uuidString.prefix(6).lowercased())"
+
+        let mine: TaskView = try await api.post("/tasks", CaptureBody(title: "My \(area) task #\(area)"))
+        let agent: TaskView = try await api.post("/tasks", CaptureBody(title: "Agent \(area) task #\(area)"))
+        let _: TaskView = try await api.post("/tasks/\(agent.task.id)/handoff", HandoffBody(to: "agent:claude", note: "Hand off to agent", expectedRevision: agent.task.revision))
+        let done: TaskView = try await api.post("/tasks", CaptureBody(title: "Done \(area) task #\(area)"))
+        let _: TaskView = try await api.post("/tasks/\(done.task.id)/complete", CompleteBody(expectedRevision: done.task.revision))
+
+        struct AreaHideBody: Encodable { var hiddenByDefault: Bool }
+        struct AreaReply: Decodable {}
+        let _: AreaReply = try await api.patch("/areas/\(area)", AreaHideBody(hiddenByDefault: true))
+
+        let narrowedNow: NowView = try await api.get("/now", query: ["area": area])
+        #expect(narrowedNow.area == area)
+        #expect(narrowedNow.areaHidden == true)
+        #expect(narrowedNow.otherCountInArea == 1)
+
+        let activeInArea: BrowseView = try await api.get("/browse", query: ["area": area])
+        #expect(activeInArea.state == "active")
+        #expect(activeInArea.areas.contains(area))
+        #expect(activeInArea.items.map(\.id).sorted() == [mine.task.id, agent.task.id].sorted())
+        #expect(activeInArea.items.allSatisfy { $0.status != nil })
+
+        let closedInArea: BrowseView = try await api.get("/browse", query: ["area": area, "state": "closed"])
+        #expect(closedInArea.items.map(\.id) == [done.task.id])
+        #expect(closedInArea.items.first?.status == nil)
+
+        let searchAll: BrowseView = try await api.get("/browse", query: ["area": area, "q": "Done \(area)"])
+        #expect(searchAll.state == "all")
+        #expect(searchAll.items.map(\.id) == [done.task.id])
+    }
 }

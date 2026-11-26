@@ -4,6 +4,7 @@ import SwiftUI
 /// else, 50 at a time. Finishing an item leaves it ticked in place; nothing slides in to replace it.
 struct NowScreen: View {
     @Environment(Session.self) private var session
+    @Environment(AppNavigation.self) private var navigation
     @State private var now: NowView?
     @State private var area: String?
     @State private var error: String?
@@ -25,7 +26,7 @@ struct NowScreen: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle(area.map { "Now · #\($0)" } ?? "Now")
+        .navigationTitle(area.map { "Now · \(areaDisplayName($0))" } ?? "Now")
         .toolbar { toolbar }
         .safeAreaInset(edge: .top) { OfflineBanner() }
         .refreshable { await load() }
@@ -67,6 +68,8 @@ struct NowScreen: View {
                 ForEach(now.urgent) { item in row(item) }
             }
         }
+        let nothing = now.enoughUntil == nil
+            && now.plan.isEmpty && now.urgent.isEmpty && now.newItems.isEmpty && now.also.isEmpty
         if let until = now.enoughUntil {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
@@ -80,10 +83,41 @@ struct NowScreen: View {
                 }
                 .padding(.vertical, 4)
             }
+            if let area = now.area {
+                browseAreaSection(area: area, otherCount: now.otherCountInArea)
+            }
         } else {
             Section {
-                if now.plan.isEmpty {
-                    Text(now.urgent.isEmpty ? "Nothing needs you right now." : "Nothing else today.")
+                if nothing {
+                    if let area = now.area {
+                        let name = areaDisplayName(area)
+                        let otherCount = now.otherCountInArea
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Nothing in \(name) needs you right now.")
+                                .foregroundStyle(.secondary)
+                            if otherCount > 0 {
+                                Text("\(otherCount) other active \(otherCount == 1 ? "task" : "tasks") in \(name) (with others, waiting or resting).")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Button {
+                                navigation.browseTasks(area: area)
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("Browse all in \(name)")
+                                    Image(systemName: "arrow.right")
+                                        .font(.caption.weight(.semibold))
+                                }
+                            }
+                            .accessibilityIdentifier("browse-area-button")
+                        }
+                        .padding(.vertical, 4)
+                    } else {
+                        Text("Nothing needs you right now.")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if now.plan.isEmpty {
+                    Text("Nothing else today.")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(now.plan) { row in self.row(row.item, done: row.done) }
@@ -110,13 +144,43 @@ struct NowScreen: View {
                     }
                 }
             }
+            if let area = now.area, !nothing {
+                browseAreaSection(area: area, otherCount: now.otherCountInArea)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func browseAreaSection(area: String, otherCount: Int) -> some View {
+        let name = areaDisplayName(area)
+        Section {
+            Button {
+                navigation.browseTasks(area: area)
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Browse all in \(name)")
+                            .foregroundStyle(.tint)
+                        if otherCount > 0 {
+                            Text("\(otherCount) more with others, waiting or resting")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tint)
+                }
+            }
+            .accessibilityIdentifier("browse-area-button")
         }
     }
 
     private func alsoHeading(_ now: NowView) -> String {
         let later = !now.plan.isEmpty || !now.newItems.isEmpty
         guard let area = now.area else { return later ? "Everything else" : "Everything" }
-        let name = area == "none" ? "no area" : "#\(area)"
+        let name = areaDisplayName(area)
         return later ? "Also in \(name)" : "In \(name)"
     }
 

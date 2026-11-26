@@ -82,16 +82,68 @@ final class OfflineStore {
         if let snapshot = state.snapshots[Self.key(path, query)] { return snapshot.data }
         if path == "/tasks", let all = state.snapshots[Self.key("/tasks")],
            let list = try? API.decoder.decode(TaskList.self, from: all.data) {
-            let text = query["q"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-            let tasks = list.tasks.filter { task in
-                let stateMatches = query["state"].map { $0 == "active" ? !task.isClosed : task.state == $0 } ?? true
-                let detail = state.snapshots[Self.key("/tasks/" + task.id)].flatMap { try? API.decoder.decode(TaskView.self, from: $0.data) }
-                let haystack = [task.title, task.brief, task.nextAction] + (detail?.activity?.map(\.body) ?? [])
-                return stateMatches && (text.isEmpty || haystack.contains { $0.lowercased().contains(text) })
-            }
+            let tasks = filterOfflineTasks(list.tasks, state: query["state"], area: query["area"], text: query["q"])
             return try? API.encoder.encode(TaskList(tasks: tasks))
         }
+        if path == "/browse", let all = state.snapshots[Self.key("/tasks")],
+           let list = try? API.decoder.decode(TaskList.self, from: all.data) {
+            let q = (query["q"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let stateParam = query["state"].flatMap { $0.isEmpty ? nil : $0 } ?? (q.isEmpty ? "active" : "all")
+            let areaParam = query["area"].flatMap { raw -> String? in
+                let normalized = normalizeAreaFilter(raw)
+                return normalized.isEmpty ? nil : normalized
+            }
+            let limit: Int = {
+                guard let raw = query["limit"], !raw.isEmpty else { return 50 }
+                if raw == "all" { return .max }
+                return max(1, Int(raw) ?? 50)
+            }()
+            let isActiveOnly = ["active", "open", "waiting"].contains(stateParam)
+            let areaPool = isActiveOnly ? list.tasks.filter { !$0.isClosed } : list.tasks
+            let areas = Array(Set(areaPool.compactMap(\.area))).sorted()
+            let hasNoArea = areaPool.contains { $0.area == nil }
+
+            let matched = filterOfflineTasks(list.tasks, state: stateParam, area: areaParam, text: q)
+            let ordered = matched.sorted { a, b in
+                if a.isClosed != b.isClosed { return !a.isClosed }
+                if a.isClosed {
+                    return (a.closedAt ?? a.updatedAt) > (b.closedAt ?? b.updatedAt)
+                }
+                return a.createdAt < b.createdAt
+            }
+            let total = ordered.count
+            let page = ordered.prefix(limit).map { task -> BrowseItem in
+                let detail = state.snapshots[Self.key("/tasks/" + task.id)]
+                    .flatMap { try? API.decoder.decode(TaskView.self, from: $0.data) }
+                return BrowseItem(task: task, status: task.isClosed ? nil : detail?.status)
+            }
+            let view = BrowseView(
+                state: stateParam,
+                area: areaParam,
+                q: q,
+                items: Array(page),
+                total: total,
+                moreCount: max(0, total - page.count),
+                areas: areas,
+                hasNoArea: hasNoArea
+            )
+            return try? API.encoder.encode(view)
+        }
         return nil
+    }
+
+    private func filterOfflineTasks(_ tasks: [TaskItem], state: String?, area: String?, text: String?) -> [TaskItem] {
+        let needle = text?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return tasks.filter { task in
+            guard state.map({ task.matches(state: $0) }) ?? true else { return false }
+            guard task.matches(area: area) else { return false }
+            guard !needle.isEmpty else { return true }
+            let detail = self.state.snapshots[Self.key("/tasks/" + task.id)]
+                .flatMap { try? API.decoder.decode(TaskView.self, from: $0.data) }
+            let haystack = [task.title, task.brief, task.nextAction, task.waiting?.for ?? ""]
+                + (detail?.activity?.map(\.body) ?? [])
+            return haystack.contains { $0.lowercased().contains(needle) }
+        }
     }
 
     func save(_ data: Data, path: String, query: [String: String] = [:]) throws {
@@ -110,8 +162,8 @@ final class OfflineStore {
                     let ids = (now.plan.map { $0.item.id } + now.urgent.map(\.id) + now.newItems.map(\.id) + now.also.map(\.id))
                     return ids.allSatisfy { allowed.contains($0) }
                 }
-                // Drop prior filtered/search lists: build them from the fresh full list instead.
-                return !key.hasPrefix("/tasks?") || key == Self.key("/tasks")
+                // Drop prior filtered/search/browse lists: build them from the fresh full list instead.
+                return (!key.hasPrefix("/tasks?") || key == Self.key("/tasks")) && !key.hasPrefix("/browse?")
             }
         }
         try commit(next)
