@@ -13,6 +13,8 @@ test("Sam can't see Alex's private task anywhere", async ({ page, signIn, phone,
 
   await expect(sam.locator("main")).toBeVisible();
   await expect(nowRow(sam, "ring size")).toHaveCount(0);
+  await sam.goto("/tasks");
+  await expect(sam.locator("main")).not.toContainText("ring size");
   await sam.goto("/search?q=ring%20size");
   await expect(sam.locator("main")).toContainText('Nothing matches "ring size"');
   await sam.goto("/queues/open");

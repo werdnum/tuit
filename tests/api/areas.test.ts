@@ -253,4 +253,53 @@ describe("areas hidden by default", () => {
       400,
     );
   });
+
+  test("GET /api/tasks filters by area and state, regardless of assignee or hidden area", async () => {
+    await add(alex, "bump openssl", { area: "security", next_actor: "agent:claude" });
+    const doneId = await add(alex, "patch curl", { area: "security" });
+    await alex.post(`/api/tasks/${doneId}/complete`, {});
+    await add(alex, "mow the lawn", { area: "home", next_actor: "sam" });
+    await add(alex, "untagged thing");
+    await alex.patch("/api/areas/security", { hidden_by_default: true });
+
+    const secActive = await alex.get("/api/tasks?area=%23Security&state=active");
+    expect(secActive.tasks.map((t: any) => t.title)).toEqual(["bump openssl"]);
+
+    const secClosed = await alex.get("/api/tasks?area=security&state=closed");
+    expect(secClosed.tasks.map((t: any) => t.title)).toEqual(["patch curl"]);
+
+    const secAll = await alex.get("/api/tasks?area=security&state=all");
+    expect(secAll.tasks.map((t: any) => t.title).sort()).toEqual(["bump openssl", "patch curl"]);
+
+    const untagged = await alex.get("/api/tasks?area=none&state=active");
+    expect(untagged.tasks.map((t: any) => t.title)).toEqual(["untagged thing"]);
+
+    const searchClosed = await alex.get("/api/tasks?q=curl&area=security&state=closed");
+    expect(searchClosed.tasks.map((t: any) => t.title)).toEqual(["patch curl"]);
+    const searchActive = await alex.get("/api/tasks?q=curl&area=security&state=active");
+    expect(searchActive.tasks).toEqual([]);
+  });
+
+  test("narrowed Now reports area_other_count for tasks with others, waiting or snoozed, excluding private tasks", async () => {
+    await add(alex, "my cluster task", { area: "cluster" });
+    await add(alex, "agent cluster task", { area: "cluster", next_actor: "agent:claude" });
+    await add(alex, "sam cluster task", { area: "cluster", next_actor: "sam" });
+    const snoozedId = await add(alex, "snoozed cluster task", { area: "cluster" });
+    await alex.post(`/api/tasks/${snoozedId}/snooze`, { until: "tomorrow" });
+    await add(alex, "secret cluster task", {
+      area: "cluster",
+      visibility: "private",
+      next_actor: "agent:claude",
+    });
+
+    const alexNow = await alex.get("/api/now?area=cluster");
+    expect(alexNow.area_other_count).toBe(4);
+
+    // Sam sees only the household tasks: sam's own is on Sam's Now, leaving 3 household tasks.
+    const samNow = await sam.get("/api/now?area=cluster");
+    expect(samNow.area_other_count).toBe(3);
+
+    // Unnarrowed Now reports 0.
+    expect((await alex.get("/api/now")).area_other_count).toBe(0);
+  });
 });

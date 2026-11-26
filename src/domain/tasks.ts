@@ -1401,36 +1401,57 @@ export class TaskService {
     };
   }
 
+  /** Areas on tasks the caller can see, optionally limited to given states, plus whether any lack an area. */
+  async areas(p: Principal, states?: string[]): Promise<{ areas: string[]; hasNoArea: boolean }> {
+    const r = await this.db.query<{ area: string | null }>(
+      `SELECT DISTINCT area FROM tasks t
+       WHERE ${visibleSql("t", 1)} ${states ? "AND state = ANY($2)" : ""}
+       ORDER BY area NULLS LAST`,
+      states ? [p.userId, states] : [p.userId],
+    );
+    const areas: string[] = [];
+    let hasNoArea = false;
+    for (const row of r.rows) {
+      if (row.area === null) hasNoArea = true;
+      else areas.push(row.area);
+    }
+    return { areas, hasNoArea };
+  }
+
   /** Areas on any task the caller can see, open or closed. */
   async allAreas(p: Principal): Promise<string[]> {
-    const r = await this.db.query<{ area: string }>(
-      `SELECT DISTINCT area FROM tasks t WHERE area IS NOT NULL AND ${visibleSql("t", 1)} ORDER BY area`,
-      [p.userId],
-    );
-    return r.rows.map((x) => x.area);
+    return (await this.areas(p)).areas;
   }
 
   /** Text search over everything the caller can see, including closed tasks and notes. */
   async search(
     p: Principal,
     text: string,
-    opts: { includeClosed?: boolean; limit?: number; area?: string } = {},
+    opts: { includeClosed?: boolean; states?: string[]; limit?: number; area?: string } = {},
   ): Promise<Task[]> {
     await this.beforeAccess();
     const like = `%${text.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-    const area = opts.area === undefined ? undefined : areaFilter(opts.area);
+    const values: unknown[] = [p.userId, like, opts.limit ?? 50];
+    const where = [
+      visibleSql("t", 1),
+      `(title ILIKE $2 OR brief ILIKE $2 OR next_action ILIKE $2 OR waiting_for ILIKE $2
+        OR EXISTS (SELECT 1 FROM activity a WHERE a.task_id = t.id AND a.body ILIKE $2))`,
+    ];
+    const param = (v: unknown) => {
+      values.push(v);
+      return `$${values.length}`;
+    };
+    if (opts.states) where.push(`state = ANY(${param(opts.states)})`);
+    else if (opts.includeClosed === false) where.push("state IN ('open','waiting')");
+    if (opts.area !== undefined) {
+      where.push(`coalesce(area, 'none') = ${param(areaFilter(opts.area))}`);
+    }
     const r = await this.db.query(
-      `SELECT * FROM tasks t
-       WHERE ${visibleSql("t", 1)}
-         ${opts.includeClosed === false ? "AND state IN ('open','waiting')" : ""}
-         ${area === undefined ? "" : "AND coalesce(area, 'none') = $4"}
-         AND (title ILIKE $2 OR brief ILIKE $2 OR next_action ILIKE $2 OR waiting_for ILIKE $2
-              OR EXISTS (SELECT 1 FROM activity a WHERE a.task_id = t.id AND a.body ILIKE $2))
+      `SELECT t.*, ${openPartsSql("t")}, ${parentSql("t", 1)} FROM tasks t
+       WHERE ${where.join(" AND ")}
        ORDER BY (state IN ('open','waiting')) DESC, updated_at DESC
        LIMIT $3`,
-      area === undefined
-        ? [p.userId, like, opts.limit ?? 50]
-        : [p.userId, like, opts.limit ?? 50, area],
+      values,
     );
     return r.rows.map(taskFromRow);
   }
@@ -1471,13 +1492,24 @@ export class TaskService {
     return r.rows;
   }
 
-  /** All tasks visible to the caller, optionally filtered by state. */
-  async list(p: Principal, states?: string[]): Promise<Task[]> {
+  /** All tasks visible to the caller, optionally filtered by state and area. */
+  async list(p: Principal, states?: string[], opts: { area?: string } = {}): Promise<Task[]> {
     await this.beforeAccess();
+    const values: unknown[] = [p.userId];
+    const where = [visibleSql("t", 1)];
+    const param = (v: unknown) => {
+      values.push(v);
+      return `$${values.length}`;
+    };
+    if (states) where.push(`state = ANY(${param(states)})`);
+    if (opts.area !== undefined) {
+      where.push(`coalesce(area, 'none') = ${param(areaFilter(opts.area))}`);
+    }
     const r = await this.db.query(
-      `SELECT * FROM tasks t WHERE ${visibleSql("t", 1)} ${states ? "AND state = ANY($2)" : ""}
+      `SELECT t.*, ${openPartsSql("t")}, ${parentSql("t", 1)} FROM tasks t
+       WHERE ${where.join(" AND ")}
        ORDER BY created_at`,
-      states ? [p.userId, states] : [p.userId],
+      values,
     );
     return r.rows.map(taskFromRow);
   }

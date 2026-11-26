@@ -65,6 +65,12 @@ export function areaBadge(t: Task): Html {
   return t.area ? html`<span class="badge area" data-area="${t.area}">#${t.area}</span>` : html``;
 }
 
+export function areaBadgeLink(t: Task): Html {
+  return t.area
+    ? html`<a class="badge area" data-area="${t.area}" href="/tasks?area=${encodeURIComponent(t.area)}">#${t.area}</a>`
+    : html``;
+}
+
 export function privateBadge(t: Task): Html {
   return t.visibility === "private" ? html`<span class="badge private">private</span>` : html``;
 }

@@ -8,7 +8,7 @@ export interface LiveMark {
   at: number;
 }
 
-export type Tab = "now" | "queues" | "feed" | "search" | null;
+export type Tab = "now" | "tasks" | "queues" | "feed" | null;
 
 export interface Flash {
   text: string;
@@ -180,6 +180,7 @@ fieldset.plain { border: 0; margin: 0; padding: 0; }
 .badge.agent { background: var(--agent-soft); color: var(--agent); text-transform: none; letter-spacing: 0; }
 .badge.private { background: var(--agent-soft); color: var(--agent); }
 .badge.area { text-transform: none; letter-spacing: 0; font-weight: 500; }
+a.badge.area { color: var(--accent); }
 .chips { display: flex; gap: 8px; overflow-x: auto; margin: 10px 0 2px; padding-bottom: 2px; scrollbar-width: none; }
 .chips a { flex: none; display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 18px;
   background: var(--card); color: var(--text); text-decoration: none; font-size: 15px; }
@@ -648,14 +649,14 @@ const ICONS = {
   now: raw(
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8L16.5 9"/></svg>`,
   ),
+  tasks: raw(
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="3" height="3" rx="0.8"/><path d="M10 6h10.5"/><rect x="3.5" y="10.5" width="3" height="3" rx="0.8"/><path d="M10 12h10.5"/><rect x="3.5" y="16.5" width="3" height="3" rx="0.8"/><path d="M10 18h10.5"/></svg>`,
+  ),
   queues: raw(
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`,
   ),
   feed: raw(
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>`,
-  ),
-  search: raw(
-    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>`,
   ),
   settings: raw(
     `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.5 20c1.4-3.6 4.3-5.5 7.5-5.5s6.1 1.9 7.5 5.5"/></svg>`,
@@ -677,7 +678,7 @@ function tabbar(tab: Tab): Html {
   const t = (id: Exclude<Tab, null>, href: string, label: string) =>
     html`<a href="${href}" ${tab === id ? raw('aria-current="page"') : ""}>${ICONS[id]}<span>${label}</span></a>`;
   return html`<nav class="tabbar" aria-label="Main">
-    ${t("now", "/", "Now")}${t("queues", "/queues", "Queues")}${t("feed", "/feed", "Feed")}${t("search", "/search", "Search")}
+    ${t("now", "/", "Now")}${t("tasks", "/tasks", "Tasks")}${t("queues", "/queues", "Queues")}${t("feed", "/feed", "Feed")}
   </nav>`;
 }
 
