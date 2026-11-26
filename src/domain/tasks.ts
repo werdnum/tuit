@@ -1431,7 +1431,8 @@ export class TaskService {
   ): Promise<Task[]> {
     await this.beforeAccess();
     const like = `%${text.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-    const values: unknown[] = [p.userId, like, opts.limit ?? 50];
+    const limit = opts.limit ?? 50;
+    const values: unknown[] = [p.userId, like];
     const where = [
       visibleSql("t", 1),
       `(title ILIKE $2 OR brief ILIKE $2 OR next_action ILIKE $2 OR waiting_for ILIKE $2
@@ -1446,11 +1447,12 @@ export class TaskService {
     if (opts.area !== undefined) {
       where.push(`coalesce(area, 'none') = ${param(areaFilter(opts.area))}`);
     }
+    const limitSql = Number.isFinite(limit) ? `LIMIT ${param(limit)}` : "";
     const r = await this.db.query(
       `SELECT t.*, ${openPartsSql("t")}, ${parentSql("t", 1)} FROM tasks t
        WHERE ${where.join(" AND ")}
        ORDER BY (state IN ('open','waiting')) DESC, updated_at DESC
-       LIMIT $3`,
+       ${limitSql}`,
       values,
     );
     return r.rows.map(taskFromRow);

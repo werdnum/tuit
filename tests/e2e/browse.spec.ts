@@ -71,11 +71,18 @@ test("Tasks tab browses all tasks regardless of assignee or hidden area, with ar
   await expect(rows(page, "Tasks")).toHaveCount(1);
   await expect(rows(page, "Tasks").filter({ hasText: "Untagged errand" })).toBeVisible();
 
-  // Search inside an area (#home) finds matching tasks across states.
+  // Explicitly selected Active state persists across area switches and search.
   await page
     .getByRole("navigation", { name: "Areas" })
-    .getByRole("link", { name: "#home" })
+    .getByRole("link", { name: "#security" })
     .click();
+  await expect(page).toHaveURL(/state=active/);
+  await page.getByRole("searchbox", { name: "Search" }).fill("curl");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.locator("main")).toContainText('Nothing matches "curl"');
+
+  // Fresh /tasks search without an explicit state includes closed tasks too.
+  await page.goto("/tasks?area=home");
   await page.getByRole("searchbox", { name: "Search" }).fill("paint");
   await page.getByRole("button", { name: "Search" }).click();
   await expect(rows(page, "Results")).toHaveCount(1);

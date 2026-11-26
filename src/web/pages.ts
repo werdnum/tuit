@@ -1304,10 +1304,9 @@ export function tasksPage(
     const explicit = opts.explicitState ?? d.explicitState;
     const area = opts.area !== undefined ? opts.area : r.area;
     const limit = opts.limit !== undefined ? opts.limit : null;
-    const defaultState: BrowseState = q ? "all" : "active";
     const params = new URLSearchParams();
     if (q) params.set("q", q);
-    if (explicit && state !== defaultState) params.set("state", state);
+    if (explicit) params.set("state", state);
     if (area) params.set("area", area);
     if (limit) params.set("limit", Number.isFinite(limit) ? String(limit) : "all");
     const qs = params.toString();
