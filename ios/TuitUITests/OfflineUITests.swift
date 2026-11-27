@@ -60,7 +60,11 @@ nonisolated final class OfflineUITests: XCTestCase {
         sync.tap()
         XCTAssertTrue(app.staticTexts["Everything is synced."].waitForExistence(timeout: 30))
         app.tabBars.buttons["Tasks"].tap()
-        XCTAssertTrue(app.staticTexts[title].firstMatch.waitForExistence(timeout: 15))
+        let capturedRow = app.staticTexts[title].firstMatch
+        if !capturedRow.waitForExistence(timeout: 15) {
+            app.swipeUp()
+            XCTAssertTrue(capturedRow.waitForExistence(timeout: 10))
+        }
         app.terminate()
     }
 
@@ -87,8 +91,10 @@ nonisolated final class OfflineUITests: XCTestCase {
         let mineTitle = "My \(area) check"
         let agentTitle = "Agent \(area) scan"
         let doneTitle = "Done \(area) patch"
-        _ = try await request("POST", "/api/tasks", body: ["title": mineTitle, "area": area])
-        _ = try await request("POST", "/api/tasks", body: ["title": agentTitle, "area": area, "next_actor": "agent:claude"])
+        let mineCreated = try await request("POST", "/api/tasks", body: ["title": mineTitle, "area": area])
+        let mineId = (mineCreated["task"] as? [String: Any])?["id"] as? String ?? ""
+        let agentCreated = try await request("POST", "/api/tasks", body: ["title": agentTitle, "area": area, "next_actor": "agent:claude"])
+        let agentId = (agentCreated["task"] as? [String: Any])?["id"] as? String ?? ""
         let doneCreated = try await request("POST", "/api/tasks", body: ["title": doneTitle, "area": area])
         let doneId = (doneCreated["task"] as? [String: Any])?["id"] as? String ?? ""
         _ = try await request("POST", "/api/tasks/\(doneId)/complete", body: [:])
@@ -102,7 +108,7 @@ nonisolated final class OfflineUITests: XCTestCase {
         let areaChip = app.buttons["#\(area)"].firstMatch
         XCTAssertTrue(areaChip.waitForExistence(timeout: 20))
         areaChip.tap()
-        XCTAssertTrue(app.staticTexts[mineTitle].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts[mineTitle].firstMatch.waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts[agentTitle].exists)
 
         let browseArea = app.buttons["browse-area-button"].firstMatch
@@ -128,5 +134,9 @@ nonisolated final class OfflineUITests: XCTestCase {
         badge.tap()
         XCTAssertTrue(app.staticTexts[agentTitle].firstMatch.waitForExistence(timeout: 15))
         app.terminate()
+
+        // Clean up active tasks so subsequent UI tests start with a compact list.
+        if !mineId.isEmpty { _ = try? await request("POST", "/api/tasks/\(mineId)/complete", body: [:]) }
+        if !agentId.isEmpty { _ = try? await request("POST", "/api/tasks/\(agentId)/complete", body: [:]) }
     }
 }

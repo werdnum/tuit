@@ -157,5 +157,10 @@ struct OfflineIntegrationTests {
         let searchAll: BrowseView = try await api.get("/browse", query: ["area": area, "q": "Done \(area)"])
         #expect(searchAll.state == "all")
         #expect(searchAll.items.map(\.id) == [done.task.id])
+
+        // Clean up active tasks so subsequent UI tests start with a compact list.
+        let _: TaskView = try await api.post("/tasks/\(mine.task.id)/complete", CompleteBody(expectedRevision: mine.task.revision))
+        let agentLatest: TaskView = try await api.get("/tasks/\(agent.task.id)")
+        let _: TaskView = try await api.post("/tasks/\(agent.task.id)/complete", CompleteBody(expectedRevision: agentLatest.task.revision))
     }
 }

@@ -249,6 +249,7 @@ struct NowScreen: View {
             var query = firstPage
             if expanded { query["limit"] = String(limit) }
             now = try await api.get("/now", query: query)
+            error = nil
         } catch {
             self.error = session.handle(error)
         }
