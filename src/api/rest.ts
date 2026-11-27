@@ -115,6 +115,7 @@ export function restApi(app: App): Hono<AuthEnv> {
     const q = c.req.query("q");
     const state = c.req.query("state");
     const area = c.req.query("area") || undefined;
+    const externalKey = c.req.query("external_key") || undefined;
     const states =
       state === "active"
         ? ["open", "waiting"]
@@ -124,8 +125,8 @@ export function restApi(app: App): Hono<AuthEnv> {
             ? undefined
             : state.split(",");
     const list = q
-      ? await tasks.search(p, q, { states, area })
-      : await tasks.list(p, states, { area });
+      ? await tasks.search(p, q, { states, area, externalKey })
+      : await tasks.list(p, states, { area, externalKey });
     return c.json({ tasks: list });
   });
 
@@ -139,6 +140,10 @@ export function restApi(app: App): Hono<AuthEnv> {
       part_of: v.task.parent_id
         ? ((await tasks.titles(p, [v.task.parent_id])).get(v.task.parent_id) ?? null)
         : null,
+      merged_into_task: v.task.merged_into
+        ? ((await tasks.titles(p, [v.task.merged_into])).get(v.task.merged_into) ?? null)
+        : null,
+      merged_from: await tasks.mergedFrom(p, v.task.id),
       activity: await tasks.activity(p, v.task.id),
     });
   });
@@ -199,6 +204,18 @@ export function restApi(app: App): Hono<AuthEnv> {
     "/tasks/:id/close",
     mutation((id, input, c) => tasks.close(c.get("principal"), id, input)),
   );
+  api.post("/tasks/:id/merge", async (c) => {
+    const p = c.get("principal");
+    const { source, target } = await tasks.merge(p, c.req.param("id"), await body(c));
+    const sv = await board.view(p, source.id);
+    const tv = await board.view(p, target.id);
+    const warning = [source.warning, target.warning].filter(Boolean).join(" ") || undefined;
+    return c.json({
+      ...sv,
+      merged_into: tv,
+      ...(warning ? { warning } : {}),
+    });
+  });
   api.post(
     "/tasks/:id/reopen",
     mutation((id, input, c) => tasks.reopen(c.get("principal"), id, input)),

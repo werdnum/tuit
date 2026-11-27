@@ -221,3 +221,51 @@ test("add --priority sets it as the task is made, and claim --priority takes onl
   expect(claimed.status.priority).toBe("P0");
   expect(none.task).toBeNull();
 });
+
+test("list and search filter by area and state", async () => {
+  const canonical = await addId("[warning] KubeJobFailed (lake-system)", "--area", "alerts");
+  const dup = await addId("[warning] SimpleFINSyncFailed (lake-system)", "--area", "alerts");
+  await addId("Buy milk", "--area", "home");
+  await run("drop", dup, "--reason", "duplicate");
+
+  const activeAlerts = await run("list", "--area", "alerts", "--state", "active");
+  expect(activeAlerts).toContain(canonical);
+  expect(activeAlerts).not.toContain(dup);
+  expect(activeAlerts).not.toContain("Buy milk");
+
+  const closedSearch = await run("search", "SimpleFIN", "--area", "alerts", "--state", "closed");
+  expect(closedSearch).toContain(dup);
+  expect(closedSearch).not.toContain(canonical);
+});
+
+test("merge folds a duplicate into the target and shows merge links", async () => {
+  const canonical = await addId("[warning] KubeJobFailed (lake-system)", "--area", "alerts");
+  const dup = await addId(
+    "[warning] SimpleFINSyncFailed (lake-system)",
+    "--area",
+    "alerts",
+    "--to",
+    "agent:claude",
+  );
+
+  const agent = tuitAs(server, await server.mintToken("alex", "claude"));
+  const claimed = JSON.parse((await agent("claim", "--task", dup, "--json")).stdout);
+  const mergedOut = await ok(agent)(
+    "merge",
+    dup,
+    canonical,
+    "--note",
+    "Same SimpleFIN re-auth root cause",
+    "--claim",
+    claimed.task.claim.id,
+  );
+  expect(mergedOut).toContain("Merged:");
+
+  const canonicalShown = await run("show", canonical);
+  expect(canonicalShown).toContain("merged from");
+  expect(canonicalShown).toContain(dup);
+
+  const dupShown = await run("show", dup);
+  expect(dupShown).toContain("merged");
+  expect(dupShown).toContain(canonical);
+});

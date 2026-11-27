@@ -92,6 +92,10 @@ export interface Task {
   area: string | null;
   /** The task this is a part of. One level: a part has no parts of its own. */
   parent_id: string | null;
+  /** The surviving task this task was merged into, if closed via merge. */
+  merged_into: string | null;
+  /** Machine-managed correlation keys (key -> value), stored out-of-band from the brief. */
+  external_keys: Record<string, string>;
   /** Parts still open or waiting; only where a view loaded it. */
   open_parts?: number;
   /** The parent's title, where a view loaded it and the reader may see the parent. */
@@ -172,6 +176,8 @@ export function taskFromRow(r: any): Task {
     expires: momentFromColumns(r.expires_date, r.expires_at),
     area: r.area,
     parent_id: r.parent_id ?? null,
+    merged_into: r.merged_into ?? null,
+    external_keys: r.external_keys ?? {},
     ...(r.open_parts ? { open_parts: r.open_parts } : {}),
     ...(r.parent_title != null ? { parent_title: r.parent_title } : {}),
     ...(r.parent_deadline_date != null || r.parent_deadline_at != null
@@ -329,6 +335,26 @@ export const TaskFieldsInput = z
   .partial()
   .strict();
 
+export const MAX_EXTERNAL_KEYS = 50;
+
+export const ExternalKeyName = z.string().min(1).max(200);
+export const ExternalKeyValue = z.string().max(2000);
+
+export const ExternalKeysInput = z
+  .record(ExternalKeyName, ExternalKeyValue)
+  .refine((m) => Object.keys(m).length <= MAX_EXTERNAL_KEYS, {
+    message: `A task can have at most ${MAX_EXTERNAL_KEYS} external keys`,
+  })
+  .describe(
+    "Machine-managed correlation keys (key -> short string value) kept out-of-band from the human brief. Unioned onto the surviving task on merge.",
+  );
+
+export const ExternalKeysPatchInput = z
+  .record(ExternalKeyName, ExternalKeyValue.nullable())
+  .describe(
+    "Patch external_keys: string values add or update keys; null removes a key. Unmentioned keys stay untouched.",
+  );
+
 export const CreateTaskInput = TaskFieldsInput.extend({
   title: z.string().min(1).max(500),
   /** For routines: when it was last actually done, so it doesn't appear due immediately. */
@@ -355,11 +381,13 @@ export const CreateTaskInput = TaskFieldsInput.extend({
   priority: PriorityInput.optional().describe(
     "The priority for it of the person you act for (P1 if left out), set as it is created. As with set_priority, only on that person's say-so.",
   ),
+  external_keys: ExternalKeysInput.optional(),
   idempotency_key: z.string().max(200).optional(),
 }).strict();
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
 
 export const UpdateTaskInput = TaskFieldsInput.extend({
+  external_keys: ExternalKeysPatchInput.optional(),
   expected_revision: z.number().int().optional(),
   claim_id: ClaimIdInput,
   idempotency_key: z.string().max(200).optional(),
@@ -386,6 +414,7 @@ export const CheckpointInput = z
     next_actor: ActorInput.optional(),
     state: z.enum(["open", "waiting"]).optional(),
     waiting: WaitingInput.optional(),
+    external_keys: ExternalKeysPatchInput.optional(),
     resurface_in_days: z.number().int().min(1).max(365).optional(),
     release_claim: z.boolean().optional(),
     expected_revision: z.number().int().optional(),
@@ -458,6 +487,20 @@ export const CloseInput = z
   })
   .strict();
 export type CloseInput = z.infer<typeof CloseInput>;
+
+export const MergeInput = z
+  .object({
+    into: z.string().min(1).max(40).describe("Surviving task id that absorbs this task"),
+    note: z.string().max(20_000).optional().describe(NOTE_DESCRIPTION),
+    brief: z.string().max(20_000).optional().describe(BRIEF_DESCRIPTION),
+    next_action: z.string().max(2000).optional(),
+    expected_revision: z.number().int().optional(),
+    target_expected_revision: z.number().int().optional(),
+    claim_id: ClaimIdInput,
+    idempotency_key: z.string().max(200).optional(),
+  })
+  .strict();
+export type MergeInput = z.infer<typeof MergeInput>;
 
 export const SnoozeInput = z.object({ until: MomentInput.nullable() }).strict();
 

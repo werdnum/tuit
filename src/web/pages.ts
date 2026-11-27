@@ -410,6 +410,8 @@ export function detailPage(
     refs: Map<string, TaskRef>;
     /** Tasks waiting on this one. */
     blocks: TaskRef[];
+    /** Tasks merged into this one. */
+    mergedFrom: TaskRef[];
     /** This task's parts that the reader may see. */
     parts: Task[];
     /** Active tasks this one may wait on. */
@@ -433,6 +435,7 @@ export function detailPage(
         </select></label>`
       : "";
   const parent = t.parent_id ? d.refs.get(t.parent_id) : undefined;
+  const mergedInto = t.merged_into ? d.refs.get(t.merged_into) : undefined;
 
   const statusLine = closed
     ? ""
@@ -468,6 +471,12 @@ export function detailPage(
   const blocksBox = d.blocks.length
     ? html`<p class="small muted" data-blocks>Waiting on this: ${d.blocks.map(
         (b, i) => html`${i ? ", " : ""}<a href="/tasks/${b.id}">${b.title}</a>`,
+      )}</p>`
+    : "";
+
+  const mergedFromBox = d.mergedFrom.length
+    ? html`<p class="small muted" data-merged-from>Merged from: ${d.mergedFrom.map(
+        (m, i) => html`${i ? ", " : ""}<a href="/tasks/${m.id}">${m.title}</a>`,
       )}</p>`
     : "";
 
@@ -651,11 +660,13 @@ export function detailPage(
       <h1>${t.title}</h1>
       <div>${stateBadge(t)} ${areaBadgeLink(t)} ${privateBadge(t)} ${s.priority !== "P1" ? html`<span class="badge" data-priority-badge>${s.priority}</span>` : ""}</div>
       ${parent ? html`<p class="small muted" data-part-of>Part of <a href="/tasks/${parent.id}">${parent.title}</a></p>` : ""}
+      ${mergedInto ? html`<p class="small muted" data-merged-into>Merged into <a href="/tasks/${mergedInto.id}">${mergedInto.title}</a></p>` : ""}
       ${statusLine}
       ${nextLine}
       ${s.routine && !s.urgent ? html`<p class="small muted" data-routine>${s.routine.label}</p>` : ""}
       ${waitingBox}
       ${blocksBox}
+      ${mergedFromBox}
       ${snoozed}
       ${primary}
       ${verbs}

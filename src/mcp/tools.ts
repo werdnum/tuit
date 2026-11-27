@@ -25,6 +25,7 @@ import {
   CompleteInput,
   CreateTaskInput,
   DetachInput,
+  MergeInput,
   MomentInput,
   NOTE_DESCRIPTION,
   type Principal,
@@ -57,6 +58,7 @@ export const TOOL_NAMES = [
   "complete_task",
   "skip_routine",
   "close_task",
+  "merge_task",
   "reopen_task",
   "snooze_task",
   "attach_link",
@@ -100,6 +102,7 @@ Model
 - Routines (recurrence after_completion / since_done) are one persistent task: complete_task records a completion and it rests; skip_routine passes without resetting "last done".
 - area = which part of life a task belongs to ("home", "tuit", "cluster"): one optional word per task, not a hierarchy. Reuse an existing area (now lists them) rather than inventing near-duplicates. A title captured as "#tuit fix the feed" sets it. An area can be hidden by default (set_area): its tasks stay out of the person's Now and unnamed queues, never out of your own inbox or claim_next.
 - parts: a task can be broken into parts (create_task with parent_id). The parent is the outcome and stays out of Now while any part is open, then comes back for someone to decide whether it's done; closing it with open parts needs open_parts. One level only.
+- merge_task folds a duplicate task into a surviving target task atomically: closes the duplicate as expired pointing at the target, unions any external_keys onto the target, appends a note on the target without triggering a handoff notification or touching the target's claim/attachments, and re-points tasks waiting on the duplicate.
 - Priority is per person: P0, P1 (default) or P2. Order is banded: every P0 task sorts before every P1, and P1 before P2; dates sort only inside a band. Urgent items (a deadline within 48 hours) show whatever their priority. Set priority (set_priority) only when the person says so, never on your own judgement, and don't invent a deadline to make something sort first.
 
 How to work
@@ -126,6 +129,7 @@ function prune<T extends object>(o: T): Partial<T> {
   for (const [k, v] of Object.entries(o)) {
     if (v === null || v === undefined || v === "") continue;
     if (Array.isArray(v) && v.length === 0) continue;
+    if (typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) continue;
     out[k] = v;
   }
   return out as Partial<T>;
@@ -305,6 +309,12 @@ export async function buildMcpServer(
           .optional()
           .describe('"active" (open + waiting) or a list of states'),
         area: AreaInput.optional().describe('Only this area; "none" = tasks without one'),
+        external_key: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("Only tasks carrying this exact external_keys entry"),
         limit: z.number().int().min(1).max(200).default(50),
         detail: z
           .boolean()
@@ -313,18 +323,18 @@ export async function buildMcpServer(
       })
       .strict(),
     READ,
-    async ({ text, state, area, limit, detail }) => {
+    async ({ text, state, area, external_key, limit, detail }) => {
       const states = state === "active" ? ["open", "waiting"] : state;
       const list = text
-        ? await tasks.search(p, text, { states, limit, area })
-        : await tasks.list(p, states ?? ["open", "waiting"], { area });
+        ? await tasks.search(p, text, { states, limit, area, externalKey: external_key })
+        : await tasks.list(p, states ?? ["open", "waiting"], { area, externalKey: external_key });
       return { tasks: list.slice(0, limit).map(detail ? brief : row) };
     },
   );
 
   tool(
     "get_task",
-    "A task with its time-derived status, its parent (part_of) and parts, the tasks waiting on it (waiting_on_this), and its activity history (progress notes, handoffs, completions). Bookkeeping entries (edits, system) only with include_system.",
+    "A task with its time-derived status, its parent (part_of) and parts, any merge links (merged_into_task, merged_from), the tasks waiting on it (waiting_on_this), and its activity history (progress notes, handoffs, completions). Bookkeeping entries (edits, system) only with include_system.",
     z.object({ task_id: taskId, include_system: z.boolean().default(false) }).strict(),
     READ,
     async ({ task_id, include_system }) => {
@@ -332,12 +342,16 @@ export async function buildMcpServer(
       const activity = await tasks.activity(p, task_id);
       const blocks = await tasks.waitingOn(p, task_id);
       const parts = await tasks.parts(p, task_id);
-      const partOf = v.task.parent_id
-        ? (await tasks.titles(p, [v.task.parent_id])).get(v.task.parent_id)
-        : undefined;
+      const mergedFrom = await tasks.mergedFrom(p, task_id);
+      const refIds = [v.task.parent_id, v.task.merged_into].filter((x): x is string => !!x);
+      const refs = await tasks.titles(p, refIds);
+      const partOf = v.task.parent_id ? refs.get(v.task.parent_id) : undefined;
+      const mergedInto = v.task.merged_into ? refs.get(v.task.merged_into) : undefined;
       return {
         ...v,
         ...(partOf ? { part_of: partOf } : {}),
+        ...(mergedInto ? { merged_into_task: mergedInto } : {}),
+        ...(mergedFrom.length ? { merged_from: mergedFrom } : {}),
         ...(parts.length
           ? {
               parts: parts.map((k) => ({
@@ -417,6 +431,21 @@ export async function buildMcpServer(
     CloseInput.extend({ task_id: taskId }),
     WRITE,
     async ({ task_id, ...input }) => written(await tasks.close(p, task_id, input)),
+  );
+
+  tool(
+    "merge_task",
+    "Fold a duplicate task into a surviving target task atomically: closes the duplicate as expired pointing at the target, unions its external_keys onto the target, appends a note on the target (without triggering a handoff or touching its claim/attachments), and re-points tasks waiting on the duplicate.",
+    MergeInput.extend({ task_id: taskId }),
+    WRITE,
+    async ({ task_id, ...input }) => {
+      const { source, target } = await tasks.merge(p, task_id, input);
+      const warning = [source.warning, target.warning].filter(Boolean).join(" ") || undefined;
+      return {
+        ...(await view(source.id, warning)),
+        merged_into: await view(target.id),
+      };
+    },
   );
 
   tool(

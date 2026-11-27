@@ -308,6 +308,7 @@ export function webRoutes(app: App): Hono<AuthEnv> {
         ...taskIdCandidates(v.task.brief, ...activity.map((a) => a.body)),
         ...(v.task.waiting?.task_id ? [v.task.waiting.task_id] : []),
         ...(v.task.parent_id ? [v.task.parent_id] : []),
+        ...(v.task.merged_into ? [v.task.merged_into] : []),
       ].filter((ref) => ref !== id),
     );
     const html = detailPage(ctx, {
@@ -315,6 +316,7 @@ export function webRoutes(app: App): Hono<AuthEnv> {
       activity,
       refs,
       blocks: await tasks.waitingOn(ctx.me, id),
+      mergedFrom: await tasks.mergedFrom(ctx.me, id),
       parts,
       waitable: (await tasks.list(ctx.me, ["open", "waiting"])).filter(
         (t) => t.id !== id && !(v.task.visibility === "household" && t.visibility === "private"),

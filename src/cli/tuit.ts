@@ -423,6 +423,8 @@ async function printTask(
     activity: ActivityEntry[];
     part_of?: { id: string; title: string } | null;
     parts?: Task[];
+    merged_into_task?: { id: string; title: string } | null;
+    merged_from?: { id: string; title: string; state: string }[];
   },
   all: boolean,
 ): Promise<void> {
@@ -456,6 +458,18 @@ async function printTask(
   if (v.part_of) row("part of", `${v.part_of.title} ${c.dim(v.part_of.id)}`);
   for (const [i, k] of (v.parts ?? []).entries()) {
     row(i === 0 ? "parts" : "", `${c.dim(k.id)}  ${stateBadge(k.state).padEnd(10)} ${k.title}`);
+  }
+  if (v.merged_into_task) {
+    row("merged", `into ${v.merged_into_task.title} ${c.dim(v.merged_into_task.id)}`);
+  }
+  for (const [i, m] of (v.merged_from ?? []).entries()) {
+    row(i === 0 ? "merged from" : "", `${c.dim(m.id)}  ${m.title}`);
+  }
+  const extKeys = Object.entries(t.external_keys ?? {});
+  if (extKeys.length) {
+    for (const [i, [k, val]] of extKeys.entries()) {
+      row(i === 0 ? "keys" : "", val ? `${k} = ${val}` : k);
+    }
   }
   if (t.recurrence) {
     const mode = t.recurrence.mode === "after_completion" ? "every" : "quiet for";
@@ -830,6 +844,45 @@ const commands: Record<string, Command> = {
         open_parts: str(ctx.values, "parts"),
       }),
   },
+  merge: {
+    usage:
+      "tuit merge <source-id> <target-id> [--note T] [--brief T] [--action T] [--rev N] [--target-rev N]",
+    summary: "Fold a duplicate task into a surviving target task",
+    options: {
+      note: { type: "string" },
+      brief: { type: "string" },
+      action: { type: "string" },
+      rev: { type: "string" },
+      "target-rev": { type: "string" },
+    },
+    async run(ctx) {
+      const client = ctx.client();
+      const sourceId = await resolveTask(client, need(ctx.args, 0, "source task id"));
+      const targetId = await resolveTask(client, need(ctx.args, 1, "target task id"));
+      const v = await client.mutate<{
+        task: Task;
+        status: TaskStatus;
+        merged_into: { task: Task; status: TaskStatus };
+        warning?: string;
+      }>(
+        "POST",
+        `/api/tasks/${sourceId}/merge`,
+        withClaim(ctx, {
+          into: targetId,
+          note: str(ctx.values, "note"),
+          brief: str(ctx.values, "brief"),
+          next_action: str(ctx.values, "action"),
+          expected_revision: intOpt(ctx.values, "rev"),
+          target_expected_revision: intOpt(ctx.values, "target-rev"),
+        }),
+      );
+      if (v.warning && !ctx.json) process.stderr.write(`Warning: ${v.warning}\n`);
+      if (ctx.json) return printJson(v);
+      out(
+        `Merged: ${c.dim(v.task.id)} ${v.task.title} -> ${c.dim(v.merged_into.task.id)} ${v.merged_into.task.title}`,
+      );
+    },
+  },
   reopen: {
     usage: "tuit reopen <id>",
     summary: "Reopen a done, expired, shelved or waiting task",
@@ -888,13 +941,59 @@ const commands: Record<string, Command> = {
       return taskMutation(ctx, "Updated:", (id) => `/api/tasks/${id}`, body, "PATCH");
     },
   },
+  list: {
+    usage:
+      "tuit list [--area NAME] [--state active|open|waiting|closed|done|expired|shelved|all] [--key EXTERNAL_KEY]",
+    summary: "List tasks you can see (default: active open/waiting, regardless of actor)",
+    options: {
+      area: { type: "string" },
+      state: { type: "string" },
+      key: { type: "string" },
+    },
+    async run(ctx) {
+      const client = ctx.client();
+      const params = new URLSearchParams(
+        dropUndefined({
+          state: str(ctx.values, "state") ?? "active",
+          area: str(ctx.values, "area"),
+          external_key: str(ctx.values, "key"),
+        }) as Record<string, string>,
+      );
+      const r = await client.get<{ tasks: Task[] }>(`/api/tasks?${params}`);
+      if (ctx.json) return printJson(r);
+      if (r.tasks.length === 0) return out(c.dim("No tasks."));
+      const names = await householdNames(client);
+      for (const t of r.tasks) {
+        const area = t.area ? ` #${t.area}` : "";
+        const next = actorText(t.next_actor, names);
+        const claimed = t.claim ? ` (claimed by agent:${t.claim.agent})` : "";
+        out(
+          `${c.dim(t.id)}  ${stateBadge(t.state).padEnd(10)} ${t.title}${area}${c.dim(` — next: ${next}${claimed}`)}`,
+        );
+      }
+    },
+  },
   search: {
-    usage: "tuit search <text...>",
+    usage:
+      "tuit search <text...> [--area NAME] [--state active|open|waiting|closed|all] [--key EXTERNAL_KEY]",
     summary: "Find tasks by text, including done, expired and shelved ones",
+    options: {
+      area: { type: "string" },
+      state: { type: "string" },
+      key: { type: "string" },
+    },
     async run(ctx) {
       const q = ctx.args.join(" ").trim();
       if (!q) throw new CliError("Missing search text", EXIT.usage);
-      const r = await ctx.client().get<{ tasks: Task[] }>(`/api/tasks?q=${encodeURIComponent(q)}`);
+      const params = new URLSearchParams(
+        dropUndefined({
+          q,
+          area: str(ctx.values, "area"),
+          state: str(ctx.values, "state"),
+          external_key: str(ctx.values, "key"),
+        }) as Record<string, string>,
+      );
+      const r = await ctx.client().get<{ tasks: Task[] }>(`/api/tasks?${params}`);
       if (ctx.json) return printJson(r);
       if (r.tasks.length === 0) return out(c.dim("No matches."));
       for (const t of r.tasks) {

@@ -111,8 +111,10 @@ like `sat`, `tomorrow 9am` and `2026-11-04` are read in the household's time zon
 | Command | What it does |
 | --- | --- |
 | `tuit` / `tuit now [--area A] [--all]` | The person's Now view: urgent items, today's shortlist, what's new, then everything else (50 unless `--all`) |
+| `tuit list [--area A] [--state S] [--key K]` | List tasks regardless of whose turn it is (default `--state active`: open + waiting, including claimed tasks) |
 | `tuit show <id> [--all]` | Brief, next step, dates and history |
-| `tuit search <text>` | Find tasks, including done, expired and shelved ones |
+| `tuit search <text> [--area A] [--state S]` | Find tasks by text, including done, expired and shelved ones |
+| `tuit merge <dup-id> <target-id> [--note T]` | Fold a duplicate task into a surviving target task (closes the duplicate, unions external keys, adds a note on the target without re-notifying) |
 | `tuit add <title> [--to ACTOR] [--brief T] [--action T] [--area A] [--deadline X]` | Capture a follow-up instead of leaving it in chat |
 | `tuit edit <id> [--title T] [--action T] [--done-means T] [--area A] [--rev N]` | Change fields. `--rev` refuses if someone else changed it first |
 | `tuit changes [--after CURSOR\|latest]` | The change feed, with a cursor to resume from |
