@@ -70,6 +70,7 @@ test("the tool surface is small and task-oriented", async () => {
       "get_task",
       "hand_off",
       "list_queues",
+      "merge_task",
       "now",
       "set_priority",
       "preview_queue",
@@ -127,6 +128,8 @@ test("brief and note fields tell agents they are Markdown and how to collapse lo
     ["hand_off", "note"],
     ["complete_task", "note"],
     ["skip_routine", "note"],
+    ["merge_task", "note"],
+    ["merge_task", "brief"],
   ] as const) {
     const d = props(tool)[field]?.description ?? "";
     expect(d, `${tool}.${field}`).toMatch(/Markdown/);

@@ -32,6 +32,8 @@ import {
   DEFAULT_PRIORITY,
   DetachInput,
   MAX_ATTACHMENTS,
+  MAX_EXTERNAL_KEYS,
+  MergeInput,
   normalizeArea,
   type OffsetRule,
   type Principal,
@@ -135,6 +137,8 @@ const TASK_COLUMNS = [
   "expires_at",
   "area",
   "parent_id",
+  "merged_into",
+  "external_keys",
   "requires",
   "prefers",
   "recurrence",
@@ -188,6 +192,8 @@ function taskColumns(t: Task): unknown[] {
     eAt,
     t.area,
     t.parent_id,
+    t.merged_into,
+    JSON.stringify(t.external_keys),
     t.requires,
     t.prefers,
     t.recurrence ? JSON.stringify(t.recurrence) : null,
@@ -278,6 +284,21 @@ export async function addEvent(
 
 function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function applyExternalKeys(
+  current: Record<string, string>,
+  patch: Record<string, string | null>,
+): Record<string, string> {
+  const next: Record<string, string> = { ...current };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) delete next[k];
+    else next[k] = v;
+  }
+  if (Object.keys(next).length > MAX_EXTERNAL_KEYS) {
+    throw new ValidationError(`A task can have at most ${MAX_EXTERNAL_KEYS} external keys`);
+  }
+  return next;
 }
 
 export function actorLabel(a: Actor, users: UserInfo[]): string {
@@ -763,6 +784,8 @@ export class TaskService {
         expires: toMoment(input.expires, now),
         area: tagged.area ?? (input.area === undefined ? (parent?.area ?? null) : null),
         parent_id: parent?.id ?? null,
+        merged_into: null,
+        external_keys: input.external_keys ? { ...input.external_keys } : {},
         requires: input.requires ?? [],
         prefers: input.prefers ?? [],
         recurrence: input.recurrence ?? null,
@@ -827,6 +850,9 @@ export class TaskService {
       if (input.done_means !== undefined) t.done_means = input.done_means;
       if (input.area !== undefined) t.area = normalizeArea(input.area);
       if (input.parent_id !== undefined) t.parent_id = input.parent_id || null;
+      if (input.external_keys !== undefined) {
+        t.external_keys = applyExternalKeys(t.external_keys, input.external_keys);
+      }
       if (input.requires !== undefined) t.requires = input.requires;
       if (input.prefers !== undefined) t.prefers = input.prefers;
       if (input.recurrence !== undefined) t.recurrence = input.recurrence;
@@ -904,6 +930,7 @@ export class TaskService {
       const noteOnly =
         input.brief === undefined &&
         input.next_action === undefined &&
+        input.external_keys === undefined &&
         targetState === undefined &&
         !input.resurface_in_days &&
         (actor === undefined || (intent === "progress" && sameJson(actor, t.next_actor)));
@@ -913,6 +940,9 @@ export class TaskService {
       const actorBefore = t.next_actor;
       if (input.brief !== undefined) t.brief = input.brief;
       if (input.next_action !== undefined) t.next_action = input.next_action;
+      if (input.external_keys !== undefined) {
+        t.external_keys = applyExternalKeys(t.external_keys, input.external_keys);
+      }
       const actorChanged = actor ? await this.applyActorChange(c, t, actor, now) : false;
       // Explicit hand_off can delegate to another conversation using the same actor.
       // Merely retaining next_actor in a checkpoint must not produce another wake-up.
@@ -985,6 +1015,7 @@ export class TaskService {
           ...(t.waiting && t.state !== stateBefore ? { waiting: t.waiting } : {}),
           ...(input.next_action !== undefined ? { next_action: t.next_action } : {}),
           ...(input.brief !== undefined ? { brief_updated: true } : {}),
+          ...(input.external_keys !== undefined ? { external_keys_updated: true } : {}),
         },
       });
       await addEvent(c, p, "checkpoint", { taskId: t.id }, now, { kind: input.kind ?? "note" });
@@ -1179,6 +1210,156 @@ export class TaskService {
     });
   }
 
+  /**
+   * Merge a duplicate task into a surviving target task in one transaction: close the source as
+   * expired pointing at the target, union its external_keys onto the target, append a note on the
+   * target (without triggering a handoff or touching the target's claim/attachments), and re-point
+   * any tasks waiting on the source to wait on the target.
+   */
+  async merge(p: Principal, id: string, raw: unknown): Promise<{ source: Task; target: Task }> {
+    const input = MergeInput.parse(raw);
+    const targetId = input.into.trim();
+    if (targetId === id) throw new ValidationError("A task can't be merged into itself");
+    return this.mutate(p, input.idempotency_key, async (c, now) => {
+      // Lock both tasks in deterministic id order so concurrent merges can't deadlock.
+      const [firstId, secondId] = id < targetId ? [id, targetId] : [targetId, id];
+      const first = await this.lockTaskUnchecked(
+        c,
+        p,
+        firstId,
+        firstId === id ? input.expected_revision : input.target_expected_revision,
+      );
+      const second = await this.lockTaskUnchecked(
+        c,
+        p,
+        secondId,
+        secondId === id ? input.expected_revision : input.target_expected_revision,
+      );
+      const source = first.id === id ? first : second;
+      const target = first.id === targetId ? first : second;
+
+      if (source.merged_into === target.id && source.state === "expired") {
+        return { source, target };
+      }
+      if (CLOSED_STATES.includes(target.state)) {
+        const via = target.merged_into ? ` (merged into ${target.merged_into})` : "";
+        throw new ValidationError(
+          `Can't merge into "${target.title}": it is ${target.state}${via}. Reopen it or merge into an active task.`,
+        );
+      }
+      if (source.visibility === "private" && target.visibility === "household") {
+        throw new ValidationError(
+          "A private task can't be merged into a household task: make it household first.",
+        );
+      }
+      const openParts = await c.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM tasks WHERE parent_id = $1 AND state IN ('open', 'waiting')",
+        [source.id],
+      );
+      if ((openParts.rows[0]?.n ?? 0) > 0) {
+        throw new ValidationError(
+          `This task has ${openParts.rows[0]?.n} open part(s). Close or detach them before merging.`,
+        );
+      }
+
+      await this.recordWriteOverClaim(c, p, source, input.claim_id, now);
+      if (input.brief !== undefined || input.next_action !== undefined) {
+        await this.recordWriteOverClaim(c, p, target, undefined, now);
+      }
+
+      // Union external_keys onto target; target's own value wins on collision.
+      const mergedKeys: Record<string, string> = {
+        ...source.external_keys,
+        ...target.external_keys,
+      };
+      if (Object.keys(mergedKeys).length > MAX_EXTERNAL_KEYS) {
+        throw new ValidationError(
+          `Merging would exceed ${MAX_EXTERNAL_KEYS} external keys on the target task`,
+        );
+      }
+      const keysAdded = Object.keys(source.external_keys).filter(
+        (k) => !(k in target.external_keys),
+      );
+      target.external_keys = mergedKeys;
+      if (input.brief !== undefined) target.brief = input.brief;
+      if (input.next_action !== undefined) target.next_action = input.next_action;
+
+      const from = source.state;
+      const hideTargetName = target.visibility === "private" && source.visibility === "household";
+      const closeReason = hideTargetName
+        ? "Merged into another task"
+        : `Merged into ${target.id} (${target.title})`;
+      source.state = "expired";
+      source.merged_into = target.id;
+      source.close_reason = closeReason;
+      source.closed_at = now.toISOString();
+      source.waiting = null;
+      source.claim = null;
+
+      this.bump(source, now);
+      this.bump(target, now);
+      await writeTask(c, source);
+      await writeTask(c, target);
+
+      const extraNote = input.note?.trim();
+      const targetBody = extraNote
+        ? `Merged ${source.id} (${source.title}): ${extraNote}`
+        : `Merged ${source.id} (${source.title})`;
+      await addActivity(c, p, target.id, "note", targetBody, now, {
+        data: {
+          merged_from: source.id,
+          ...(keysAdded.length ? { external_keys_added: keysAdded } : {}),
+          ...(input.brief !== undefined ? { brief_updated: true } : {}),
+          ...(input.next_action !== undefined ? { next_action: target.next_action } : {}),
+        },
+      });
+      await addEvent(c, p, "checkpoint", { taskId: target.id }, now, {
+        kind: "note",
+        merged_from: source.id,
+      });
+
+      const sourceBody = extraNote ? `${closeReason}: ${extraNote}` : closeReason;
+      await addActivity(c, p, source.id, "state_change", sourceBody, now, {
+        data: {
+          state: { from, to: "expired" },
+          merged_into: target.id,
+        },
+      });
+      await addEvent(c, p, "expired", { taskId: source.id }, now, {
+        from,
+        merged_into: target.id,
+      });
+
+      // Re-point any active tasks waiting on source to wait on target (respecting visibility).
+      const waiters = await c.query(
+        `SELECT * FROM tasks
+         WHERE waiting_task_id = $1 AND state = 'waiting' AND id <> $2
+           AND ($3 = 'household' OR owner_id = $4)
+         FOR UPDATE`,
+        [source.id, target.id, target.visibility, target.owner],
+      );
+      for (const row of waiters.rows) {
+        const w = taskFromRow(row);
+        if (!w.waiting) continue;
+        w.waiting = { ...w.waiting, task_id: target.id, for: target.title };
+        this.bump(w, now);
+        await writeTask(c, w);
+        await addActivity(
+          c,
+          p,
+          w.id,
+          "system",
+          `Now waiting on ${target.id} (${source.id} was merged into it)`,
+          now,
+          { data: { waiting: w.waiting } },
+        );
+        await addEvent(c, p, "updated", { taskId: w.id }, now, { fields: ["waiting"] });
+      }
+
+      return { source, target };
+    });
+  }
+
   async reopen(p: Principal, id: string, raw: unknown): Promise<Task> {
     const input = (raw ?? {}) as {
       idempotency_key?: string;
@@ -1193,6 +1374,7 @@ export class TaskService {
       t.waiting = null;
       t.closed_at = null;
       t.close_reason = "";
+      t.merged_into = null;
       this.bump(t, now);
       await writeTask(c, t);
       await addActivity(c, p, t.id, "state_change", "Reopened", now, {
@@ -1427,7 +1609,13 @@ export class TaskService {
   async search(
     p: Principal,
     text: string,
-    opts: { includeClosed?: boolean; states?: string[]; limit?: number; area?: string } = {},
+    opts: {
+      includeClosed?: boolean;
+      states?: string[];
+      limit?: number;
+      area?: string;
+      externalKey?: string;
+    } = {},
   ): Promise<Task[]> {
     await this.beforeAccess();
     const like = `%${text.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
@@ -1446,6 +1634,9 @@ export class TaskService {
     else if (opts.includeClosed === false) where.push("state IN ('open','waiting')");
     if (opts.area !== undefined) {
       where.push(`coalesce(area, 'none') = ${param(areaFilter(opts.area))}`);
+    }
+    if (opts.externalKey !== undefined) {
+      where.push(`external_keys ? ${param(opts.externalKey)}`);
     }
     const limitSql = Number.isFinite(limit) ? `LIMIT ${param(limit)}` : "";
     const r = await this.db.query(
@@ -1494,8 +1685,24 @@ export class TaskService {
     return r.rows;
   }
 
-  /** All tasks visible to the caller, optionally filtered by state and area. */
-  async list(p: Principal, states?: string[], opts: { area?: string } = {}): Promise<Task[]> {
+  /** Tasks the caller may see that were merged into this one. */
+  async mergedFrom(p: Principal, id: string): Promise<TaskRef[]> {
+    await this.beforeAccess();
+    const r = await this.db.query<TaskRef>(
+      `SELECT id, title, state FROM tasks t
+       WHERE merged_into = $1 AND ${visibleSql("t", 2)}
+       ORDER BY closed_at, seq`,
+      [id, p.userId],
+    );
+    return r.rows;
+  }
+
+  /** All tasks visible to the caller, optionally filtered by state, area, and external key. */
+  async list(
+    p: Principal,
+    states?: string[],
+    opts: { area?: string; externalKey?: string } = {},
+  ): Promise<Task[]> {
     await this.beforeAccess();
     const values: unknown[] = [p.userId];
     const where = [visibleSql("t", 1)];
@@ -1506,6 +1713,9 @@ export class TaskService {
     if (states) where.push(`state = ANY(${param(states)})`);
     if (opts.area !== undefined) {
       where.push(`coalesce(area, 'none') = ${param(areaFilter(opts.area))}`);
+    }
+    if (opts.externalKey !== undefined) {
+      where.push(`external_keys ? ${param(opts.externalKey)}`);
     }
     const r = await this.db.query(
       `SELECT t.*, ${openPartsSql("t")}, ${parentSql("t", 1)} FROM tasks t
