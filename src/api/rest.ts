@@ -1,7 +1,7 @@
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import type { App } from "../app.ts";
-import { nowLimit } from "../domain/board.ts";
+import { nowLimit, parseBrowseState } from "../domain/board.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../domain/errors.ts";
 import { ZONE } from "../domain/time.ts";
 import {
@@ -12,6 +12,7 @@ import {
   NOTE_KINDS,
   PriorityInput,
 } from "../domain/types.ts";
+import { statusOf } from "../domain/views.ts";
 import type { AuthEnv } from "./auth.ts";
 
 const HandoffInput = z
@@ -80,6 +81,28 @@ export function restApi(app: App): Hono<AuthEnv> {
     const { on } = z.object({ on: z.boolean().default(true) }).parse(await body(c));
     await board.enoughForNow(c.get("principal"), on);
     return c.json(await board.now(c.get("principal")));
+  });
+
+  api.get("/browse", async (c) => {
+    const p = c.get("principal");
+    const q = c.req.query("q");
+    const state = parseBrowseState(c.req.query("state"));
+    const area = (c.req.query("area") ?? "").trim() || null;
+    const limit = nowLimit(c.req.query("limit"));
+    const result = await board.browse(p, { q, state, area, limit });
+    return c.json({
+      state: result.state,
+      area: result.area,
+      q: result.q,
+      items: result.items.map((i) => ({
+        task: i.task,
+        status: i.assessment ? statusOf(i.assessment) : null,
+      })),
+      total: result.total,
+      more_count: result.more_count,
+      areas: result.areas,
+      has_no_area: result.has_no_area,
+    });
   });
 
   api.post("/tasks", async (c) => {

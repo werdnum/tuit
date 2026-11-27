@@ -6,6 +6,8 @@ enum APIError: LocalizedError {
     case queued
     /// Someone else changed the task first (HTTP 409). The caller reloads and shows the message.
     case conflict(String)
+    /// HTTP 404 (a task is gone/hidden, or an older server lacks a newer endpoint).
+    case notFound(String)
     case server(String)
     case transport(String)
 
@@ -14,6 +16,7 @@ enum APIError: LocalizedError {
         case .queued: "Saved on this phone. Waiting to sync."
         case .unauthenticated: "You've been signed out. Sign in again."
         case .conflict(let m): "Someone changed this first. \(m)"
+        case .notFound(let m): m
         case .server(let m): m
         case .transport(let m): m
         }
@@ -140,10 +143,13 @@ struct API {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             if status == 401 { throw APIError.unauthenticated }
-            if status == 403 || status == 404 { try offlineStore?.invalidateSnapshots() }
+            if status == 403 || (status == 404 && path.hasPrefix("/tasks/")) {
+                try offlineStore?.invalidateSnapshots()
+            }
             let message = (try? Self.decoder.decode(APIErrorBody.self, from: data))?.message
                 ?? "Tuit said no (HTTP \(status))."
             if status == 409 { throw APIError.conflict(message) }
+            if status == 404 { throw APIError.notFound(message) }
             throw APIError.server(message)
         }
         return data

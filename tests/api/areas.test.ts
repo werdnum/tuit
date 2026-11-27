@@ -302,4 +302,67 @@ describe("areas hidden by default", () => {
     // Unnarrowed Now reports 0.
     expect((await alex.get("/api/now")).area_other_count).toBe(0);
   });
+
+  test("GET /api/browse returns assessed tasks, areas, paging, search defaults and respects privacy", async () => {
+    const openId = await add(alex, "bump openssl", {
+      area: "security",
+      next_actor: "agent:claude",
+    });
+    const snoozedId = await add(alex, "renew cert", { area: "security" });
+    await alex.post(`/api/tasks/${snoozedId}/snooze`, { until: "tomorrow" });
+    const doneId = await add(alex, "patch curl", { area: "security" });
+    await alex.post(`/api/tasks/${doneId}/complete`, {});
+    const waitId = await add(alex, "plumber quote", { area: "home", next_actor: "sam" });
+    await alex.post(`/api/tasks/${waitId}/checkpoint`, {
+      note: "Emailed plumber",
+      waiting: { kind: "reply", for: "quote" },
+    });
+    await add(alex, "untagged errand", { next_actor: "sam" });
+    await add(alex, "secret plan", { area: "secret", visibility: "private" });
+    await alex.patch("/api/areas/security", { hidden_by_default: true });
+
+    // Default browse is active across all visible areas including hidden-by-default.
+    const active = await alex.get("/api/browse");
+    expect(active.state).toBe("active");
+    expect(active.total).toBe(5);
+    expect(active.more_count).toBe(0);
+    expect(active.areas).toEqual(["home", "secret", "security"]);
+    expect(active.has_no_area).toBe(true);
+    const snoozedItem = active.items.find((i: any) => i.task.id === snoozedId);
+    expect(snoozedItem.status.snoozed_until).toBeTruthy();
+    const waitItem = active.items.find((i: any) => i.task.id === waitId);
+    expect(waitItem.status.held).toBe("waiting");
+    const openItem = active.items.find((i: any) => i.task.id === openId);
+    expect(openItem.status.available).toBe(true);
+
+    // Paging with limit reports total and more_count.
+    const paged = await alex.get("/api/browse?limit=2");
+    expect(paged.items).toHaveLength(2);
+    expect(paged.total).toBe(5);
+    expect(paged.more_count).toBe(3);
+
+    // Area and state filtering, including No area.
+    const secClosed = await alex.get("/api/browse?area=%23Security&state=closed");
+    expect(secClosed.area).toBe("security");
+    expect(secClosed.items.map((i: any) => i.task.title)).toEqual(["patch curl"]);
+    expect(secClosed.items[0].status).toBeNull();
+
+    const noArea = await alex.get("/api/browse?area=none&state=active");
+    expect(noArea.area).toBe("none");
+    expect(noArea.items.map((i: any) => i.task.title)).toEqual(["untagged errand"]);
+
+    // Search defaults to all (including closed), unless state is explicit.
+    const searchDefault = await alex.get("/api/browse?q=curl");
+    expect(searchDefault.state).toBe("all");
+    expect(searchDefault.items.map((i: any) => i.task.title)).toEqual(["patch curl"]);
+
+    const searchActive = await alex.get("/api/browse?q=curl&state=active");
+    expect(searchActive.state).toBe("active");
+    expect(searchActive.items).toEqual([]);
+
+    // Privacy: Sam cannot see Alex's private task or private-only area.
+    const samBrowse = await sam.get("/api/browse");
+    expect(samBrowse.areas).toEqual(["home", "security"]);
+    expect(samBrowse.items.map((i: any) => i.task.title)).not.toContain("secret plan");
+  });
 });

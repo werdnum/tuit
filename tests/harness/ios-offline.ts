@@ -56,6 +56,9 @@ const proxy = createServer(async (req, res) => {
     res.end();
   }
 });
+// Avoid racing URLSession keep-alive reuse against Node's 5s default idle close.
+proxy.keepAliveTimeout = 65_000;
+proxy.headersTimeout = 66_000;
 try {
   await new Promise<void>((resolve, reject) => {
     proxy.once("error", reject);

@@ -5,6 +5,7 @@ import SwiftUI
 /// instead of being overwritten.
 struct TaskDetailScreen: View {
     @Environment(Session.self) private var session
+    @Environment(AppNavigation.self) private var navigation
     @Environment(\.openURL) private var openURL
     let taskId: String
     @State private var view: TaskView?
@@ -84,7 +85,20 @@ struct TaskDetailScreen: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(t.title).font(.title2.weight(.semibold))
                     HStack(spacing: 8) {
-                        if let area = t.area { Text("#\(area)").foregroundStyle(.tint) }
+                        if let area = t.area {
+                            Button {
+                                navigation.browseTasks(area: area)
+                            } label: {
+                                Text("#\(area)")
+                                    .foregroundStyle(.tint)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(.tint.opacity(0.12), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Browse all tasks in #\(area)")
+                            .accessibilityIdentifier("task-area-badge")
+                        }
                         if t.isPrivate { Label("Private", systemImage: "lock.fill").labelStyle(.titleAndIcon) }
                         if v.status.pinned { Label("Pinned", systemImage: "pin.fill").foregroundStyle(.orange) }
                     }

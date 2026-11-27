@@ -138,6 +138,73 @@ struct TaskItem: Codable, Hashable, Identifiable {
     var isClosed: Bool { ["done", "expired", "shelved"].contains(state) }
     var isPrivate: Bool { visibility == "private" }
     var openPartCount: Int { openParts ?? 0 }
+
+    func matches(state filter: String) -> Bool {
+        switch filter {
+        case "active": !isClosed
+        case "closed": isClosed
+        case "all", "": true
+        default: filter.split(separator: ",").map(String.init).contains(self.state)
+        }
+    }
+
+    func matches(area filter: String?) -> Bool {
+        guard let filter, !filter.isEmpty else { return true }
+        return (self.area?.lowercased() ?? "none") == normalizeAreaFilter(filter)
+    }
+}
+
+/// Normalise an area filter string the same way the server does: lowercase, leading "#" optional.
+func normalizeAreaFilter(_ raw: String) -> String {
+    var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if s.hasPrefix("#") { s.removeFirst() }
+    return s.lowercased()
+}
+
+func areaDisplayName(_ area: String) -> String {
+    area == "none" ? "no area" : "#\(area)"
+}
+
+enum BrowseState: String, CaseIterable, Identifiable, Codable, Hashable {
+    case active, open, waiting, closed, all
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .active: "Active"
+        case .open: "Open"
+        case .waiting: "Waiting"
+        case .closed: "Closed"
+        case .all: "All"
+        }
+    }
+
+    var emptyWord: String {
+        self == .all ? "" : rawValue
+    }
+
+    var isActiveOnly: Bool {
+        self == .active || self == .open || self == .waiting
+    }
+}
+
+struct BrowseItem: Codable, Hashable, Identifiable {
+    var task: TaskItem
+    var status: TaskStatus?
+
+    var id: String { task.id }
+}
+
+struct BrowseView: Codable, Hashable {
+    var state: String
+    var area: String?
+    var q: String
+    var items: [BrowseItem]
+    var total: Int
+    var moreCount: Int
+    var areas: [String]
+    var hasNoArea: Bool
 }
 
 struct TaskStatus: Codable, Hashable {
@@ -202,6 +269,10 @@ struct NowView: Codable {
 
     var date: String
     var area: String?
+    var areaHidden: Bool? = nil
+    /// Active tasks in the narrowed area not shown on Now (with others, waiting, snoozed, resting).
+    /// Optional so snapshots and servers older than PR #47 still decode.
+    var areaOtherCount: Int? = nil
     var areas: [String]
     var plan: [PlanRow]
     var newItems: [QueueItem]
@@ -212,6 +283,8 @@ struct NowView: Codable {
     var waitingCount: Int
     var restingCount: Int
     var away: Away?
+
+    var otherCountInArea: Int { areaOtherCount ?? 0 }
 }
 
 struct Me: Codable {
@@ -233,9 +306,15 @@ struct Me: Codable {
 struct TaskList: Codable {
     var tasks: [TaskItem]
 
-    // The server's search spans states; both saved and live results need this filter.
+    // Both saved and fallback results need client-side state/area filtering.
     func inState(_ state: String) -> [TaskItem] {
-        tasks.filter { state == "active" ? !$0.isClosed : $0.state == state }
+        tasks.filter { $0.matches(state: state) }
+    }
+
+    func matching(state: String?, area: String?) -> [TaskItem] {
+        tasks.filter { task in
+            (state.map { task.matches(state: $0) } ?? true) && task.matches(area: area)
+        }
     }
 }
 
