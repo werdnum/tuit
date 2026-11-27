@@ -133,6 +133,12 @@ describe("merge", () => {
     const again = await agent.post(`/api/tasks/${dup}/merge`, { into: canonical });
     expect(again.task.merged_into).toBe(canonical);
 
+    // Re-merging an already-merged source into a different target is rejected (409).
+    const other = await add(agent, "[warning] OtherAlert (lake-system)", { area: "alerts" });
+    expect((await agent.call("POST", `/api/tasks/${dup}/merge`, { into: other })).status).toBe(409);
+    expect((await alex.get(`/api/tasks/${dup}`)).task.merged_into).toBe(canonical);
+    expect((await alex.get(`/api/tasks/${other}`)).task.external_keys).toEqual({});
+
     // Reopening clears merged_into.
     await alex.post(`/api/tasks/${dup}/reopen`, {});
     expect((await alex.get(`/api/tasks/${dup}`)).task.merged_into).toBeNull();
@@ -157,6 +163,18 @@ describe("merge", () => {
   test("enforces validation and privacy boundaries", async () => {
     const a = await add(alex, "Public task");
     const priv = await add(alex, "Private secret", { visibility: "private" });
+    const householdWaiter = await add(alex, "Household waiter on public task");
+    const privateWaiter = await add(alex, "Private waiter on public task", {
+      visibility: "private",
+    });
+    await alex.post(`/api/tasks/${householdWaiter}/checkpoint`, {
+      note: "Waiting on public task",
+      waiting: { kind: "task", task_id: a },
+    });
+    await alex.post(`/api/tasks/${privateWaiter}/checkpoint`, {
+      note: "Private waiting on public task",
+      waiting: { kind: "task", task_id: a },
+    });
     const parent = await add(alex, "Parent with part");
     await add(alex, "Open part", { parent_id: parent });
     const closed = await add(alex, "Already done");
@@ -171,11 +189,23 @@ describe("merge", () => {
     // Private source -> household target refused.
     expect((await alex.call("POST", `/api/tasks/${priv}/merge`, { into: a })).status).toBe(400);
 
-    // Household source -> private target hides private target title from Sam.
+    // Household source -> private target hides private target title from Sam and does NOT
+    // re-point household waiters (even those owned by Alex) onto the private target.
     await alex.post(`/api/tasks/${a}/merge`, { into: priv });
     const seenBySam = await sam.get(`/api/tasks/${a}`);
     expect(seenBySam.merged_into_task).toBeNull();
     expect(seenBySam.task.close_reason).toBe("Merged into another task");
     expect(JSON.stringify(seenBySam)).not.toContain("Private secret");
+
+    const hhWaiterSeenBySam = await sam.get(`/api/tasks/${householdWaiter}`);
+    expect(hhWaiterSeenBySam.task.state).toBe("open");
+    expect(hhWaiterSeenBySam.task.waiting).toBeNull();
+    expect(JSON.stringify(hhWaiterSeenBySam)).not.toContain(priv);
+    expect(JSON.stringify(hhWaiterSeenBySam)).not.toContain("Private secret");
+
+    // Alex's private waiter IS safely re-pointed to the private target.
+    const privWaiter = (await alex.get(`/api/tasks/${privateWaiter}`)).task;
+    expect(privWaiter.state).toBe("waiting");
+    expect(privWaiter.waiting.task_id).toBe(priv);
   });
 });

@@ -1241,6 +1241,12 @@ export class TaskService {
       if (source.merged_into === target.id && source.state === "expired") {
         return { source, target };
       }
+      if (source.merged_into !== null) {
+        throw new ConflictError(
+          `"${source.title}" was already merged into ${source.merged_into}. Reopen it before merging elsewhere.`,
+          source,
+        );
+      }
       if (CLOSED_STATES.includes(target.state)) {
         const via = target.merged_into ? ` (merged into ${target.merged_into})` : "";
         throw new ValidationError(
@@ -1330,11 +1336,12 @@ export class TaskService {
         merged_into: target.id,
       });
 
-      // Re-point any active tasks waiting on source to wait on target (respecting visibility).
+      // Re-point any active tasks waiting on source to wait on target (respecting visibility:
+      // a household task must never wait on a private target, as that would reveal the target).
       const waiters = await c.query(
         `SELECT * FROM tasks
          WHERE waiting_task_id = $1 AND state = 'waiting' AND id <> $2
-           AND ($3 = 'household' OR owner_id = $4)
+           AND ($3 = 'household' OR (visibility = 'private' AND owner_id = $4))
          FOR UPDATE`,
         [source.id, target.id, target.visibility, target.owner],
       );
