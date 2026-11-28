@@ -135,7 +135,7 @@ final class Credentials {
     }
 
     private func renew(_ provider: IdentityProvider, _ refresh: String, forceRefresh: Bool) async throws -> String {
-        let lockFD = await Self.acquireRefreshLock()
+        let lockFD = try await Self.acquireRefreshLock()
         defer { Self.releaseRefreshLock(lockFD) }
 
         // Another process (app or widget extension) may have rotated/refreshed while we waited.
@@ -156,7 +156,10 @@ final class Credentials {
             ])
         } catch APIError.unauthenticated {
             // Revoked, or unused for longer than the provider keeps offline sessions.
-            Self.clear()
+            // Only clear if the stored refresh token hasn't already been replaced.
+            if Keychain.read(Self.refreshKey) == currentRefresh {
+                Self.clear()
+            }
             throw APIError.unauthenticated
         }
         if let rotated = grant.refreshToken, rotated != currentRefresh {
@@ -172,19 +175,29 @@ final class Credentials {
     }
 
     /// Non-blocking cross-process advisory file lock so app and widget never race on refresh rotation.
-    private static func acquireRefreshLock() async -> Int32 {
+    /// Waits past `TokenGrant.post`'s 20s request timeout and fails as a transport error instead of
+    /// ever proceeding unlocked with a potentially stale rotating refresh token.
+    private static func acquireRefreshLock() async throws -> Int32 {
         let url = TuitGroup.refreshLockURL
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let fd = open(url.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
-        guard fd >= 0 else { return -1 }
-        let deadline = Date.now.addingTimeInterval(5)
-        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
-            if Date.now >= deadline {
-                close(fd)
-                return -1
-            }
-            try? await Task.sleep(for: .milliseconds(50))
+        guard fd >= 0 else {
+            throw APIError.transport("Couldn't coordinate sign-in refresh.")
         }
+        var acquired = false
+        defer { if !acquired { close(fd) } }
+        let deadline = Date.now.addingTimeInterval(25)
+        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            let err = errno
+            if err != EWOULDBLOCK && err != EINTR {
+                throw APIError.transport("Couldn't coordinate sign-in refresh.")
+            }
+            if Date.now >= deadline {
+                throw APIError.transport("Timed out waiting for another Tuit refresh to finish.")
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        acquired = true
         return fd
     }
 
