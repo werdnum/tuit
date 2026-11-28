@@ -229,3 +229,17 @@ let taskJSON = #"""
         ]),
     ])
 }
+
+@Test func markdownTablePreservesEscapedAndCodeSpanPipes() {
+    let md = #"""
+    | Command | Result |
+    | --- | --- |
+    | `echo a | b` | ok \| fine |
+    """#
+    #expect(MarkdownParser.parse(md) == [
+        .table(
+            headers: ["Command", "Result"],
+            rows: [["`echo a | b`", "ok | fine"]]
+        ),
+    ])
+}

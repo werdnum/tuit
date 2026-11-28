@@ -371,12 +371,65 @@ enum MarkdownParser {
     }
 
     private static func splitTableRow(_ line: String) -> [String] {
-        var trimmed = line.trimmingCharacters(in: .whitespaces)
-        if trimmed.hasPrefix("|") { trimmed.removeFirst() }
-        if trimmed.hasSuffix("|") { trimmed.removeLast() }
-        return trimmed.split(separator: "|", omittingEmptySubsequences: false).map {
-            $0.trimmingCharacters(in: .whitespaces)
+        let chars = Array(line.trimmingCharacters(in: .whitespaces))
+        var cells: [String] = []
+        var current = ""
+        var i = 0
+        var codeFenceLen: Int?
+
+        if chars.first == "|" { i = 1 }
+
+        while i < chars.count {
+            let ch = chars[i]
+            if ch == "\\" && i + 1 < chars.count && chars[i + 1] == "|" {
+                current.append("|")
+                i += 2
+                continue
+            }
+            if ch == "`" {
+                var run = 0
+                while i + run < chars.count && chars[i + run] == "`" {
+                    run += 1
+                }
+                if let open = codeFenceLen {
+                    if run == open { codeFenceLen = nil }
+                } else if hasClosingBackticks(chars, from: i + run, count: run) {
+                    codeFenceLen = run
+                }
+                current.append(contentsOf: repeatElement("`", count: run))
+                i += run
+                continue
+            }
+            if ch == "|" && codeFenceLen == nil {
+                if i == chars.count - 1 {
+                    i += 1
+                    break
+                }
+                cells.append(current.trimmingCharacters(in: .whitespaces))
+                current = ""
+                i += 1
+                continue
+            }
+            current.append(ch)
+            i += 1
         }
+        cells.append(current.trimmingCharacters(in: .whitespaces))
+        return cells
+    }
+
+    private static func hasClosingBackticks(_ chars: [Character], from start: Int, count: Int) -> Bool {
+        var j = start
+        while j < chars.count {
+            if chars[j] == "`" {
+                var run = 0
+                while j + run < chars.count && chars[j + run] == "`" { run += 1 }
+                if run == count { return true }
+                j += run
+            } else {
+                j += 1
+            }
+        }
+        return false
     }
 }
 
