@@ -175,4 +175,3 @@ SIMCTL_CHILD_TUIT_OPEN=<task id> xcrun simctl launch booted dev.andrewgarrett.tu
 
 - Widgets.
 - Queues and notification rules. They're configured on the web.
-- Full block Markdown. Briefs render inline Markdown, and list items become bullets.

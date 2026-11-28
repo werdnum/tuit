@@ -304,6 +304,31 @@ function readConfigArg(s: string): unknown {
   }
 }
 
+function readTextFile(path: string, flag: string, stdinUsed: { used: boolean }): string {
+  if (path === "-") {
+    if (stdinUsed.used) {
+      throw new CliError("Only one option can read from stdin (-)", EXIT.usage);
+    }
+    stdinUsed.used = true;
+    return readFileSync(0, "utf8").replace(/\r\n/g, "\n").replace(/\n+$/, "");
+  }
+  try {
+    return readFileSync(path, "utf8").replace(/\r\n/g, "\n").replace(/\n+$/, "");
+  } catch (e) {
+    throw new CliError(`Can't read --${flag} "${path}": ${(e as Error).message}`, EXIT.usage);
+  }
+}
+
+function textOpt(v: Values, name: string, stdinUsed: { used: boolean }): string | undefined {
+  const inline = str(v, name);
+  const file = str(v, `${name}-file`);
+  if (inline !== undefined && file !== undefined) {
+    throw new CliError(`Use either --${name} or --${name}-file, not both`, EXIT.usage);
+  }
+  if (file !== undefined) return readTextFile(file, `${name}-file`, stdinUsed);
+  return inline;
+}
+
 function dropUndefined(o: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 }
@@ -592,7 +617,8 @@ const commands: Record<string, Command> = {
   add: {
     usage:
       "tuit add <title...> [--deadline X] [--target X] [--expires X] [--available X] [--private]\n" +
-      "         [--to ACTOR] [--brief T] [--action T] [--every N | --since-done N] [--last-done X]\n" +
+      "         [--to ACTOR] [--brief T | --brief-file FILE] [--action T]\n" +
+      "         [--every N | --since-done N] [--last-done X]\n" +
       "         [--area A]   (or end the title with #area)   [--part-of ID] [--priority P0|P1|P2]",
     summary: "Capture a task (title is all you need)",
     options: {
@@ -603,6 +629,7 @@ const commands: Record<string, Command> = {
       private: { type: "boolean" },
       to: { type: "string" },
       brief: { type: "string" },
+      "brief-file": { type: "string" },
       action: { type: "string" },
       every: { type: "string" },
       "since-done": { type: "string" },
@@ -613,6 +640,7 @@ const commands: Record<string, Command> = {
     },
     async run(ctx) {
       const v = ctx.values;
+      const stdinUsed = { used: false };
       const title = ctx.args.join(" ").trim();
       if (!title) throw new CliError("Missing title", EXIT.usage);
       const every = intOpt(v, "every");
@@ -637,7 +665,7 @@ const commands: Record<string, Command> = {
           available_from: str(v, "available"),
           visibility: v.private ? "private" : undefined,
           next_actor: str(v, "to"),
-          brief: str(v, "brief"),
+          brief: textOpt(v, "brief", stdinUsed),
           next_action: str(v, "action"),
           recurrence,
           last_done: str(v, "last-done"),
@@ -663,15 +691,22 @@ const commands: Record<string, Command> = {
     },
   },
   done: {
-    usage: "tuit done <id> [--at WHEN] [--note T] [--parts done|expire|detach]",
+    usage: "tuit done <id> [--at WHEN] [--note T | --note-file FILE] [--parts done|expire|detach]",
     summary: "Mark done (--at records an earlier completion, e.g. --at yesterday)",
-    options: { at: { type: "string" }, note: { type: "string" }, parts: { type: "string" } },
-    run: (ctx) =>
-      taskMutation(ctx, "Done:", (id) => `/api/tasks/${id}/complete`, {
+    options: {
+      at: { type: "string" },
+      note: { type: "string" },
+      "note-file": { type: "string" },
+      parts: { type: "string" },
+    },
+    run: (ctx) => {
+      const stdinUsed = { used: false };
+      return taskMutation(ctx, "Done:", (id) => `/api/tasks/${id}/complete`, {
         at: str(ctx.values, "at"),
-        note: str(ctx.values, "note"),
+        note: textOpt(ctx.values, "note", stdinUsed),
         open_parts: str(ctx.values, "parts"),
-      }),
+      });
+    },
   },
   skip: {
     usage: "tuit skip <id>",
@@ -680,37 +715,62 @@ const commands: Record<string, Command> = {
   },
   note: {
     usage:
-      "tuit note <id> <text...> [--kind note|research|decision|attempt] [--next ACTOR] [--action T] [--brief T]",
+      "tuit note <id> <text... | -> [--note-file FILE] [--kind note|research|decision|attempt]\n" +
+      "         [--next ACTOR] [--action T] [--brief T | --brief-file FILE]",
     summary: "Record progress and (optionally) move the task on, atomically",
     options: {
+      "note-file": { type: "string" },
       kind: { type: "string" },
       next: { type: "string" },
       action: { type: "string" },
       brief: { type: "string" },
+      "brief-file": { type: "string" },
     },
     run(ctx) {
-      const text = ctx.args.slice(1).join(" ").trim();
+      const stdinUsed = { used: false };
+      const noteFile = str(ctx.values, "note-file");
+      const restArgs = ctx.args.slice(1);
+      if (noteFile !== undefined && restArgs.length > 0) {
+        throw new CliError("Use either note text or --note-file, not both", EXIT.usage);
+      }
+      let text: string;
+      if (noteFile !== undefined) {
+        text = readTextFile(noteFile, "note-file", stdinUsed).trim();
+      } else if (restArgs.length === 1 && restArgs[0] === "-") {
+        text = readTextFile("-", "note-file", stdinUsed).trim();
+      } else {
+        text = restArgs.join(" ").trim();
+      }
       if (!text) throw new CliError("Missing note text", EXIT.usage);
       return taskMutation(ctx, "Noted:", (id) => `/api/tasks/${id}/checkpoint`, {
         note: text,
         kind: str(ctx.values, "kind"),
         next_actor: str(ctx.values, "next"),
         next_action: str(ctx.values, "action"),
-        brief: str(ctx.values, "brief"),
+        brief: textOpt(ctx.values, "brief", stdinUsed),
       });
     },
   },
   handoff: {
-    usage: "tuit handoff <id> <actor> [--note T] [--action T] [--brief T]",
+    usage:
+      "tuit handoff <id> <actor> [--note T | --note-file FILE] [--action T]\n" +
+      "         [--brief T | --brief-file FILE]",
     summary: "Hand the next step to someone: me, anyone, a person, or agent:<name>",
-    options: { note: { type: "string" }, action: { type: "string" }, brief: { type: "string" } },
+    options: {
+      note: { type: "string" },
+      "note-file": { type: "string" },
+      action: { type: "string" },
+      brief: { type: "string" },
+      "brief-file": { type: "string" },
+    },
     run(ctx) {
+      const stdinUsed = { used: false };
       const to = need(ctx.args, 1, "actor (me, anyone, a person, or agent:<name>)");
       return taskMutation(ctx, `Handed to ${to}:`, (id) => `/api/tasks/${id}/handoff`, {
         to,
-        note: str(ctx.values, "note"),
+        note: textOpt(ctx.values, "note", stdinUsed),
         next_action: str(ctx.values, "action"),
-        brief: str(ctx.values, "brief"),
+        brief: textOpt(ctx.values, "brief", stdinUsed),
       });
     },
   },
@@ -719,17 +779,21 @@ const commands: Record<string, Command> = {
       "tuit wait <id> <what...> [--follow-up WHEN]   waiting for a reply\n" +
       "tuit wait <id> --until WHEN                  nothing to do until then\n" +
       "tuit wait <id> --on <task-id>                blocked by another task\n" +
-      "         [--note T] [--next ACTOR]",
+      "         [--note T | --note-file FILE] [--brief T | --brief-file FILE] [--next ACTOR]",
     summary: "Put a task in waiting (reply, until a moment, or on another task)",
     options: {
       "follow-up": { type: "string" },
       until: { type: "string" },
       on: { type: "string" },
       note: { type: "string" },
+      "note-file": { type: "string" },
+      brief: { type: "string" },
+      "brief-file": { type: "string" },
       next: { type: "string" },
     },
     async run(ctx) {
       const v = ctx.values;
+      const stdinUsed = { used: false };
       const client = ctx.client();
       const what = ctx.args.slice(1).join(" ").trim();
       let waiting: Record<string, unknown>;
@@ -755,7 +819,8 @@ const commands: Record<string, Command> = {
         "POST",
         `/api/tasks/${id}/checkpoint`,
         withClaim(ctx, {
-          note: str(v, "note") ?? note,
+          note: textOpt(v, "note", stdinUsed) ?? note,
+          brief: textOpt(v, "brief", stdinUsed),
           state: "waiting",
           waiting: dropUndefined(waiting),
           next_actor: str(v, "next"),
@@ -846,16 +911,20 @@ const commands: Record<string, Command> = {
   },
   merge: {
     usage:
-      "tuit merge <source-id> <target-id> [--note T] [--brief T] [--action T] [--rev N] [--target-rev N]",
+      "tuit merge <source-id> <target-id> [--note T | --note-file FILE]\n" +
+      "         [--brief T | --brief-file FILE] [--action T] [--rev N] [--target-rev N]",
     summary: "Fold a duplicate task into a surviving target task",
     options: {
       note: { type: "string" },
+      "note-file": { type: "string" },
       brief: { type: "string" },
+      "brief-file": { type: "string" },
       action: { type: "string" },
       rev: { type: "string" },
       "target-rev": { type: "string" },
     },
     async run(ctx) {
+      const stdinUsed = { used: false };
       const client = ctx.client();
       const sourceId = await resolveTask(client, need(ctx.args, 0, "source task id"));
       const targetId = await resolveTask(client, need(ctx.args, 1, "target task id"));
@@ -869,8 +938,8 @@ const commands: Record<string, Command> = {
         `/api/tasks/${sourceId}/merge`,
         withClaim(ctx, {
           into: targetId,
-          note: str(ctx.values, "note"),
-          brief: str(ctx.values, "brief"),
+          note: textOpt(ctx.values, "note", stdinUsed),
+          brief: textOpt(ctx.values, "brief", stdinUsed),
           next_action: str(ctx.values, "action"),
           expected_revision: intOpt(ctx.values, "rev"),
           target_expected_revision: intOpt(ctx.values, "target-rev"),
@@ -890,7 +959,7 @@ const commands: Record<string, Command> = {
   },
   edit: {
     usage:
-      "tuit edit <id> [--title T] [--brief T] [--action T] [--done-means T] [--to ACTOR]\n" +
+      "tuit edit <id> [--title T] [--brief T | --brief-file FILE] [--action T] [--done-means T] [--to ACTOR]\n" +
       "         [--deadline X] [--target X] [--expires X] [--available X]   (X = none clears)\n" +
       "         [--private | --household] [--requires a,b] [--prefers a,b] [--area A] [--rev N]\n" +
       "         [--part-of ID]   (none detaches)",
@@ -898,6 +967,7 @@ const commands: Record<string, Command> = {
     options: {
       title: { type: "string" },
       brief: { type: "string" },
+      "brief-file": { type: "string" },
       action: { type: "string" },
       "done-means": { type: "string" },
       to: { type: "string" },
@@ -915,12 +985,13 @@ const commands: Record<string, Command> = {
     },
     run(ctx) {
       const v = ctx.values;
+      const stdinUsed = { used: false };
       if (v.private && v.household) {
         throw new CliError("Use either --private or --household", EXIT.usage);
       }
       const body = dropUndefined({
         title: str(v, "title"),
-        brief: str(v, "brief"),
+        brief: textOpt(v, "brief", stdinUsed),
         next_action: str(v, "action"),
         done_means: str(v, "done-means"),
         next_actor: str(v, "to"),
@@ -1254,6 +1325,7 @@ function usage(): string {
     "",
     "Ids may be shortened to any unique prefix. Times accept rough text: sat, tomorrow 9am,",
     "2026-10-03, +3d, yesterday. Actors: me, anyone, a person (sam), agent:<name>.",
+    "--brief-file FILE / --note-file FILE: read multiline Markdown from a file, or '-' for stdin.",
     "--claim ID: an agent changing a task it claimed must pass the id its claim returned.",
     "Config: TUIT_URL and TUIT_TOKEN, else ~/.config/tuit/config.json (tuit login).",
     "Exit codes: 0 ok, 1 error, 2 usage, 3 not found, 4 conflict (re-read and retry).",
