@@ -8,16 +8,16 @@ enum Household {
 }
 
 enum Fmt {
-    private static let iso: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
+    nonisolated static func date(_ s: String) -> Date? {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = iso.date(from: s) { return d }
+        return ISO8601DateFormatter().date(from: s)
+    }
 
-    private static let isoPlain = ISO8601DateFormatter()
-
-    static func date(_ s: String) -> Date? {
-        iso.date(from: s) ?? isoPlain.date(from: s)
+    nonisolated static func shortTime(_ s: String) -> String {
+        guard let d = date(s) else { return s }
+        return d.formatted(.dateTime.weekday(.abbreviated).hour().minute())
     }
 
     static func ago(_ s: String) -> String {

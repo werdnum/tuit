@@ -4,7 +4,7 @@ import Foundation
 // the server does all the interpreting (urgency, labels, recurrence), so these stay dumb.
 
 /// A calendar date in the household zone, or an exact instant. Never interchangeable.
-enum Moment: Codable, Hashable {
+nonisolated enum Moment: Codable, Hashable, Sendable {
     case date(String)
     case at(String)
 
@@ -28,7 +28,7 @@ enum Moment: Codable, Hashable {
     }
 }
 
-enum Actor: Codable, Hashable {
+nonisolated enum Actor: Codable, Hashable, Sendable {
     case user(String)
     case agent(String)
     case anyone
@@ -68,12 +68,12 @@ enum Actor: Codable, Hashable {
     }
 }
 
-struct Recurrence: Codable, Hashable {
+nonisolated struct Recurrence: Codable, Hashable, Sendable {
     var mode: String
     var everyDays: Int
 }
 
-struct Waiting: Codable, Hashable {
+nonisolated struct Waiting: Codable, Hashable, Sendable {
     var kind: String
     var `for`: String
     var taskId: String?
@@ -81,7 +81,7 @@ struct Waiting: Codable, Hashable {
     var followUp: Moment?
 }
 
-struct Attachment: Codable, Hashable, Identifiable {
+nonisolated struct Attachment: Codable, Hashable, Identifiable, Sendable {
     var id: String
     var url: String
     var title: String
@@ -89,12 +89,12 @@ struct Attachment: Codable, Hashable, Identifiable {
     var addedAt: String
 }
 
-struct Author: Codable, Hashable {
+nonisolated struct Author: Codable, Hashable, Sendable {
     var user: String?
     var agent: String?
 }
 
-struct Claim: Codable, Hashable {
+nonisolated struct Claim: Codable, Hashable, Sendable {
     var id: String
     var agent: String
     var user: String?
@@ -102,7 +102,7 @@ struct Claim: Codable, Hashable {
     var sideEffects: Bool
 }
 
-struct TaskItem: Codable, Hashable, Identifiable {
+nonisolated struct TaskItem: Codable, Hashable, Identifiable, Sendable {
     var id: String
     var title: String
     var brief: String
@@ -155,13 +155,13 @@ struct TaskItem: Codable, Hashable, Identifiable {
 }
 
 /// Normalise an area filter string the same way the server does: lowercase, leading "#" optional.
-func normalizeAreaFilter(_ raw: String) -> String {
+nonisolated func normalizeAreaFilter(_ raw: String) -> String {
     var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     if s.hasPrefix("#") { s.removeFirst() }
     return s.lowercased()
 }
 
-func areaDisplayName(_ area: String) -> String {
+nonisolated func areaDisplayName(_ area: String) -> String {
     area == "none" ? "no area" : "#\(area)"
 }
 
@@ -241,7 +241,7 @@ struct TaskView: Codable {
     var activity: [ActivityEntry]?
 }
 
-struct QueueItem: Codable, Hashable, Identifiable {
+nonisolated struct QueueItem: Codable, Hashable, Identifiable, Sendable {
     var task: TaskItem
     var why: String
     var label: String
@@ -253,14 +253,14 @@ struct QueueItem: Codable, Hashable, Identifiable {
     var id: String { task.id }
 }
 
-struct NowView: Codable {
-    struct PlanRow: Codable, Hashable, Identifiable {
+nonisolated struct NowView: Codable, Hashable, Sendable {
+    nonisolated struct PlanRow: Codable, Hashable, Identifiable, Sendable {
         var item: QueueItem
         var done: Bool
         var id: String { item.id }
     }
 
-    struct Away: Codable, Hashable {
+    nonisolated struct Away: Codable, Hashable, Sendable {
         var since: String
         var expired: Int
         var handedToYou: Int

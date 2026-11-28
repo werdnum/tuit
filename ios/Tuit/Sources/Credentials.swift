@@ -1,5 +1,6 @@
-import Foundation
 import CryptoKit
+import Darwin
+import Foundation
 
 /// The identity provider the app signs in with (Keycloak), from Info.plist (Project.swift).
 struct IdentityProvider: Codable {
@@ -35,6 +36,8 @@ final class Credentials {
     private static let providerKey = "tuit_identity_provider"
     private static let staticKey = "tuit_token"
     private static let offlineKey = "tuit_offline_identity"
+    private static let accessTokenKey = "tuit_access_token"
+    private static let accessExpiresKey = "tuit_access_expires"
     let offlineIdentity: String
 
     private enum Kind {
@@ -61,7 +64,9 @@ final class Credentials {
         if let refresh = Keychain.read(refreshKey),
            let json = Keychain.read(providerKey),
            let provider = try? JSONDecoder().decode(IdentityProvider.self, from: Data(json.utf8)) {
-            return Credentials(.provider(provider, refresh: refresh))
+            let c = Credentials(.provider(provider, refresh: refresh))
+            c.access = readCachedAccess()
+            return c
         }
         if let token = Keychain.read(staticKey) { return Credentials(.pasted(token)) }
         return nil
@@ -72,8 +77,10 @@ final class Credentials {
         clear()
         Keychain.write(refreshKey, refresh)
         Keychain.write(providerKey, String(decoding: try! JSONEncoder().encode(provider), as: UTF8.self))
+        let expires = Date.now.addingTimeInterval(TimeInterval(grant.expiresIn))
+        writeCachedAccess(token: grant.accessToken, expires: expires)
         let c = Credentials(.provider(provider, refresh: refresh))
-        c.access = (grant.accessToken, Date.now.addingTimeInterval(TimeInterval(grant.expiresIn)))
+        c.access = (grant.accessToken, expires)
         return c
     }
 
@@ -88,11 +95,25 @@ final class Credentials {
     #endif
 
     static func clear() {
-        for key in [refreshKey, providerKey, staticKey, offlineKey] { Keychain.delete(key) }
+        for key in [refreshKey, providerKey, staticKey, offlineKey, accessTokenKey, accessExpiresKey] {
+            Keychain.delete(key)
+        }
+    }
+
+    private static func readCachedAccess() -> (token: String, expires: Date)? {
+        guard let token = Keychain.read(accessTokenKey),
+              let raw = Keychain.read(accessExpiresKey),
+              let interval = TimeInterval(raw) else { return nil }
+        return (token, Date(timeIntervalSince1970: interval))
+    }
+
+    private static func writeCachedAccess(token: String, expires: Date) {
+        Keychain.write(accessTokenKey, token)
+        Keychain.write(accessExpiresKey, String(expires.timeIntervalSince1970))
     }
 
     /// A token to send now. Renews the access token a little before it lapses; several callers
-    /// share one renewal.
+    /// (and the widget extension) share one renewal via Keychain cache + file lock.
     func accessToken(forceRefresh: Bool = false) async throws -> String {
         switch kind {
         case .pasted(let token):
@@ -101,33 +122,89 @@ final class Credentials {
             if !forceRefresh, let access, access.expires > .now.addingTimeInterval(30) {
                 return access.token
             }
+            if !forceRefresh, let cached = Self.readCachedAccess(), cached.expires > .now.addingTimeInterval(30) {
+                access = cached
+                return cached.token
+            }
             if let refreshing { return try await refreshing.value }
-            let task = Task { try await self.renew(provider, refresh) }
+            let task = Task { try await self.renew(provider, refresh, forceRefresh: forceRefresh) }
             refreshing = task
             defer { refreshing = nil }
             return try await task.value
         }
     }
 
-    private func renew(_ provider: IdentityProvider, _ refresh: String) async throws -> String {
+    private func renew(_ provider: IdentityProvider, _ refresh: String, forceRefresh: Bool) async throws -> String {
+        let lockFD = try await Self.acquireRefreshLock()
+        defer { Self.releaseRefreshLock(lockFD) }
+
+        // Another process (app or widget extension) may have rotated/refreshed while we waited.
+        if !forceRefresh, let cached = Self.readCachedAccess(), cached.expires > .now.addingTimeInterval(30) {
+            access = cached
+            if let latest = Keychain.read(Self.refreshKey) {
+                kind = .provider(provider, refresh: latest)
+            }
+            return cached.token
+        }
+        let currentRefresh = Keychain.read(Self.refreshKey) ?? refresh
         let grant: TokenGrant
         do {
             grant = try await TokenGrant.request(provider.tokenEndpoint, [
                 "grant_type": "refresh_token",
-                "refresh_token": refresh,
+                "refresh_token": currentRefresh,
                 "client_id": IdentityProvider.clientId,
             ])
         } catch APIError.unauthenticated {
             // Revoked, or unused for longer than the provider keeps offline sessions.
-            Self.clear()
+            // Only clear if the stored refresh token hasn't already been replaced.
+            if Keychain.read(Self.refreshKey) == currentRefresh {
+                Self.clear()
+            }
             throw APIError.unauthenticated
         }
-        if let rotated = grant.refreshToken, rotated != refresh {
+        if let rotated = grant.refreshToken, rotated != currentRefresh {
             Keychain.write(Self.refreshKey, rotated)
             kind = .provider(provider, refresh: rotated)
+        } else if currentRefresh != refresh {
+            kind = .provider(provider, refresh: currentRefresh)
         }
-        access = (grant.accessToken, Date.now.addingTimeInterval(TimeInterval(grant.expiresIn)))
+        let expires = Date.now.addingTimeInterval(TimeInterval(grant.expiresIn))
+        Self.writeCachedAccess(token: grant.accessToken, expires: expires)
+        access = (grant.accessToken, expires)
         return grant.accessToken
+    }
+
+    /// Non-blocking cross-process advisory file lock so app and widget never race on refresh rotation.
+    /// Waits past `TokenGrant.post`'s 20s request timeout and fails as a transport error instead of
+    /// ever proceeding unlocked with a potentially stale rotating refresh token.
+    private static func acquireRefreshLock() async throws -> Int32 {
+        let url = TuitGroup.refreshLockURL
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = open(url.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        guard fd >= 0 else {
+            throw APIError.transport("Couldn't coordinate sign-in refresh.")
+        }
+        var acquired = false
+        defer { if !acquired { close(fd) } }
+        let deadline = Date.now.addingTimeInterval(25)
+        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            let err = errno
+            if err != EWOULDBLOCK && err != EINTR {
+                throw APIError.transport("Couldn't coordinate sign-in refresh.")
+            }
+            if Date.now >= deadline {
+                throw APIError.transport("Timed out waiting for another Tuit refresh to finish.")
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        acquired = true
+        return fd
+    }
+
+    private static func releaseRefreshLock(_ fd: Int32) {
+        guard fd >= 0 else { return }
+        flock(fd, LOCK_UN)
+        close(fd)
     }
 
     var canRefresh: Bool {
@@ -138,8 +215,9 @@ final class Credentials {
     /// Ends the provider's session for this app. Best effort: signing out locally always works.
     func revoke() async {
         guard case .provider(let provider, let refresh) = kind, let endpoint = provider.revocationEndpoint else { return }
+        let currentRefresh = Keychain.read(Self.refreshKey) ?? refresh
         _ = try? await TokenGrant.post(endpoint, [
-            "token": refresh,
+            "token": currentRefresh,
             "token_type_hint": "refresh_token",
             "client_id": IdentityProvider.clientId,
         ])

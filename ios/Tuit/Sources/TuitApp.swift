@@ -13,6 +13,9 @@ final class AppNavigation {
         #endif
         return []
     }()
+    var nowArea: String? = nil
+    /// Bumped when a widget deep link asks to focus the quick-capture field on Now.
+    var captureFocusTick = 0
     var tasksPath: [String] = []
     var tasksArea: String? = nil
     /// Explicit state tapped by the user; nil means active when browsing and all when searching.
@@ -20,6 +23,20 @@ final class AppNavigation {
     var tasksQuery = ""
     /// Bumped when jumping to Tasks so TasksScreen resets paging and reloads.
     var tasksBrowseTick = 0
+
+    func openNow(area: String? = nil) {
+        nowArea = area.flatMap { raw -> String? in
+            let normalized = normalizeAreaFilter(raw)
+            return normalized.isEmpty ? nil : normalized
+        }
+        nowPath = []
+        tab = "now"
+    }
+
+    func openCapture(area: String? = nil) {
+        openNow(area: area)
+        captureFocusTick += 1
+    }
 
     func browseTasks(area: String?) {
         tasksArea = area.flatMap { raw -> String? in
@@ -70,15 +87,25 @@ struct RootView: View {
                     .tabItem { Label("Settings", systemImage: "gearshape") }
                     .tag("settings")
             }
-            // tuit://tasks/<id> opens a task; tuit://tasks?area=<area> browses that area.
+            // tuit://tasks/<id> opens a task; tuit://tasks?area=<area> browses that area;
+            // tuit://now[?area=<area>] opens Now; tuit://capture[?area=<area>] focuses capture.
             .onOpenURL { url in
-                guard url.host() == "tasks" else { return }
-                if let id = url.pathComponents.dropFirst().first, !id.isEmpty {
-                    navigation.tab = "now"
-                    navigation.nowPath = [id]
-                } else if let area = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                    .queryItems?.first(where: { $0.name == "area" })?.value, !area.isEmpty {
-                    navigation.browseTasks(area: area)
+                let queryArea = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "area" })?.value
+                switch url.host() {
+                case "tasks":
+                    if let id = url.pathComponents.dropFirst().first, !id.isEmpty {
+                        navigation.tab = "now"
+                        navigation.nowPath = [id]
+                    } else if let area = queryArea, !area.isEmpty {
+                        navigation.browseTasks(area: area)
+                    }
+                case "now":
+                    navigation.openNow(area: queryArea)
+                case "capture":
+                    navigation.openCapture(area: queryArea)
+                default:
+                    break
                 }
             }
             // A tapped notification opens its task.
@@ -90,10 +117,19 @@ struct RootView: View {
             }
             .task {
                 push.api = { [session] in session.api }
+                WatchSync.shared.apiProvider = { [session] in session.api }
+                WatchSync.shared.serverURLProvider = { [session] in session.serverURL }
+                WatchSync.shared.timezoneProvider = { [session] in session.me?.timezone }
+                WatchSync.shared.onRemoteMutation = { [session] in session.bumpChangeTick() }
+                WatchSync.shared.activate()
                 await push.refresh()
             }
             // Live updates only while on screen; returning to the app catches up at once.
             .task(id: phase) {
+                if phase == .background {
+                    WatchSync.scheduleBackgroundRefresh()
+                    return
+                }
                 guard phase == .active else { return }
                 await session.refreshMe()
                 await session.watchChanges()

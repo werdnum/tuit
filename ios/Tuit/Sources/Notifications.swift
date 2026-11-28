@@ -137,6 +137,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        WatchSync.shared.activate()
+        WatchSync.registerBackgroundRefresh()
         return true
     }
 
@@ -153,6 +155,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void
     ) {
+        Task { @MainActor in
+            _ = await WatchSync.shared.refreshAndPublish()
+        }
         completionHandler([.banner, .list, .sound])
     }
 
