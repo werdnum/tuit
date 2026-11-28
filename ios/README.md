@@ -21,10 +21,22 @@ interpret anything itself: urgency, labels, recurrence and visibility all come f
   access to the task, and sharing doesn't change its visibility.
 - **Live updates**: while the app is open it polls `/api/changes` every 15 seconds and
   reloads when the feed moves.
+- **Widgets**: configurable Home Screen (Small, Medium, Large) and Lock Screen (Circular,
+  Rectangular, Inline) widgets for Now, optionally narrowed to a single `#area`. Medium and Large
+  widgets support completing single-part tasks directly and quick-capturing via `+`. Widgets read
+  the shared App Group (`group.dev.andrewgarrett.tuit`) snapshot and refresh `/api/now` directly
+  using the shared Keychain.
+- **Apple Watch & complications**: companion watchOS app (`TuitWatch`) showing Now (Urgent,
+  Today, New, Everything else, and resting state) with tap-to-view and Mark Done via iPhone, plus
+  WidgetKit watch face complications and Smart Stack widget (`Corner`, `Circular`, `Rectangular`,
+  `Inline`). Syncs from the iPhone via WatchConnectivity (`applicationContext` and complication
+  transfers) and iOS Background App Refresh.
 - **Notifications**: Settings → Notify me on this iPhone. What you're told about (rules, quiet
   hours) is set on the web and applies to every device; tapping a notification opens its task.
   Signing out stops this phone's notifications.
-- `tuit://tasks/<id>` opens a task (the scheme is only for links, never for sign-in).
+- Deep links: `tuit://tasks/<id>` opens a task, `tuit://tasks?area=<area>` browses that area,
+  `tuit://now[?area=<area>]` opens Now, and `tuit://capture[?area=<area>]` opens Now and focuses
+  the capture field (the scheme is only for links, never for sign-in).
 
 | Now | Task detail |
 | :---: | :---: |
@@ -132,8 +144,10 @@ pinned in `.mise.toml` and regenerates the project after Xcode Cloud clones the 
 Xcode signed in to team `H7NBC2S52X`:
 
 1. The App Store Connect app record for `dev.andrewgarrett.tuit` exists.
-2. In the Apple Developer portal, the App ID `dev.andrewgarrett.tuit` has **Associated Domains**
-   enabled. Automatic signing usually does this on the first signed build.
+2. In the Apple Developer portal, the App Group `group.dev.andrewgarrett.tuit` exists and is
+   enabled on all four App IDs (`dev.andrewgarrett.tuit`, `dev.andrewgarrett.tuit.widgets`,
+   `dev.andrewgarrett.tuit.watchkitapp`, `dev.andrewgarrett.tuit.watchkitapp.widgets`), and
+   `dev.andrewgarrett.tuit` has **Associated Domains** and **Push Notifications** enabled.
 3. Run `cd ios && tuist generate`, open `Tuit.xcodeproj`, then choose Product → Xcode Cloud →
    Create Workflow for the `Tuit` scheme and grant access to `werdnum/tuit`.
 4. Edit the workflow:
@@ -173,6 +187,5 @@ SIMCTL_CHILD_TUIT_OPEN=<task id> xcrun simctl launch booted dev.andrewgarrett.tu
 
 ## Not yet
 
-- Widgets.
 - Queues and notification rules. They're configured on the web.
 - Full block Markdown. Briefs render inline Markdown, and list items become bullets.

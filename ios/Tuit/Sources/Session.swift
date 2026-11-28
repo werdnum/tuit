@@ -44,7 +44,10 @@ final class Session {
             try? FileManager.default.removeItem(at: OfflineStore.file(for: credentials.offlineIdentity))
         }
         #endif
-        if let credentials { offlineStore = OfflineStore.open(server: serverURL, identity: credentials.offlineIdentity) }
+        if let credentials {
+            TuitGroup.savedServerURL = serverURL
+            offlineStore = OfflineStore.open(server: serverURL, identity: credentials.offlineIdentity)
+        }
         if let data = offlineStore?.cached("/me") { me = try? API.decoder.decode(Me.self, from: data) }
         if let zone = me?.timezone.flatMap(TimeZone.init(identifier:)) { Household.zone = zone }
     }
@@ -192,6 +195,7 @@ final class Session {
 
     private func remember(_ credentials: Credentials) {
         UserDefaults.standard.set(serverURL, forKey: Self.serverKey)
+        TuitGroup.savedServerURL = serverURL
         offlineStore?.clear()
         offlineStore = OfflineStore.open(server: serverURL, identity: credentials.offlineIdentity)
         me = nil
@@ -226,6 +230,16 @@ final class Session {
         credentials = nil
         me = nil
         cursor = nil
+        TuitGroup.savedServerURL = nil
+        WatchSync.shared.publishSignedOut()
+    }
+
+    func publishNow(_ now: NowView) {
+        WatchSync.shared.publish(now: now, serverURL: serverURL, timezone: me?.timezone)
+    }
+
+    func bumpChangeTick() {
+        changeTick += 1
     }
 
     /// Screens route errors here so a revoked token lands on the sign-in screen.
@@ -285,6 +299,9 @@ final class Session {
     private func prepareOffline() async {
         guard let api else { return }
         do {
+            if let now: NowView = try? await api.get("/now") {
+                publishNow(now)
+            }
             let list: TaskList = try await api.get("/tasks")
             guard offlineStore?.offline == false else { return }
             for task in list.tasks {

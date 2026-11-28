@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import WidgetKit
 
 /// "Add to Tuit" for Siri, Shortcuts, the Action button and Spotlight. Same capture as the
 /// app: a title, with #area at either end filing it.
@@ -17,8 +18,10 @@ struct CaptureIntent: AppIntent {
         }
         do {
             let view: TaskView = try await api.post("/tasks", CaptureBody(title: what))
+            _ = await WatchSync.shared.refreshAndPublish()
             return .result(dialog: "Added “\(view.task.title)”.")
         } catch APIError.queued {
+            WidgetCenter.shared.reloadAllTimelines()
             return .result(dialog: "Saved “\(what)” on this phone. It will sync when Tuit reconnects.")
         }
     }

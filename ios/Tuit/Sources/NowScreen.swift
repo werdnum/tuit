@@ -31,7 +31,17 @@ struct NowScreen: View {
         .safeAreaInset(edge: .top) { OfflineBanner() }
         .refreshable { await load() }
         .errorBanner($error)
-        .task { await load() }
+        .task {
+            if let linkedArea = navigation.nowArea, area != linkedArea {
+                area = linkedArea
+            }
+            await load()
+        }
+        .onChange(of: navigation.nowArea) { _, linkedArea in
+            if area != linkedArea {
+                area = linkedArea
+            }
+        }
         .onChange(of: session.changeTick) { Task { await load() } }
         .onChange(of: area) { previous, selected in
             if session.offlineStore?.offline == true,
@@ -39,6 +49,9 @@ struct NowScreen: View {
                 error = "This area's Now view hasn't been saved yet. Use Tasks to browse saved tasks offline."
                 area = previous
                 return
+            }
+            if navigation.nowArea != selected {
+                navigation.nowArea = selected
             }
             limit = Self.pageSize
             Task { await load() }
@@ -248,7 +261,9 @@ struct NowScreen: View {
         do {
             var query = firstPage
             if expanded { query["limit"] = String(limit) }
-            now = try await api.get("/now", query: query)
+            let loaded: NowView = try await api.get("/now", query: query)
+            now = loaded
+            session.publishNow(loaded)
             error = nil
         } catch {
             self.error = session.handle(error)
@@ -362,6 +377,7 @@ struct AreaChips: View {
 /// narrowed to an area, captures go there unless they name another.
 struct CaptureField: View {
     @Environment(Session.self) private var session
+    @Environment(AppNavigation.self) private var navigation
     var area: String?
     var onAdded: () async -> Void
     @State private var text = ""
@@ -391,6 +407,9 @@ struct CaptureField: View {
             if let error {
                 Text(error).font(.caption).foregroundStyle(.red)
             }
+        }
+        .onChange(of: navigation.captureFocusTick) { _, tick in
+            if tick > 0 { focused = true }
         }
     }
 
