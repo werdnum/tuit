@@ -176,3 +176,70 @@ let taskJSON = #"""
     #expect(nav.tasksPath.isEmpty)
     #expect(nav.tasksBrowseTick == beforeTick + 1)
 }
+
+@Test func markdownParserHandlesBlocksListsCodeTablesAndDetails() {
+    let md = """
+    **Status:** Backup failing.
+
+    ## Options
+    - [x] Verify data is intact
+    - [ ] Silence `KubeJobFailed` for `daily-backup`
+      - Nested detail
+    1. First step
+    2. Second step
+
+    > Lock contention on `locks/*.lck`
+
+    ```
+    backupstore/volumes/.../locks/*.lck
+    longhorn_backup_*
+    ```
+
+    | Option | Risk |
+    | --- | --- |
+    | Alert on age | Low |
+
+    ---
+
+    <details>
+    <summary>Raw errors</summary>
+
+    - Timeout waiting for backup
+
+    </details>
+    """
+
+    let blocks = MarkdownParser.parse(md)
+    #expect(blocks == [
+        .paragraph("**Status:** Backup failing."),
+        .heading(level: 2, text: "Options"),
+        .list([
+            MarkdownListItem(indent: 0, marker: .task(done: true), text: "Verify data is intact"),
+            MarkdownListItem(indent: 0, marker: .task(done: false), text: "Silence `KubeJobFailed` for `daily-backup`"),
+            MarkdownListItem(indent: 1, marker: .bullet, text: "Nested detail"),
+            MarkdownListItem(indent: 0, marker: .ordered("1."), text: "First step"),
+            MarkdownListItem(indent: 0, marker: .ordered("2."), text: "Second step"),
+        ]),
+        .blockquote("Lock contention on `locks/*.lck`"),
+        .codeBlock("backupstore/volumes/.../locks/*.lck\nlonghorn_backup_*"),
+        .table(headers: ["Option", "Risk"], rows: [["Alert on age", "Low"]]),
+        .divider,
+        .details(summary: "Raw errors", body: [
+            .list([MarkdownListItem(indent: 0, marker: .bullet, text: "Timeout waiting for backup")]),
+        ]),
+    ])
+}
+
+@Test func markdownTablePreservesEscapedAndCodeSpanPipes() {
+    let md = #"""
+    | Command | Result |
+    | --- | --- |
+    | `echo a | b` | ok \| fine |
+    """#
+    #expect(MarkdownParser.parse(md) == [
+        .table(
+            headers: ["Command", "Result"],
+            rows: [["`echo a | b`", "ok | fine"]]
+        ),
+    ])
+}

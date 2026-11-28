@@ -261,7 +261,7 @@ const COLLAPSE_HOW =
   "<details><summary>Label</summary>, then a blank line, the Markdown, a blank line, </details> (without the blank lines the inside shows as plain text)";
 
 /** Advertised to agents through the MCP schemas, so the web view they write for stays readable. */
-export const BRIEF_DESCRIPTION = `Short current situation, rendered as Markdown (GitHub-flavoured; no images). Keep it to a few lines a person can take in at a glance on a phone: where things stand, constraints, key links. Put long detail (research, dossiers, pasted email) in a note, or collapse it at the end of the brief with ${COLLAPSE_HOW}.`;
+export const BRIEF_DESCRIPTION = `Short current situation, rendered as Markdown (GitHub-flavoured; no images). Keep it scannable on a phone: lead with a 1-2 line status summary, separate paragraphs with blank lines, use bullet lists for findings or options instead of one dense paragraph, and wrap paths/globs/metric names/commands in backticks so * and _ don't trigger italics. Put long detail (research, dossiers, pasted email) in a note, or collapse it at the end of the brief with ${COLLAPSE_HOW}.`;
 /**
  * The id from your own claim. An agent changing a task that is claimed must pass the claim's id,
  * so a second conversation running as the same agent can't move on work another one holds.
@@ -274,7 +274,7 @@ export const ClaimIdInput = z
     "The claim id your own claim_next returned, when you hold the task's claim. Without it (or with another claim's id) an agent's change still goes through, but is recorded as made over that claim and comes back with a warning; a note alone needs none. Releasing a claim you don't hold is refused.",
   );
 
-export const NOTE_DESCRIPTION = `Rendered as Markdown (GitHub-flavoured; no images). Lead with the finding in a line or two; collapse long supporting material with ${COLLAPSE_HOW}.`;
+export const NOTE_DESCRIPTION = `Rendered as Markdown (GitHub-flavoured; no images). Lead with the finding in a line or two, use short bullets for multi-point updates, and wrap paths/globs/identifiers in backticks; collapse long supporting material with ${COLLAPSE_HOW}.`;
 
 const AREA_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 

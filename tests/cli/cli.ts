@@ -15,26 +15,50 @@ export type Tuit = (...args: string[]) => Promise<Run>;
 /** Runs bin/tuit as a real subprocess, with its own empty config dir so ~/.config is never read. */
 export function tuitAs(server: TestServer, token: string | null, extraEnv = {}): Tuit {
   const configHome = mkdtempSync(join(tmpdir(), "tuit-cli-"));
-  return (...args) =>
-    new Promise((resolve) => {
-      execFile(
-        join(ROOT, "bin", "tuit"),
-        args,
-        {
-          cwd: ROOT,
-          env: {
-            PATH: process.env.PATH,
-            XDG_CONFIG_HOME: configHome,
-            ...(token ? { TUIT_URL: server.url, TUIT_TOKEN: token } : {}),
-            ...extraEnv,
-          },
+  return (...args) => runTuit(server, token, configHome, extraEnv, args);
+}
+
+/** Runs bin/tuit with the given string piped to stdin. */
+export function tuitWithStdin(
+  server: TestServer,
+  token: string | null,
+  stdin: string,
+  extraEnv = {},
+): Tuit {
+  const configHome = mkdtempSync(join(tmpdir(), "tuit-cli-"));
+  return (...args) => runTuit(server, token, configHome, extraEnv, args, stdin);
+}
+
+function runTuit(
+  server: TestServer,
+  token: string | null,
+  configHome: string,
+  extraEnv: Record<string, string>,
+  args: string[],
+  stdin?: string,
+): Promise<Run> {
+  return new Promise((resolve) => {
+    const child = execFile(
+      join(ROOT, "bin", "tuit"),
+      args,
+      {
+        cwd: ROOT,
+        env: {
+          PATH: process.env.PATH,
+          XDG_CONFIG_HOME: configHome,
+          ...(token ? { TUIT_URL: server.url, TUIT_TOKEN: token } : {}),
+          ...extraEnv,
         },
-        (err, stdout, stderr) => {
-          const code = err ? (typeof err.code === "number" ? err.code : 1) : 0;
-          resolve({ code, stdout, stderr });
-        },
-      );
-    });
+      },
+      (err, stdout, stderr) => {
+        const code = err ? (typeof err.code === "number" ? err.code : 1) : 0;
+        resolve({ code, stdout, stderr });
+      },
+    );
+    if (stdin !== undefined) {
+      child.stdin?.end(stdin);
+    }
+  });
 }
 
 /** Like tuitAs, but fails the test on a non-zero exit and returns stdout. */

@@ -188,14 +188,16 @@ a.badge.area { color: var(--accent); }
 .next { font-size: 17px; }
 .status { color: var(--muted); font-size: 15px; }
 .status.urgent { color: var(--urgent); font-weight: 600; }
-.md { overflow-wrap: anywhere; }
+.md { overflow-wrap: anywhere; line-height: 1.5; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
-.md p, .md ul, .md ol, .md blockquote, .md table, .md details { margin: 6px 0; }
+.md p, .md ul, .md ol, .md blockquote, .md table, .md details, .md pre { margin: 10px 0; }
 .md ul, .md ol { padding-left: 22px; }
-.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { font-size: 16px; margin: 12px 0 4px; }
-.md blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
-.md :not(pre) > code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+.md li + li { margin-top: 4px; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { font-size: 16px; font-weight: 600; line-height: 1.3; margin: 14px 0 6px; text-transform: none; letter-spacing: normal; color: var(--text); }
+.md hr { border: 0; border-top: 0.5px solid var(--line); margin: 12px 0; }
+.md blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); }
+.md :not(pre) > code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 0.88em; }
 .md table { border-collapse: collapse; font-size: 14px; display: block; overflow-x: auto; }
 .md th, .md td { border: 0.5px solid var(--line); padding: 4px 8px; text-align: left; }
 .md details { border: 0.5px solid var(--line); border-radius: 10px; padding: 0 10px; }

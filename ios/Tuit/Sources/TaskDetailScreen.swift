@@ -137,7 +137,7 @@ struct TaskDetailScreen: View {
 
             if !t.brief.isEmpty {
                 Section("Brief") {
-                    Text(Fmt.markdown(t.brief)).textSelection(.enabled)
+                    MarkdownView(t.brief)
                 }
             }
 
@@ -347,7 +347,7 @@ struct ActivityRow: View {
                 Text(Fmt.ago(entry.happenedAt)).font(.caption).foregroundStyle(.secondary)
             }
             if !entry.body.isEmpty {
-                Text(Fmt.markdown(entry.body)).font(.callout).textSelection(.enabled)
+                MarkdownView(entry.body).font(.callout)
             }
         }
         .padding(.vertical, 2)

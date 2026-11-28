@@ -1,6 +1,9 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { Api, TestServer } from "../harness/server.ts";
-import { ok, type Tuit, tuitAs } from "./cli.ts";
+import { ok, type Tuit, tuitAs, tuitWithStdin } from "./cli.ts";
 
 let server: TestServer;
 let alexToken: string;
@@ -268,4 +271,109 @@ test("merge folds a duplicate into the target and shows merge links", async () =
   const dupShown = await run("show", dup);
   expect(dupShown).toContain("merged");
   expect(dupShown).toContain(canonical);
+});
+
+test("--brief-file and --note-file read multiline Markdown from files and stdin", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "tuit-brief-"));
+  const briefPath = join(dir, "brief.md");
+  const notePath = join(dir, "note.md");
+  writeFileSync(
+    briefPath,
+    "**Status:** Backup failing.\n\n- Error in `locks/*.lck`\n- Metric: `longhorn_backup_*`\n",
+  );
+  writeFileSync(notePath, "## Findings\n\n- Checked logs\n- Confirmed data is OK\n");
+
+  const created = JSON.parse(
+    await run("add", "Fix backup contention", "--brief-file", briefPath, "--json"),
+  );
+  const id = created.task.id as string;
+  expect(created.task.brief).toBe(
+    "**Status:** Backup failing.\n\n- Error in `locks/*.lck`\n- Metric: `longhorn_backup_*`",
+  );
+
+  // Update brief via stdin (heredoc pattern) while passing inline note.
+  const stdinBrief = "**Status:** Updated via stdin.\n\n- Option A\n- Option B\n";
+  const noted = JSON.parse(
+    await ok(tuitWithStdin(server, alexToken, stdinBrief))(
+      "note",
+      id,
+      "Investigated options",
+      "--next",
+      "me",
+      "--brief-file",
+      "-",
+      "--json",
+    ),
+  );
+  expect(noted.task.brief).toBe("**Status:** Updated via stdin.\n\n- Option A\n- Option B");
+
+  // Positional "-" reads note text from stdin, and --note-file reads from a file.
+  await ok(tuitWithStdin(server, alexToken, "Line 1\n\n- Bullet from stdin\n"))(
+    "note",
+    id,
+    "-",
+    "--next",
+    "me",
+  );
+  await run("handoff", id, "me", "--note-file", notePath);
+
+  const shown = JSON.parse(await run("show", id, "--json"));
+  const bodies = shown.activity.map((a: { body: string }) => a.body);
+  expect(bodies).toContain("Line 1\n\n- Bullet from stdin");
+  expect(bodies).toContain("## Findings\n\n- Checked logs\n- Confirmed data is OK");
+
+  // edit and wait accept --brief-file too.
+  const edited = JSON.parse(
+    await ok(tuitWithStdin(server, alexToken, "**Status:** Edited via stdin.\n"))(
+      "edit",
+      id,
+      "--brief-file",
+      "-",
+      "--json",
+    ),
+  );
+  expect(edited.task.brief).toBe("**Status:** Edited via stdin.");
+
+  const waiting = JSON.parse(
+    await ok(tuitWithStdin(server, alexToken, "**Waiting:** Upstream v1.13.1 release.\n"))(
+      "wait",
+      id,
+      "--until",
+      "tomorrow",
+      "--next",
+      "me",
+      "--brief-file",
+      "-",
+      "--json",
+    ),
+  );
+  expect(waiting.task.brief).toBe("**Waiting:** Upstream v1.13.1 release.");
+});
+
+test("conflicting inline and file flags or double stdin usage fail with usage exit code", async () => {
+  const id = await addId("Test flag conflicts");
+
+  const bothBrief = await tuit("edit", id, "--brief", "inline", "--brief-file", "-");
+  expect(bothBrief.code).toBe(2);
+  expect(bothBrief.stderr).toMatch(/either --brief or --brief-file/);
+
+  const bothNote = await tuit("note", id, "inline", "--note-file", "-", "--next", "me");
+  expect(bothNote.code).toBe(2);
+  expect(bothNote.stderr).toMatch(/either note text or --note-file/);
+
+  const doubleStdin = await tuitWithStdin(server, alexToken, "text")(
+    "handoff",
+    id,
+    "me",
+    "--note-file",
+    "-",
+    "--brief-file",
+    "-",
+  );
+  expect(doubleStdin.code).toBe(2);
+  expect(doubleStdin.stderr).toMatch(/Only one option can read from stdin/);
+
+  const missingFile = await tuit("edit", id, "--brief-file", "/nonexistent/tuit-brief.md");
+  expect(missingFile.code).toBe(2);
+  expect(missingFile.stderr).toMatch(/Can't read --brief-file/);
 });

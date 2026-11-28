@@ -52,8 +52,13 @@ Revoking a token in Settings takes effect immediately.
   guaranteed to read. A handoff that relies on your own session memory has failed. It is read on a
   phone, so a few lines of current state, not a dossier.
 - **Briefs and notes are Markdown.** GitHub-flavoured (lists, checklists, tables, links; no
-  images), sanitized before display. A task's id written in a brief or note (`agntc9s5`) links
-  to that task for anyone who may see it. Put long supporting material in a note, or collapse it:
+  images), sanitized before display and mostly read on a phone. For anything longer than a
+  sentence or two, lead with a short status line, separate sections with blank lines, use bullet
+  lists for findings or options (not one dense paragraph), and wrap paths, globs, metric names and
+  commands in inline backticks so `*` and `_` don't turn prose italic. In the CLI, pass
+  `--brief-file - <<'EOF'` (or `--note-file - <<'EOF'`) to write multiline Markdown without shell
+  quoting issues. A task's id written in a brief or note (`agntc9s5`) links to that task for anyone
+  who may see it. Put long supporting material in a note, or collapse it:
 
   ```markdown
   <details>
